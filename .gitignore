@@ -1,0 +1,51 @@
+# ====== Dependencies ======
+node_modules/
+backend/venv/
+frontend/node_modules/
+
+# ====== Build outputs ======
+frontend/dist/
+backend/database.sqlite
+
+# ====== Python ======
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+ENV/
+
+# ====== Environment variables ======
+.env
+.env.local
+.env.*.local
+
+# ====== Logs ======
+*.log
+logs/
+
+# ====== IDE ======
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ====== OS files ======
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ====== Testing ======
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# ====== Misc ======
+*.tmp
+*.bak
+*.cache
