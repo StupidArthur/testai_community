@@ -79,24 +79,55 @@ function compileToRaw(form: typeof EMPTY_9D): string {
   }).join('\n\n')
 }
 
-function parseToFormData(raw: string): typeof EMPTY_9D {
+function parseToFormData(raw: string): { form: typeof EMPTY_9D; warnings: string[] } {
   const result = { ...EMPTY_9D }
-  if (!raw || typeof raw !== 'string') return result
+  const warnings: string[] = []
+  if (!raw || typeof raw !== 'string') return { form: result, warnings }
+
+  // 构建 label → key 映射，支持英文名、中文名、常见别名
   const labelToKey: Record<string, NineDimsKey> = {}
   for (const d of NINE_DIMS) {
-    const base = d.label.split('（')[0].trim()
-    labelToKey[base] = d.key as NineDimsKey
+    const parts = d.label.split('（')
+    const en = parts[0].trim()
+    const zh = parts[1]?.replace('）', '').trim() || ''
+    labelToKey[en.toLowerCase()] = d.key as NineDimsKey
+    if (zh) labelToKey[zh] = d.key as NineDimsKey
   }
-  const re = /^### (.+?)\s*\n+([\s\S]*?)(?=^### |\Z)/gm
+  // 常见别名
+  const aliases: Record<string, NineDimsKey> = {
+    '角色': 'role', '身份': 'role',
+    '配置': 'profile', '档案': 'profile',
+    '背景': 'background', '背景说明': 'background',
+    '目标': 'goals', '核心目标': 'goals',
+    '约束': 'constraints', '规则': 'constraints', '约束与规则': 'constraints',
+    '技能': 'core_skills', '核心技能': 'core_skills',
+    '工作流': 'workflows', '流程': 'workflows',
+    '输出': 'output_format', '输出格式': 'output_format',
+    '初始化': 'initialization', '启动语': 'initialization',
+  }
+  for (const [alias, key] of Object.entries(aliases)) {
+    labelToKey[alias] = key
+  }
+
+  // 支持 # ## ### 三种标题级别
+  const re = /^#{1,3} (.+?)\s*\n+([\s\S]*?)(?=^#{1,3} |\Z)/gm
   let m
   while ((m = re.exec(raw)) !== null) {
     const label = m[1].trim()
     const content = m[2].replace(/\s+$/, '').trim()
+    if (!content) continue
+
+    // 尝试匹配：先取括号前的英文名，再取中文名，再用完整标题
     const base = label.split('（')[0].trim()
-    const key = labelToKey[base]
-    if (key) result[key] = content
+    const key = labelToKey[base.toLowerCase()] || labelToKey[base] || labelToKey[label]
+    if (key) {
+      result[key] = content
+    } else {
+      const preview = content.length > 40 ? content.slice(0, 40) + '...' : content
+      warnings.push(`「${label}」未匹配到已知维度，内容: ${preview}`)
+    }
   }
-  return result
+  return { form: result, warnings }
 }
 
 function versionToForm(v: SkillVersion): typeof EMPTY_9D {
@@ -142,7 +173,7 @@ export default function BranchSandbox() {
     enabled: !!skillId && !!branchId,
   })
 
-  const [selectedVersionId, setSelectedVersionId] = useState<number | null>(null)
+  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null)
   const selectedVersion = useMemo(
     () => versions.find((v) => v.id === selectedVersionId) || null,
     [versions, selectedVersionId]
@@ -198,8 +229,11 @@ export default function BranchSandbox() {
     if (next === 'raw') {
       setRawText(compileToRaw(form))
     } else {
-      const parsed = parseToFormData(rawText)
+      const { form: parsed, warnings } = parseToFormData(rawText)
       setForm(parsed)
+      if (warnings.length > 0) {
+        message.warning(`以下章节未被识别，请检查标题名称:\n${warnings.join('\n')}`, 6)
+      }
     }
     setEditMode(next)
   }
@@ -273,8 +307,12 @@ export default function BranchSandbox() {
     if (!isLatestVersion) return
     let draft = form
     if (editMode === 'raw') {
-      draft = parseToFormData(rawText)
-      setForm(draft)
+      const { form: parsed, warnings } = parseToFormData(rawText)
+      draft = parsed
+      setForm(parsed)
+      if (warnings.length > 0) {
+        message.warning(`以下章节未被识别，请检查标题名称:\n${warnings.join('\n')}`, 6)
+      }
     }
     if (!draft.role.trim()) {
       message.warning('Role（角色）必填')
@@ -290,7 +328,13 @@ export default function BranchSandbox() {
 
   const doFinalSave = (skipReview = false) => {
     let draft = form
-    if (editMode === 'raw') draft = parseToFormData(rawText)
+    if (editMode === 'raw') {
+      const { form: parsed, warnings } = parseToFormData(rawText)
+      draft = parsed
+      if (warnings.length > 0) {
+        message.warning(`以下章节未被识别，请检查标题名称:\n${warnings.join('\n')}`, 6)
+      }
+    }
     if (!draft.role.trim()) {
       message.warning('Role（角色）必填')
       return
