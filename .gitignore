@@ -1,11 +1,11 @@
 # ====== Dependencies ======
 node_modules/
-backend/venv/
 frontend/node_modules/
+backend/venv/
+backend/.venv/
 
 # ====== Build outputs ======
 frontend/dist/
-backend/database.sqlite
 
 # ====== Python ======
 __pycache__/
@@ -17,6 +17,13 @@ __pycache__/
 venv/
 env/
 ENV/
+*.egg-info/
+dist/
+build/
+
+# ====== Database ======
+*.sqlite
+*.db
 
 # ====== Environment variables ======
 .env
@@ -45,7 +52,13 @@ htmlcov/
 .pytest_cache/
 .tox/
 
+# ====== Translation / Upload files ======
+backend/app/uploads/
+backend/app/results/
+
 # ====== Misc ======
 *.tmp
 *.bak
 *.cache
+*.tmp
+*.temp

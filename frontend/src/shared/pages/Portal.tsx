@@ -10,13 +10,13 @@ export default function Portal() {
   return (
     <div
       style={{
-        minHeight: '100vh',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
         background: 'var(--color-bg-secondary)',
         padding: 40,
+        minHeight: 'calc(100vh - 64px - 48px)',
       }}
     >
       <div style={{ textAlign: 'center', marginBottom: 48 }}>

@@ -64,15 +64,21 @@ export default function AppLayout() {
   const isActive = (path: string) => location.pathname.startsWith(path)
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout style={{ height: '100%', overflow: 'hidden' }}>
       <Header
         style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 1000,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           background: 'var(--color-bg)',
           borderBottom: '1px solid var(--color-border)',
           padding: '0 24px',
+          height: 64,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -124,7 +130,7 @@ export default function AppLayout() {
           </AntButton>
         </div>
       </Header>
-      <Content style={{ background: 'var(--color-bg-secondary)', padding: '24px' }}>
+      <Content style={{ background: 'var(--color-bg-secondary)', padding: '24px', marginTop: 64, height: 'calc(100% - 64px)', overflowY: 'auto' }}>
         <Outlet />
       </Content>
     </Layout>
