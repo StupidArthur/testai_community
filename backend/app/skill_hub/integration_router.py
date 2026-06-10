@@ -24,7 +24,7 @@ def get_integration_skill(
     if not skill:
         raise HTTPException(status_code=404, detail="Skill不存在或未发布")
 
-    latest_version = skill.versions[-1] if skill.versions else None
+    latest_version = skill.versions[0] if skill.versions else None
     payload = ""
     icio = {}
     if latest_version:
@@ -104,7 +104,7 @@ def _to_icio(langgpt_payload: str) -> dict:
         "## Constraints": "instruction",
         "## Core Skills": "instruction",
         "## Workflows": "instruction",
-        "## Output Format": "instruction",
+        "## Output Format": "output",
         "## Initialization": "output",
     }
     for line in langgpt_payload.split("\n"):

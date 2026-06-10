@@ -1,11 +1,11 @@
 import axios, { AxiosError } from 'axios'
+import type { User, Skill, Branch, SkillVersion, EvaluateDraftResponse, ForkResponse } from '../types/models'
 
 export const apiClient = axios.create({
   baseURL: '/api',
   timeout: 30000,
 })
 
-// 请求拦截：注入 Token
 apiClient.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')
   if (token) {
@@ -14,34 +14,34 @@ apiClient.interceptors.request.use((config) => {
   return config
 })
 
-// 响应拦截：401 → 跳转登录
+let onUnauthorizedCallback: (() => void) | null = null
+
+export function setOnUnauthorized(cb: () => void) {
+  onUnauthorizedCallback = cb
+}
+
+export function triggerUnauthorized() {
+  localStorage.removeItem('token')
+  localStorage.removeItem('user')
+  if (onUnauthorizedCallback) {
+    onUnauthorizedCallback()
+  } else {
+    window.location.href = '/login'
+  }
+}
+
 apiClient.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
-      window.location.href = '/login'
+      triggerUnauthorized()
     }
     return Promise.reject(error)
   }
 )
 
-// ============ Types (local to avoid @ alias issues) ============
-export interface User { id: number; username: string; role: 'Admin' | 'Engineer' }
-export interface Skill { id: string; name: string; display_name: string; definition: string; created_at: string }
-export interface Branch { id: number; skill_id: string; user_id: number; username: string; branch_type: 'master' | 'standard' | 'personal'; created_at: string }
-export interface SkillVersion {
-  id: string; skill_id: string; branch_id: number; version_num: number;
-  role: string; profile: string; background: string; goals: string;
-  constraints: string; core_skills: string; workflows: string;
-  output_format: string; initialization: string;
-  commit_message: string; ai_commit_summary?: string; created_at: string;
-}
-export interface EvaluateDraftResponse { diff_summary?: string; evaluation?: string; suggestions?: string }
-export interface ForkResponse { branch: Branch }
+export type { User, Skill, Branch, SkillVersion, EvaluateDraftResponse, ForkResponse }
 
-// ============ Auth ============
 export const authApi = {
   login: (data: { username: string; password: string }) =>
     apiClient.post<{ access_token: string; user: User }>('/auth/login', data),
@@ -49,14 +49,14 @@ export const authApi = {
     apiClient.post('/auth/register', data),
 }
 
-// ============ Users ============
 export const usersApi = {
   list: () => apiClient.get<User[]>('/users'),
   resetPassword: (userId: number, data: { new_password: string }) =>
     apiClient.post(`/users/${userId}/reset-password`, data),
+  changeOwnPassword: (data: { old_password: string; new_password: string }) =>
+    apiClient.post('/users/me/password', data),
 }
 
-// ============ Skills ============
 export const skillsApi = {
   list: () => apiClient.get<Skill[]>('/skills'),
   get: (skillId: string) => apiClient.get<Skill>(`/skills/${skillId}`),

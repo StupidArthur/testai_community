@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Callable
 
@@ -279,9 +280,6 @@ def _normalize_timestamp(value: int | None, fallback: int | None) -> int | None:
 
 def _to_single_line(value) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()
-
-
-import re
 
 
 def _write_json(path: Path, data) -> None:

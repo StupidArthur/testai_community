@@ -84,3 +84,47 @@ class SkillVersionOut(BaseModel):
 class MergeRequest(BaseModel):
     source_version_id: str
     commit_message: str = "Merge to master"
+
+
+# ============================================================
+# BranchWithUser (join 查询结果)
+# ============================================================
+class BranchWithUser(BaseModel):
+    id: int
+    skill_id: str
+    user_id: int
+    username: str
+    branch_type: str
+    created_at: datetime | None
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================================
+# Fork
+# ============================================================
+class ForkResponse(BaseModel):
+    branch: BranchWithUser
+    version: SkillVersionOut
+
+
+# ============================================================
+# Evaluate Draft
+# ============================================================
+class EvaluateRequest(BaseModel):
+    role: str = ""
+    profile: str = ""
+    background: str = ""
+    goals: str = ""
+    constraints: str = ""
+    core_skills: str = ""
+    workflows: str = ""
+    output_format: str = ""
+    initialization: str = ""
+
+
+class EvaluateResponse(BaseModel):
+    diff_summary: str = ""
+    evaluation: str = ""
+    suggestions: str = ""

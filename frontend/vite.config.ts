@@ -4,6 +4,7 @@ import { resolve } from 'path'
 
 export default defineConfig({
   plugins: [react()],
+  base: '/',
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
@@ -13,17 +14,11 @@ export default defineConfig({
     host: true,
     port: 3003,
     proxy: {
-      // 统一入口：combined 后端（:48010）
-      // combined 后端内部代理到各自独立进程
       '/api': {
         target: 'http://127.0.0.1:48010',
         changeOrigin: true,
       },
-      '/skills': {
-        target: 'http://127.0.0.1:48010',
-        changeOrigin: true,
-      },
-      '/translate': {
+      '/translate/api': {
         target: 'http://127.0.0.1:48010',
         changeOrigin: true,
       },

@@ -18,7 +18,11 @@ export default function JobDetailPage() {
     queryKey: ['job', jobId],
     queryFn: () => getJob(jobId!),
     enabled: !!jobId,
-    refetchInterval: 3000,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      if (status === 'queued' || status === 'running') return false
+      return 3000
+    },
   })
 
   useTranslateStream(jobId)

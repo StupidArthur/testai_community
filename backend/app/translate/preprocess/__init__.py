@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 
 from ..config import RECORD_SUBDIR
-from ..models import EnrichedAction, RawAction, RecordingMeta
+from ..models import EnrichedAction, ElementInfo, RawAction, RecordingMeta
 from .classify import classify_action
 from .diff import compute_all_diffs
 from .form_state import compute_form_state_changes, format_form_state_changes
@@ -179,10 +179,7 @@ def preprocess(
             enriched_actions.append(EnrichedAction(
                 index=i,
                 type="unknown",
-                element=RawAction(
-                    index=i, type="unknown", timestamp=0, url="", pageTitle="",
-                    element={"tag": "unknown", "xpath": "unknown"},
-                ).element,
+                element=ElementInfo(tag="unknown", xpath="unknown"),
                 url="",
                 page_title="未知",
                 timestamp=0,

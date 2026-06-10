@@ -77,7 +77,7 @@ AGENTS_TXT = f"{PHASE4_SUBDIR}/agents.txt"
 
 # ==================== 路径工具 ====================
 
-DEFAULT_MODEL = "Qwen/Qwen3-VL-235B-A22B-Instruct"
+DEFAULT_MODEL = "MiniMax-M2.7-highspeed"
 
 
 def get_app_dir() -> Path:

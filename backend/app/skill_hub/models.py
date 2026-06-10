@@ -35,7 +35,7 @@ class Skill(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     branches = relationship("Branch", back_populates="skill", cascade="all, delete-orphan")
-    versions = relationship("SkillVersion", back_populates="skill", cascade="all, delete-orphan")
+    versions = relationship("SkillVersion", back_populates="skill", cascade="all, delete-orphan", order_by="SkillVersion.version_num.desc()")
 
 
 # ============================================================
@@ -58,7 +58,7 @@ class Branch(Base):
 
     skill = relationship("Skill", back_populates="branches")
     user = relationship("User")
-    versions = relationship("SkillVersion", back_populates="branch", cascade="all, delete-orphan")
+    versions = relationship("SkillVersion", back_populates="branch", cascade="all, delete-orphan", order_by="SkillVersion.version_num.desc()")
 
 
 # ============================================================

@@ -11,7 +11,6 @@ if __name__ == "__main__":
         "app.main_merged:app",
         host="0.0.0.0",
         port=48010,
-        workers=4,                 # 生产环境用多 worker
         log_level="info",
         access_log=True,
     )

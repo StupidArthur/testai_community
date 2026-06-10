@@ -8,17 +8,45 @@ import AppLayout from './shared/components/AppLayout'
 import Portal from './shared/pages/Portal'
 import TranslateHomePage from './translate/pages/HomePage'
 import TranslateJobDetailPage from './translate/pages/JobDetailPage'
+import ChangelogPage from './changelog/ChangelogPage'
+
+function decodeJWTPayload(token: string): Record<string, unknown> | null {
+  try {
+    const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+    return JSON.parse(atob(base64))
+  } catch {
+    return null
+  }
+}
+
+function hasValidToken(): boolean {
+  const token = localStorage.getItem('token')
+  if (!token) return false
+  const payload = decodeJWTPayload(token)
+  if (!payload || !payload.exp) return false
+  return (payload.exp as number) * 1000 > Date.now()
+}
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const token = localStorage.getItem('token')
-  if (!token) return <Navigate to="/login" replace />
+  if (!hasValidToken()) {
+    localStorage.removeItem('token')
+    localStorage.removeItem('user')
+    return <Navigate to="/login" replace />
+  }
+  return <>{children}</>
+}
+
+function GuestRoute({ children }: { children: React.ReactNode }) {
+  if (hasValidToken()) {
+    return <Navigate to="/" replace />
+  }
   return <>{children}</>
 }
 
 export const router = createBrowserRouter([
   {
     path: '/login',
-    element: <Login />,
+    element: <GuestRoute><Login /></GuestRoute>,
   },
   {
     path: '/',
@@ -55,6 +83,10 @@ export const router = createBrowserRouter([
       {
         path: 'translate/jobs/:jobId',
         element: <TranslateJobDetailPage />,
+      },
+      {
+        path: 'changelog',
+        element: <ChangelogPage />,
       },
     ],
   },

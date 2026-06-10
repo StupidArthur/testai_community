@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Tabs, Spin, Typography } from 'antd'
+import { Tabs, Spin, Typography, Button } from 'antd'
+import { ReloadOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { getFileUrl } from '../../shared/api/translate-jobs'
@@ -42,8 +43,8 @@ function FilePreview({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const fetchContent = async () => {
-    if (content !== null) return
+  const fetchContent = async (force = false) => {
+    if (!force && content !== null) return
     setLoading(true)
     setError(null)
     try {
@@ -75,16 +76,25 @@ function FilePreview({
           padding: '8px 12px',
           borderBottom: '1px solid var(--color-border)',
           background: 'var(--color-bg-secondary)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
         }}
       >
         <Text
           type="secondary"
-          style={{ fontSize: 12, cursor: 'pointer' }}
-          onClick={fetchContent}
+          style={{ fontSize: 12, cursor: content === null && !loading && !error ? 'pointer' : 'default' }}
+          onClick={() => { if (content === null && !loading && !error) fetchContent() }}
         >
           {content === null && !loading && !error && '点击加载预览'}
           {loading && '加载中...'}
+          {content !== null && !loading && path}
         </Text>
+        {content !== null && !loading && (
+          <Button type="text" size="small" icon={<ReloadOutlined />} onClick={() => fetchContent(true)}>
+            刷新
+          </Button>
+        )}
       </div>
       {loading && (
         <div style={{ padding: 40, textAlign: 'center' }}>
@@ -92,8 +102,9 @@ function FilePreview({
         </div>
       )}
       {error && (
-        <div style={{ padding: 16 }}>
+        <div style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Text type="danger">加载失败: {error}</Text>
+          <Button size="small" onClick={() => fetchContent(true)}>重试</Button>
         </div>
       )}
       {content !== null && !loading && (

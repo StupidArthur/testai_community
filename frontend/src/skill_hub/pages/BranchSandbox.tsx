@@ -110,7 +110,7 @@ function parseToFormData(raw: string): { form: typeof EMPTY_9D; warnings: string
   }
 
   // 支持 # ## ### 三种标题级别
-  const re = /^#{1,3} (.+?)\s*\n+([\s\S]*?)(?=^#{1,3} |\Z)/gm
+  const re = /^#{1,3} (.+?)\s*\n+([\s\S]*?)(?=^#{1,3} |$)/gm
   let m
   while ((m = re.exec(raw)) !== null) {
     const label = m[1].trim()

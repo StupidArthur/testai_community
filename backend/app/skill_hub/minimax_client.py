@@ -1,28 +1,23 @@
-import httpx
+"""skill_hub LLM 调用 —— 委托给 app.core.llm 共享模块。"""
 
-from app.core.config import MINIMAX_API_KEY, MINIMAX_API_URL
+from app.core.llm import chat as _chat
+
+
+class LLMError(Exception):
+    pass
+
+
+class LLMNotConfiguredError(LLMError):
+    pass
 
 
 async def call_minimax(messages: list[dict], temperature: float = 0.3) -> str:
-    if not MINIMAX_API_KEY:
-        return "[LLM未配置] 请设置环境变量 MINIMAX_API_KEY"
-
-    headers = {
-        "Authorization": f"Bearer {MINIMAX_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": "MiniMax-M2.7-highspeed",
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": 4096,
-    }
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(MINIMAX_API_URL, json=payload, headers=headers)
-        if response.status_code != 200:
-            return f"[LLM错误] HTTP {response.status_code}: {response.text[:500]}"
-        data = response.json()
-        return data.get("choices", [{}])[0].get("message", {}).get("content", "[LLM返回为空]")
+    if not _chat.__module__:
+        raise LLMNotConfiguredError("请设置环境变量 MINIMAX_API_KEY")
+    try:
+        return await _chat(messages, temperature=temperature)
+    except Exception as e:
+        raise LLMError(str(e)) from e
 
 
 async def run_prompt(prompt: str, mock_input: str) -> str:

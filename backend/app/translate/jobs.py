@@ -1,6 +1,7 @@
 """任务管理：Job 数据类、FIFO 队列、辅助函数。
 
 dispatcher 和 janitor 协程在 app.py 中实现（避免循环导入）。
+元数据持久化到数据库（translate_jobs 表），数据文件保留在磁盘。
 """
 
 from __future__ import annotations
@@ -13,6 +14,9 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Optional
+
+from app.core.database import SessionLocal
+from app.translate.models_db import TranslateJob as TranslateJobRow
 
 # ==================== 常量 ====================
 
@@ -63,11 +67,75 @@ job_queue: collections.deque[str] = collections.deque()
 running_jobs: dict[str, Job] = {}
 
 
+# ==================== 数据库持久化 ====================
+
+
+def persist_job(job: Job) -> None:
+    """将 Job 元数据同步写入数据库。"""
+    db = SessionLocal()
+    try:
+        row = db.query(TranslateJobRow).filter(TranslateJobRow.id == job.id).first()
+        if row:
+            row.status = job.status.value
+            row.upload_path = str(job.upload_path)
+            row.result_zip_path = str(job.result_zip_path) if job.result_zip_path else None
+            row.current_phase = job.current_phase
+            row.current_step = job.current_step
+            row.total_steps = job.total_steps
+            row.message = job.message
+            row.error = job.error
+            row.updated_at = datetime.now()
+        else:
+            row = TranslateJobRow(
+                id=job.id,
+                status=job.status.value,
+                upload_path=str(job.upload_path),
+                result_zip_path=str(job.result_zip_path) if job.result_zip_path else None,
+                current_phase=job.current_phase,
+                current_step=job.current_step,
+                total_steps=job.total_steps,
+                message=job.message,
+                error=job.error,
+            )
+            db.add(row)
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+
+def load_all_jobs_from_db() -> dict[str, Job]:
+    """从数据库加载所有 Job 元数据到内存。"""
+    db = SessionLocal()
+    try:
+        rows = db.query(TranslateJobRow).order_by(TranslateJobRow.created_at.desc()).all()
+        result = {}
+        for row in rows:
+            job = Job(
+                id=row.id,
+                status=JobStatus(row.status),
+                upload_path=Path(row.upload_path),
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+                message=row.message or "",
+                error=row.error,
+                current_phase=row.current_phase or "",
+                current_step=row.current_step or 0,
+                total_steps=row.total_steps or 0,
+                result_zip_path=Path(row.result_zip_path) if row.result_zip_path else None,
+            )
+            result[row.id] = job
+        return result
+    finally:
+        db.close()
+
+
 # ==================== 辅助函数 ====================
 
 
 def create_job(upload_path: Path) -> Job:
-    """创建新 job，加入 FIFO 队列。"""
+    """创建新 job，加入 FIFO 队列，并持久化到数据库。"""
     jid = uuid.uuid4().hex
     now = datetime.now()
     job = Job(
@@ -79,6 +147,7 @@ def create_job(upload_path: Path) -> Job:
     )
     jobs[jid] = job
     job_queue.append(jid)
+    persist_job(job)
     return job
 
 
@@ -104,7 +173,6 @@ def _push_event(job: Job, event: dict) -> None:
     try:
         job.event_queue.put_nowait(event)
     except asyncio.QueueFull:
-        # 队列满则丢弃新事件（最新状态已在 job 属性上）
         pass
 
 

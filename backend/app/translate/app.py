@@ -1,4 +1,4 @@
-"""FastAPI 应用：路由 + SSE 进度流 + 静态前端托管 + SPA fallback。
+"""FastAPI 应用：路由 + SSE 进度流 + SPA fallback + 认证中间件。
 
 worker 不走 run_workflow，而是直接调用 validate / preprocess / run_phase1/2/4
 以便精确控制 step offset 并重新计算 total_steps。
@@ -11,12 +11,13 @@ import json
 import logging
 import shutil
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import parse_qs
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
 
 from .config import PHASE1_BATCH_SIZE, PHASE2_WINDOW_SIZE, PHASE4_WINDOW_SIZE
 from .preprocess import preprocess
@@ -29,6 +30,7 @@ from .llm import build_client
 from .result_zip import RESULT_WHITELIST, create_result_zip
 from .web_progress import make_callback
 from .zip_utils import MAX_EXTRACT_SIZE_MB, MAX_UPLOAD_SIZE_MB, safe_extract
+from app.core.database import SessionLocal
 
 log = logging.getLogger("app.translate")
 logging.basicConfig(
@@ -40,27 +42,109 @@ logging.basicConfig(
 BASE_DIR = Path(__file__).resolve().parent.parent
 UPLOAD_DIR = BASE_DIR / "uploads"
 RESULT_DIR = BASE_DIR / "results"
-DIST_DIR = BASE_DIR / "frontend" / "dist"
+DIST_DIR = (BASE_DIR / "../..").resolve() / "frontend" / "dist"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 RESULT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _recover_jobs_from_db() -> None:
+    """启动时从数据库恢复所有 Job 元数据到内存。"""
+    restored = J.load_all_jobs_from_db()
+    for jid, job in restored.items():
+        if job.status == J.JobStatus.QUEUED:
+            J.job_queue.append(jid)
+        elif job.status == J.JobStatus.RUNNING:
+            job.status = J.JobStatus.FAILED
+            job.error = "服务重启，任务中断"
+            job.updated_at = datetime.now()
+            J.persist_job(job)
+        J.jobs[jid] = job
+    if J.jobs:
+        log.info(f"[recover] restored {len(J.jobs)} jobs from database")
+
 
 # ==================== App ====================
 
 executor = ThreadPoolExecutor(max_workers=4)
+
+_translate_dispatcher_task = None
+_translate_janitor_task = None
+
+
+@asynccontextmanager
+async def translate_lifespan(app_instance: FastAPI):
+    global _translate_dispatcher_task, _translate_janitor_task
+    if _translate_dispatcher_task is None:
+        _recover_jobs_from_db()
+        _translate_dispatcher_task = asyncio.create_task(_dispatcher_loop())
+        _translate_janitor_task = asyncio.create_task(_janitor_loop())
+    yield
+    if _translate_dispatcher_task:
+        _translate_dispatcher_task.cancel()
+        _translate_dispatcher_task = None
+    if _translate_janitor_task:
+        _translate_janitor_task.cancel()
+        _translate_janitor_task = None
+
+
 app = FastAPI(
     title="Translate Server",
     version="1.0.0",
     description="Web UI for translating UI recordings into Chinese test cases.",
+    lifespan=translate_lifespan,
 )
 
 
+class TranslateAuthMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        if not path.startswith("/api/") or path == "/api/health":
+            await self.app(scope, receive, send)
+            return
+
+        token = None
+        for key, val in scope.get("headers", []):
+            if key == b"authorization":
+                auth_header = val.decode()
+                if auth_header.startswith("Bearer "):
+                    token = auth_header[7:]
+                break
+
+        if not token:
+            qs = scope.get("query_string", b"").decode()
+            params = parse_qs(qs)
+            if "token" in params:
+                token = params["token"][0]
+
+        if not token:
+            response = JSONResponse({"detail": "未认证"}, status_code=401)
+            await response(scope, receive, send)
+            return
+
+        from app.auth.service import decode_access_token
+        payload = decode_access_token(token)
+        if not payload:
+            response = JSONResponse({"detail": "无效的认证令牌"}, status_code=401)
+            await response(scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(TranslateAuthMiddleware)
+
+
 # ==================== 生命周期 ====================
-
-
-@app.on_event("startup")
-async def _startup() -> None:
-    asyncio.create_task(_dispatcher_loop())
-    asyncio.create_task(_janitor_loop())
+# NOTE: _dispatcher_loop 和 _janitor_loop 由 main_merged.py 的 lifespan 统一管理。
+# 当 translate_app 独立运行时（python -m app.translate），由 __main__.py 中的
+# on_event("startup") 触发。
 
 
 async def _dispatcher_loop() -> None:
@@ -74,6 +158,7 @@ async def _dispatcher_loop() -> None:
                 continue
             job.status = J.JobStatus.RUNNING
             job.updated_at = datetime.now()
+            J.persist_job(job)
             job.task = asyncio.create_task(_execute_job(job))
             J.running_jobs[jid] = job
 
@@ -115,6 +200,7 @@ async def _execute_job(job: J.Job) -> None:
     finally:
         J.running_jobs.pop(job.id, None)
         job.updated_at = datetime.now()
+        J.persist_job(job)
         J._push_event(
             job,
             {
@@ -222,6 +308,11 @@ async def upload(request: Request, file: UploadFile) -> dict:
 
 @app.get("/api/jobs")
 async def list_jobs() -> list[dict]:
+    if not J.jobs:
+        restored = J.load_all_jobs_from_db()
+        for jid, job in restored.items():
+            if jid not in J.jobs:
+                J.jobs[jid] = job
     out = [J.job_to_view(j) for j in J.jobs.values()]
     out.sort(key=lambda d: d["created_at"])
     return out
@@ -231,20 +322,48 @@ async def list_jobs() -> list[dict]:
 async def get_job(job_id: str) -> dict:
     job = J.jobs.get(job_id)
     if not job:
-        raise HTTPException(404, "job 不存在")
+        job = _load_job_from_db(job_id)
     return J.job_to_view(job)
+
+
+def _load_job_from_db(job_id: str) -> J.Job:
+    """从数据库加载单个 Job 到内存并返回。"""
+    from app.translate.models_db import TranslateJob as TranslateJobRow
+    db = SessionLocal()
+    try:
+        row = db.query(TranslateJobRow).filter(TranslateJobRow.id == job_id).first()
+        if not row:
+            raise HTTPException(404, "job 不存在")
+        job = J.Job(
+            id=row.id,
+            status=J.JobStatus(row.status),
+            upload_path=Path(row.upload_path),
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+            message=row.message or "",
+            error=row.error,
+            current_phase=row.current_phase or "",
+            current_step=row.current_step or 0,
+            total_steps=row.total_steps or 0,
+            result_zip_path=Path(row.result_zip_path) if row.result_zip_path else None,
+        )
+        J.jobs[job_id] = job
+        return job
+    finally:
+        db.close()
 
 
 @app.delete("/api/jobs/{job_id}")
 async def cancel_job(job_id: str) -> dict:
     job = J.jobs.get(job_id)
     if not job:
-        raise HTTPException(404, "job 不存在")
+        job = _load_job_from_db(job_id)
     if job.status not in (J.JobStatus.QUEUED, J.JobStatus.RUNNING):
         raise HTTPException(400, "任务不在可取消状态")
     J.cancel(job)
     job.status = J.JobStatus.CANCELLED
     job.updated_at = datetime.now()
+    J.persist_job(job)
     J._push_event(
         job, {"type": "done", "status": job.status.value, "error": job.error}
     )
@@ -255,7 +374,7 @@ async def cancel_job(job_id: str) -> dict:
 async def stream(job_id: str, request: Request) -> StreamingResponse:
     job = J.jobs.get(job_id)
     if not job:
-        raise HTTPException(404, "job 不存在")
+        job = _load_job_from_db(job_id)
     return StreamingResponse(
         _event_gen(job, request), media_type="text/event-stream"
     )
@@ -265,7 +384,7 @@ async def stream(job_id: str, request: Request) -> StreamingResponse:
 async def download(job_id: str) -> FileResponse:
     job = J.jobs.get(job_id)
     if not job:
-        raise HTTPException(404, "job 不存在")
+        job = _load_job_from_db(job_id)
     if job.status == J.JobStatus.CANCELLED:
         raise HTTPException(410, "任务已取消")
     if job.status != J.JobStatus.COMPLETED or not job.result_zip_path:
@@ -282,7 +401,7 @@ async def get_result_file(job_id: str, p: str) -> FileResponse:
     """结果预览接口，p 必须在白名单内。"""
     job = J.jobs.get(job_id)
     if not job:
-        raise HTTPException(404, "job 不存在")
+        job = _load_job_from_db(job_id)
     if p not in RESULT_WHITELIST:
         raise HTTPException(400, "文件不在白名单内")
     fp = job.upload_path / p
@@ -339,20 +458,20 @@ async def health() -> dict:
     return {"status": "ok", "version": "0.1.0"}
 
 
-# ==================== 静态前端托管 + SPA fallback ====================
+# ==================== SPA fallback ====================
 
-# 必须放在所有 /api/* 路由之后
-if (DIST_DIR / "assets").is_dir():
-    app.mount(
-        "/assets",
-        StaticFiles(directory=DIST_DIR / "assets"),
-        name="assets",
-    )
+@app.get("/", include_in_schema=False)
+async def spa_root():
+    if not (DIST_DIR / "index.html").exists():
+        return {
+            "hint": "前端未构建。请先构建前端，或开发模式启动 pnpm dev 访问 http://localhost:5173"
+        }
+    return FileResponse(DIST_DIR / "index.html", media_type="text/html")
 
 
 @app.get("/{full_path:path}", include_in_schema=False)
 async def spa(full_path: str):
-    if full_path.startswith(("api/", "assets/")):
+    if full_path.startswith("api/"):
         raise HTTPException(404)
     if not (DIST_DIR / "index.html").exists():
         return {

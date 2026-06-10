@@ -1,4 +1,6 @@
-import { Layout, Button as AntButton, Typography } from 'antd'
+import { useState, useEffect } from 'react'
+import { Layout, Button as AntButton, Typography, Dropdown, Modal, Input, message } from 'antd'
+import type { MenuProps } from 'antd'
 import {
   ThunderboltOutlined,
   AppstoreOutlined,
@@ -7,9 +9,13 @@ import {
   MoonOutlined,
   SunOutlined,
   SwapOutlined,
+  LockOutlined,
+  UserOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useLocation, Outlet } from 'react-router-dom'
 import { useThemeStore } from '../hooks/useTheme'
+import { usersApi, setOnUnauthorized } from '../api/client'
 import type { ReactNode } from 'react'
 
 const { Header, Content } = Layout
@@ -52,6 +58,16 @@ export default function AppLayout() {
   const location = useLocation()
   const { mode, toggle } = useThemeStore()
 
+  useEffect(() => {
+    setOnUnauthorized(() => {
+      navigate('/login', { replace: true })
+    })
+  }, [navigate])
+
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false)
+  const [passwordForm, setPasswordForm] = useState({ old_password: '', new_password: '', confirm_password: '' })
+  const [changePwdLoading, setChangePwdLoading] = useState(false)
+
   const user = JSON.parse(localStorage.getItem('user') || '{}')
   const isAdmin = user.role === 'Admin'
 
@@ -59,6 +75,31 @@ export default function AppLayout() {
     localStorage.removeItem('token')
     localStorage.removeItem('user')
     navigate('/login')
+  }
+
+  const handleChangePassword = async () => {
+    if (passwordForm.new_password !== passwordForm.confirm_password) {
+      message.error('两次输入的密码不一致')
+      return
+    }
+    if (passwordForm.new_password.length < 6) {
+      message.error('新密码长度不能少于 6 位')
+      return
+    }
+    setChangePwdLoading(true)
+    try {
+      await usersApi.changeOwnPassword({
+        old_password: passwordForm.old_password,
+        new_password: passwordForm.new_password,
+      })
+      message.success('密码修改成功')
+      setPasswordModalOpen(false)
+      setPasswordForm({ old_password: '', new_password: '', confirm_password: '' })
+    } catch (err: any) {
+      message.error(err.response?.data?.detail || '修改失败')
+    } finally {
+      setChangePwdLoading(false)
+    }
   }
 
   const isActive = (path: string) => location.pathname.startsWith(path)
@@ -102,6 +143,12 @@ export default function AppLayout() {
             active={isActive('/skills')}
             onClick={() => navigate('/skills')}
           />
+          <NavButton
+            icon={<HistoryOutlined />}
+            label="更新日志"
+            active={isActive('/changelog')}
+            onClick={() => navigate('/changelog')}
+          />
           {isAdmin && (
             <NavButton
               icon={<SettingOutlined />}
@@ -119,20 +166,75 @@ export default function AppLayout() {
             title="Toggle theme"
             style={{ color: 'var(--color-text-secondary)' }}
           />
-          <Text style={{ color: 'var(--color-text-secondary)' }}>{user.username}</Text>
-          <AntButton
-            type="text"
-            icon={<LogoutOutlined />}
-            onClick={handleLogout}
-            style={{ color: 'var(--color-text-secondary)' }}
+          <Dropdown
+            menu={{
+              items: [
+                {
+                  key: 'change-password',
+                  icon: <LockOutlined />,
+                  label: '修改密码',
+                  onClick: () => setPasswordModalOpen(true),
+                },
+                {
+                  type: 'divider',
+                },
+                {
+                  key: 'logout',
+                  icon: <LogoutOutlined />,
+                  label: '注销',
+                  onClick: handleLogout,
+                },
+              ],
+            }}
           >
-            退出
-          </AntButton>
+            <AntButton type="text" style={{ color: 'var(--color-text-secondary)' }}>
+              <UserOutlined style={{ marginRight: 6 }} />
+              {user.username}
+            </AntButton>
+          </Dropdown>
         </div>
       </Header>
       <Content style={{ background: 'var(--color-bg-secondary)', padding: '24px', marginTop: 64, height: 'calc(100% - 64px)', overflowY: 'auto' }}>
         <Outlet />
       </Content>
+
+      <Modal
+        title="修改密码"
+        open={passwordModalOpen}
+        onOk={handleChangePassword}
+        onCancel={() => {
+          setPasswordModalOpen(false)
+          setPasswordForm({ old_password: '', new_password: '', confirm_password: '' })
+        }}
+        confirmLoading={changePwdLoading}
+        okText="确认修改"
+        cancelText="取消"
+      >
+        <div style={{ marginBottom: 12 }}>
+          <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>当前密码</Typography.Text>
+          <Input.Password
+            placeholder="请输入当前密码"
+            value={passwordForm.old_password}
+            onChange={(e) => setPasswordForm((f) => ({ ...f, old_password: e.target.value }))}
+          />
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>新密码</Typography.Text>
+          <Input.Password
+            placeholder="请输入新密码（至少 6 位）"
+            value={passwordForm.new_password}
+            onChange={(e) => setPasswordForm((f) => ({ ...f, new_password: e.target.value }))}
+          />
+        </div>
+        <div>
+          <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>确认新密码</Typography.Text>
+          <Input.Password
+            placeholder="请再次输入新密码"
+            value={passwordForm.confirm_password}
+            onChange={(e) => setPasswordForm((f) => ({ ...f, confirm_password: e.target.value }))}
+          />
+        </div>
+      </Modal>
     </Layout>
   )
 }

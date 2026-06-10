@@ -3,13 +3,18 @@ from sqlalchemy.sql import func
 from fastapi import Depends, HTTPException, status, Header
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
+import hashlib
 
 from app.core.database import Base, get_db, SessionLocal
 from app.skill_hub.integration_models import LLMTask, TaskStatus
 from app.skill_hub.service import get_skill_by_name, version_to_langgpt_payload
-from app.skill_hub.minimax_client import call_minimax
+from app.skill_hub.minimax_client import call_minimax, LLMError
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def _api_key_fingerprint(key: str) -> str:
+    return hashlib.sha256(key.encode()).hexdigest()
 
 
 class ServiceAccount(Base):
@@ -17,6 +22,7 @@ class ServiceAccount(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     token_hash = Column(String, nullable=False)
+    token_fingerprint = Column(String, nullable=False, unique=True, index=True)
     name = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -25,10 +31,10 @@ def verify_api_key(
     x_api_key: str = Header(..., alias="X-API-Key"),
     db: Session = Depends(get_db),
 ) -> ServiceAccount:
-    accounts = db.query(ServiceAccount).all()
-    for account in accounts:
-        if pwd_context.verify(x_api_key, account.token_hash):
-            return account
+    fingerprint = _api_key_fingerprint(x_api_key)
+    account = db.query(ServiceAccount).filter(ServiceAccount.token_fingerprint == fingerprint).first()
+    if account and pwd_context.verify(x_api_key, account.token_hash):
+        return account
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="无效的API密钥",
@@ -52,7 +58,7 @@ async def process_llm_task_bg(task_id: str, skill_name: str, user_input: str):
             db.commit()
             return
 
-        latest_version = skill.versions[-1] if skill.versions else None
+        latest_version = skill.versions[0] if skill.versions else None
         system_prompt = version_to_langgpt_payload(latest_version) if latest_version else ""
 
         messages = [

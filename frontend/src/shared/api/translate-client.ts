@@ -1,3 +1,5 @@
+import { triggerUnauthorized } from './client'
+
 export class ApiError extends Error {
   status: number
   body: string
@@ -10,10 +12,19 @@ export class ApiError extends Error {
 }
 
 export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const token = localStorage.getItem('token')
+  const headers = new Headers(options?.headers)
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
   const res = await fetch(path, {
     ...options,
-    credentials: 'include',
+    headers,
   })
+  if (res.status === 401) {
+    triggerUnauthorized()
+    throw new ApiError(401, '未认证')
+  }
   if (!res.ok) {
     const body = await res.text()
     throw new ApiError(res.status, body)

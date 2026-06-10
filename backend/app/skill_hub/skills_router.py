@@ -12,9 +12,9 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
-from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -29,6 +29,10 @@ from app.skill_hub.schemas import (
     VersionCreate,
     SkillVersionOut,
     MergeRequest,
+    BranchWithUser,
+    ForkResponse,
+    EvaluateRequest,
+    EvaluateResponse,
 )
 from app.skill_hub.service import (
     get_skill_by_name,
@@ -159,19 +163,6 @@ def get_skill(
 # ============================================================
 # Branch 列表 / 创建
 # ============================================================
-from datetime import datetime
-
-class BranchWithUser(BaseModel):
-    id: int
-    skill_id: str
-    user_id: int
-    username: str
-    branch_type: str
-    created_at: datetime | None
-
-    class Config:
-        from_attributes = True
-
 
 @router.get("/{skill_id}/branches", response_model=list[BranchWithUser])
 def list_branches(
@@ -301,27 +292,31 @@ def create_branch_version(
 
     new_num = get_latest_version_num(db, branch_id) + 1
 
-    sv = SkillVersion(
-        skill_id=skill_id,
-        branch_id=branch_id,
-        version_num=new_num,
-        commit_message=data.commit_message or "Update prompt",
-        role=data.role,
-        profile=data.profile,
-        background=data.background,
-        goals=data.goals,
-        constraints=data.constraints,
-        core_skills=data.core_skills,
-        workflows=data.workflows,
-        output_format=data.output_format,
-        initialization=data.initialization,
-        ai_commit_summary="",  # 由后台任务异步填充
-    )
-    db.add(sv)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
+    for _attempt in range(3):
+        sv = SkillVersion(
+            skill_id=skill_id,
+            branch_id=branch_id,
+            version_num=new_num,
+            commit_message=data.commit_message or "Update prompt",
+            role=data.role,
+            profile=data.profile,
+            background=data.background,
+            goals=data.goals,
+            constraints=data.constraints,
+            core_skills=data.core_skills,
+            workflows=data.workflows,
+            output_format=data.output_format,
+            initialization=data.initialization,
+            ai_commit_summary="",
+        )
+        db.add(sv)
+        try:
+            db.commit()
+            break
+        except IntegrityError:
+            db.rollback()
+            new_num = get_latest_version_num(db, branch_id) + 1
+    else:
         raise HTTPException(status_code=409, detail="版本号冲突，请刷新后重试")
     db.refresh(sv)
 
@@ -392,10 +387,6 @@ def merge_to_master(
 # Fork：从源 branch 最新版本 fork 到当前用户 personal branch
 # 返回 { branch, version }：让前端能精准 navigate 到新建的分支
 # ============================================================
-class ForkResponse(BaseModel):
-    branch: BranchWithUser
-    version: SkillVersionOut
-
 
 @router.post("/{skill_id}/branches/{branch_id}/fork", response_model=ForkResponse)
 def fork_branch_to_my_personal(
@@ -477,28 +468,6 @@ def fork_branch_to_my_personal(
 # ============================================================
 # Pre-Commit 评估：草稿 → LLM 评估 + diff + 建议
 # ============================================================
-from pydantic import BaseModel as _PydanticBase
-
-
-class EvaluateRequest(_PydanticBase):
-    """前端传入 9 维草稿。"""
-    role: str = ""
-    profile: str = ""
-    background: str = ""
-    goals: str = ""
-    constraints: str = ""
-    core_skills: str = ""
-    workflows: str = ""
-    output_format: str = ""
-    initialization: str = ""
-
-
-class EvaluateResponse(_PydanticBase):
-    diff_summary: str = ""
-    evaluation: str = ""
-    suggestions: str = ""
-
-
 from app.skill_hub.utils import fields_to_langgpt
 
 def _draft_to_langgpt(d: EvaluateRequest) -> str:
