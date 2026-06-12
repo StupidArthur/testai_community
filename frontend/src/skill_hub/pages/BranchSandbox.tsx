@@ -10,10 +10,10 @@ import {
   Alert,
   Modal,
   Radio,
+  Breadcrumb,
 } from 'antd'
 import {
   BranchesOutlined,
-  ArrowLeftOutlined,
   ForkOutlined,
   ProfileOutlined,
   CrownOutlined,
@@ -26,6 +26,8 @@ import {
   ExperimentOutlined,
   RocketOutlined,
   CodeOutlined,
+  DatabaseOutlined,
+  ApartmentOutlined,
 } from '@ant-design/icons'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -492,16 +494,36 @@ export default function BranchSandbox() {
         padding: '10px 24px', borderBottom: '1px solid var(--color-border)',
         background: 'var(--color-bg)', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
       }}>
-        <Space size={8}>
-          <Button type="text" size="small" icon={<ArrowLeftOutlined />} onClick={() => navigate(`/skill/${skillId}`)} style={{ color: 'var(--color-text-secondary)', padding: 0 }}>返回 Branches</Button>
-          <Text type="secondary">/</Text>
-          <Text style={{ color: 'var(--color-primary)' }}>{skill?.display_name || '...'}</Text>
-          <Text type="secondary">/</Text>
-          <Text style={{ color: 'var(--color-primary)' }}>{branch?.username || '...'}</Text>
-          {isMaster && <Tag color="green" style={{ marginLeft: 8 }}><CrownOutlined /> Master</Tag>}
-          {isStandard && <Tag color="blue" style={{ marginLeft: 8 }}><ProfileOutlined /> Standard</Tag>}
-          {isOwner && !isMaster && !isStandard && <Tag color="purple" style={{ marginLeft: 8 }}><HomeOutlined /> 我的分支</Tag>}
-        </Space>
+        <Breadcrumb
+          items={[
+            {
+              title: (
+                <span onClick={() => navigate('/skills')} style={{ cursor: 'pointer', color: 'var(--color-primary)' }}>
+                  <DatabaseOutlined style={{ marginRight: 4 }} />
+                  Skill 仓库
+                </span>
+              ),
+            },
+            {
+              title: (
+                <span onClick={() => navigate(`/skill/${skillId}`)} style={{ cursor: 'pointer', color: 'var(--color-primary)' }}>
+                  <ApartmentOutlined style={{ marginRight: 4 }} />
+                  {skill?.display_name || '...'}
+                </span>
+              ),
+            },
+            {
+              title: (
+                <span>
+                  {branch?.username || '...'}
+                  {isMaster && <Tag color="green" style={{ marginLeft: 4 }}><CrownOutlined /> Master</Tag>}
+                  {isStandard && <Tag color="blue" style={{ marginLeft: 4 }}><ProfileOutlined /> Standard</Tag>}
+                  {isOwner && !isMaster && !isStandard && <Tag color="purple" style={{ marginLeft: 4 }}><HomeOutlined /> 我的分支</Tag>}
+                </span>
+              ),
+            },
+          ]}
+        />
         <Text type="secondary" style={{ fontSize: 12 }}><BranchesOutlined /> branch#{branchId} · {versions.length} versions</Text>
       </div>
 

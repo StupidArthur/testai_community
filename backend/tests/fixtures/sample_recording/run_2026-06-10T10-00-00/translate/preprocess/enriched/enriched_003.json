@@ -1,0 +1,42 @@
+{
+  "index": 3,
+  "type": "click",
+  "element": {
+    "tag": "input",
+    "id": "agree",
+    "type": "checkbox",
+    "text": "",
+    "xpath": "//*[@id='agree']"
+  },
+  "url": "https://example.com/login",
+  "page_title": "Demo App",
+  "timestamp": 1780573217804,
+  "snapshot_diff": "-   - checkbox \"同意协议\" [unchecked]\n+   - checkbox \"同意协议\" [checked]",
+  "pre_snapshot": "[见 record/snapshots/snapshot_002.txt]",
+  "post_snapshot": "[见 record/snapshots/snapshot_003.txt]",
+  "form_state_changes": {
+    "changed": {},
+    "added": {},
+    "removed": {
+      "//*[@id='agree']": {
+        "value": "on",
+        "checked": false
+      },
+      "//*[@id='username']": {
+        "value": "testuser"
+      },
+      "//*[@id='password']": {
+        "value": ""
+      }
+    },
+    "hasChanges": true
+  },
+  "form_state_change_text": "[消失] //*[@id='agree']: \"{'value': 'on', 'checked': False}\"\n[消失] //*[@id='username']: \"{'value': 'testuser'}\"\n[消失] //*[@id='password']: \"{'value': ''}\"",
+  "classification": {
+    "category": "toggle",
+    "element_type": "checkbox",
+    "hints": [
+      "这是一个开关/复选框操作，请在 diff 中查找 checked/unchecked 状态变化。"
+    ]
+  }
+}

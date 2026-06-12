@@ -123,6 +123,32 @@ def reset_password(
     return {"message": "密码已重置"}
 
 
+@user_router.delete("/{user_id}")
+def delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(RequireRole(["Admin"])),
+):
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="不能删除自己",
+        )
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    try:
+        db.delete(target)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="该用户存在关联数据，无法删除",
+        )
+    return {"message": "用户已删除"}
+
+
 @user_router.post("/me/password")
 def change_own_password(
     data: ChangePasswordRequest,

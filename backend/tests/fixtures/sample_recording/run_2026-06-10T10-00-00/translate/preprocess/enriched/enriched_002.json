@@ -1,0 +1,52 @@
+{
+  "index": 2,
+  "type": "click",
+  "element": {
+    "tag": "input",
+    "id": "password",
+    "type": "password",
+    "text": "",
+    "placeholder": "请输入密码",
+    "xpath": "//*[@id='password']"
+  },
+  "url": "https://example.com/login",
+  "page_title": "Demo App",
+  "timestamp": 1780573211264,
+  "form_state": {
+    "//*[@id='username']": {
+      "value": "testuser"
+    },
+    "//*[@id='password']": {
+      "value": ""
+    },
+    "//*[@id='agree']": {
+      "value": "on",
+      "checked": false
+    }
+  },
+  "snapshot_diff": "-   - textbox \"请输入密码\" [required]\n+   - textbox \"请输入密码\" [required, value=\"••••••\"]",
+  "pre_snapshot": "[见 record/snapshots/snapshot_001.txt]",
+  "post_snapshot": "[见 record/snapshots/snapshot_002.txt]",
+  "context_excerpt": "- WebArea \"Demo App\"\n  - text \"Demo App\"\n  - text \"欢迎登录\"\n  - textbox \"请输入用户名\" [required, value=\"testuser\"]\n  - textbox \"请输入密码\" [required]  ← [操作目标]\n  - checkbox \"同意协议\" [unchecked]\n  - text \"同意用户协议\"\n  - button \"登录\"\n",
+  "form_state_changes": {
+    "changed": {
+      "//*[@id='username']": {
+        "from": {
+          "value": ""
+        },
+        "to": {
+          "value": "testuser"
+        }
+      }
+    },
+    "added": {},
+    "removed": {},
+    "hasChanges": true
+  },
+  "form_state_change_text": "[变化] //*[@id='username']: \"{'value': ''}\" → \"{'value': 'testuser'}\"",
+  "classification": {
+    "category": "other",
+    "element_type": "input",
+    "hints": []
+  }
+}

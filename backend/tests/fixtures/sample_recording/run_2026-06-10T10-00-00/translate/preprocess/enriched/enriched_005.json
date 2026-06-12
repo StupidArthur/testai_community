@@ -1,0 +1,34 @@
+{
+  "index": 5,
+  "type": "click",
+  "element": {
+    "tag": "button",
+    "type": "submit",
+    "text": "登录",
+    "xpath": "//button[normalize-space(.)='登录']"
+  },
+  "url": "https://example.com/login",
+  "page_title": "Demo App",
+  "timestamp": 1780573218351,
+  "form_state": {
+    "//*[@id='username']": {
+      "value": "testuser"
+    },
+    "//*[@id='password']": {
+      "value": "testpass"
+    },
+    "//*[@id='agree']": {
+      "value": "on",
+      "checked": true
+    }
+  },
+  "snapshot_diff": "- - WebArea \"Demo App\"\n-   - text \"Demo App\"\n-   - text \"欢迎登录\"\n-   - textbox \"请输入用户名\" [required, value=\"testuser\"]\n-   - textbox \"请输入密码\" [required, value=\"••••••\"]\n-   - checkbox \"同意协议\" [checked]\n-   - text \"同意用户协议\"\n-   - button \"登录\"\n+ - WebArea \"Dashboard\"\n+   - text \"Dashboard\"\n+   - text \"欢迎, testuser\"\n+   - link \"首页\"\n+   - link \"设置\"\n+   - link \"退出\"",
+  "pre_snapshot": "[见 record/snapshots/snapshot_004.txt]",
+  "post_snapshot": "[见 record/snapshots/snapshot_005.txt]",
+  "context_excerpt": "- WebArea \"Demo App\"\n  - text \"Demo App\"\n  - text \"欢迎登录\"  ← [操作目标]\n  - textbox \"请输入用户名\" [required, value=\"testuser\"]\n  - textbox \"请输入密码\" [required, value=\"••••••\"]\n  - checkbox \"同意协议\" [checked]\n  - text \"同意用户协议\"\n  - button \"登录\"\n",
+  "classification": {
+    "category": "other",
+    "element_type": "button",
+    "hints": []
+  }
+}

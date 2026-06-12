@@ -1,0 +1,2 @@
+-   - checkbox "同意协议" [unchecked]
++   - checkbox "同意协议" [checked]

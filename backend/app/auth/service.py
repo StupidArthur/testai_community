@@ -1,8 +1,10 @@
 from datetime import datetime, timedelta, timezone
 
 import jwt
+import secrets
+from cachetools import TTLCache
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
@@ -92,3 +94,51 @@ def get_optional_user(
     if user_id_str is None:
         return None
     return db.query(User).filter(User.id == int(user_id_str)).first()
+
+
+TICKETS: TTLCache = TTLCache(maxsize=10000, ttl=30)
+
+
+def create_ticket(user: User) -> dict:
+    ticket = secrets.token_urlsafe(32)
+    TICKETS[ticket] = user.id
+    return {"ticket": ticket, "expires_in": 30}
+
+
+def _resolve_user_via_token_or_ticket(token: str, db: Session) -> User | None:
+    user_id = TICKETS.pop(token, None)
+    if user_id is not None:
+        return db.query(User).filter(User.id == user_id).first()
+
+    payload = decode_access_token(token)
+    if payload is None:
+        return None
+    user_id_str = payload.get("sub")
+    if user_id_str is None:
+        return None
+    return db.query(User).filter(User.id == int(user_id_str)).first()
+
+
+def get_user_for_request(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> User:
+    auth_header = request.headers.get("authorization", "")
+    token: str | None = None
+    parts = auth_header.split(" ", 1)
+    if len(parts) == 2 and parts[0].lower() == "bearer":
+        token = parts[1].strip()
+
+    if not token:
+        token = (
+            request.query_params.get("ticket")
+            or request.query_params.get("token")
+        )
+
+    if not token:
+        raise HTTPException(status_code=401, detail="未认证")
+
+    user = _resolve_user_via_token_or_ticket(token, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="无效凭证")
+    return user

@@ -48,8 +48,9 @@ function FilePreview({
     setLoading(true)
     setError(null)
     try {
+      const url = await getFileUrl(jobId, path)
       const token = localStorage.getItem('token')
-      const res = await fetch(getFileUrl(jobId, path), {
+      const res = await fetch(url, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)

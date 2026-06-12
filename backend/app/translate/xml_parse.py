@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from xml.etree import ElementTree as ET
 
-from .client import clean_markdown_fence
 from .config import (
     PHASE1_LLM_RAW_MAX_CHARS,
     SLIDING_WINDOW_MAX_ROUND_MULTIPLIER,
@@ -16,9 +15,18 @@ from .config import (
 )
 
 
+def _strip_fence(text: str) -> str:
+    text = text.strip()
+    text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"<thinking>[\s\S]*?</thinking>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"^```[\w]*\s*\n?", "", text)
+    text = re.sub(r"\n?```\s*$", "", text)
+    return text.strip()
+
+
 def preprocess_llm_xml_output(raw: str, max_chars: int = PHASE1_LLM_RAW_MAX_CHARS) -> tuple[str, bool]:
     """预处理 LLM 原始文本（去围栏 / BOM / 换行 / 截断）"""
-    text = clean_markdown_fence(raw or "")
+    text = _strip_fence(raw or "")
     text = text.replace("\ufeff", "")
     text = text.replace("\r\n", "\n")
 

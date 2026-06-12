@@ -45,7 +45,7 @@ export type { User, Skill, Branch, SkillVersion, EvaluateDraftResponse, ForkResp
 export const authApi = {
   login: (data: { username: string; password: string }) =>
     apiClient.post<{ access_token: string; user: User }>('/auth/login', data),
-  register: (data: { username: string; password: string; role?: string }) =>
+  register: (data: { username: string; password?: string; role?: string }) =>
     apiClient.post('/auth/register', data),
 }
 
@@ -55,6 +55,8 @@ export const usersApi = {
     apiClient.post(`/users/${userId}/reset-password`, data),
   changeOwnPassword: (data: { old_password: string; new_password: string }) =>
     apiClient.post('/users/me/password', data),
+  delete: (userId: number) =>
+    apiClient.delete(`/users/${userId}`),
 }
 
 export const skillsApi = {

@@ -1,0 +1,20 @@
+{
+  "index": 3,
+  "type": "click",
+  "element": {
+    "tag": "input",
+    "id": "agree",
+    "name": null,
+    "type": "checkbox",
+    "text": "",
+    "placeholder": null,
+    "title": null,
+    "href": null,
+    "xpath": "//*[@id='agree']",
+    "label": null
+  },
+  "url": "https://example.com/login",
+  "title": "Demo App",
+  "timestamp": 1780573217804,
+  "formStateDelta": null
+}

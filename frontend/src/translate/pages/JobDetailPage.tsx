@@ -8,7 +8,7 @@ import { JobProgress } from '../components/JobProgress'
 import { ResultPreview } from '../components/ResultPreview'
 import { StatusBadge } from '../components/StatusBadge'
 
-const { Title, Text } = Typography
+const { Title } = Typography
 
 export default function JobDetailPage() {
   const { jobId } = useParams<{ jobId: string }>()
@@ -59,10 +59,11 @@ export default function JobDetailPage() {
 
       <Card>
         <Descriptions column={2} size="small">
-          <Descriptions.Item label="任务 ID">
-            <Text copyable style={{ fontFamily: 'monospace', fontSize: 11 }}>
-              {job.job_id}
-            </Text>
+          <Descriptions.Item label="任务名称">
+            {job.name || '-'}
+          </Descriptions.Item>
+          <Descriptions.Item label="用户">
+            {job.username || '-'}
           </Descriptions.Item>
           <Descriptions.Item label="创建时间">
             {new Date(job.created_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}
@@ -84,8 +85,10 @@ export default function JobDetailPage() {
             <Button
               type="primary"
               icon={<DownloadOutlined />}
-              href={getDownloadUrl(job.job_id)}
-              target="_blank"
+              onClick={async () => {
+                const url = await getDownloadUrl(job.job_id)
+                window.open(url, '_blank')
+              }}
             >
               下载结果 ZIP
             </Button>

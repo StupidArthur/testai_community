@@ -1,0 +1,6 @@
+- WebArea "Dashboard"
+  - text "Dashboard"
+  - text "欢迎, testuser"
+  - link "首页"
+  - link "设置"
+  - link "退出"

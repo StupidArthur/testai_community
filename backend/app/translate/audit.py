@@ -5,23 +5,21 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .client import LLMClient
-from .config import LLM_AUDIT_SUBDIR, load_ai_config
+from app.core.llm import chat
+from app.core.config import MINIMAX_MODEL
+from .config import LLM_AUDIT_SUBDIR
 
 
 class LlmAudit:
     """LLM 审计会话（绑定一次 translate run）"""
 
-    def __init__(self, run_dir: Path, client: LLMClient, log=None):
+    def __init__(self, run_dir: Path, log=None):
         self.audit_dir = run_dir / LLM_AUDIT_SUBDIR
         self.audit_dir.mkdir(parents=True, exist_ok=True)
-        self._client = client
         self._log = log
         self._entries: list[dict] = []
         self._seq = 0
-
-        config = load_ai_config()
-        self._model = config.get("model", "")
+        self._model = MINIMAX_MODEL
 
     async def call(
         self,
@@ -29,7 +27,6 @@ class LlmAudit:
         messages: list[dict[str, str]],
         chat_options: dict | None = None,
     ) -> tuple[str, str]:
-        """调用 LLM 并写入审计记录"""
         opts = chat_options or {}
         call_id = self._begin_call(meta)
 
@@ -43,11 +40,12 @@ class LlmAudit:
         })
 
         try:
-            raw = await self._client.call_chat(
+            raw = await chat(
                 messages,
+                model=opts.get("model", self._model),
                 temperature=opts.get("temperature", 0.2),
                 max_tokens=opts.get("max_tokens", 2000),
-                model=opts.get("model"),
+                think=False,
             )
             self._patch_call(call_id, {
                 "finishedAt": self._now_iso(),
@@ -66,7 +64,6 @@ class LlmAudit:
             raise
 
     def mark_outcome(self, call_id: str, outcome: dict) -> None:
-        """标记调用结果"""
         self._patch_call(call_id, {"outcome": outcome})
         entry = next((e for e in self._entries if e["id"] == call_id), None)
         if entry:
@@ -77,7 +74,6 @@ class LlmAudit:
         self._flush_index()
 
     def finalize(self) -> dict:
-        """写出 problems.json / summary.json"""
         problems = [e for e in self._entries if e.get("ok") is False]
         pending = [e for e in self._entries if e.get("ok") is None]
 

@@ -31,3 +31,11 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
   }
   return res.json() as Promise<T>
 }
+
+export async function fetchTicket(): Promise<string> {
+  const { ticket } = await apiFetch<{ ticket: string; expires_in: number }>(
+    '/api/translate/ticket',
+    { method: 'POST' },
+  )
+  return ticket
+}

@@ -18,10 +18,6 @@ export default defineConfig({
         target: 'http://127.0.0.1:48010',
         changeOrigin: true,
       },
-      '/translate/api': {
-        target: 'http://127.0.0.1:48010',
-        changeOrigin: true,
-      },
     },
   },
   build: {

@@ -9,16 +9,17 @@ import {
   Avatar,
   Space,
   Button,
+  Breadcrumb,
 } from 'antd'
 import {
   ApartmentOutlined,
-  ArrowLeftOutlined,
   CrownOutlined,
   ProfileOutlined,
   UserOutlined,
   PlusOutlined,
   HomeOutlined,
   BranchesOutlined,
+  DatabaseOutlined,
 } from '@ant-design/icons'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -173,22 +174,27 @@ export default function SkillBranches() {
         }}
       >
         <div>
-          <Space size="small" style={{ marginBottom: 4 }}>
-            <Button
-              type="text"
-              size="small"
-              icon={<ArrowLeftOutlined />}
-              onClick={() => navigate('/')}
-              style={{ color: 'var(--color-text-secondary)', padding: 0 }}
-            >
-              返回仓库列表
-            </Button>
-          </Space>
-          <Title level={3} style={{ color: 'var(--color-text)', margin: 0 }}>
-            <ApartmentOutlined style={{ color: 'var(--color-primary)', marginRight: 8 }} />
-            {skill?.display_name || 'Skill'} · Branches
-          </Title>
-          <Text type="secondary">
+          <Breadcrumb
+            items={[
+              {
+                title: (
+                  <span onClick={() => navigate('/skills')} style={{ cursor: 'pointer', color: 'var(--color-primary)' }}>
+                    <DatabaseOutlined style={{ marginRight: 4 }} />
+                    Skill 仓库
+                  </span>
+                ),
+              },
+              {
+                title: (
+                  <span>
+                    <ApartmentOutlined style={{ marginRight: 4 }} />
+                    {skill?.display_name || 'Skill'}
+                  </span>
+                ),
+              },
+            ]}
+          />
+          <Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
             <BranchesOutlined /> {skill?.name}（id: {skillId?.slice(0, 8)}…）
             {skill?.definition && <span> · {skill.definition}</span>}
           </Text>

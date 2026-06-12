@@ -8,6 +8,8 @@ class TranslateJob(Base):
     __tablename__ = "translate_jobs"
 
     id = Column(String, primary_key=True)
+    name = Column(String, default="")
+    username = Column(String, default="")
     status = Column(String, nullable=False, default="queued", index=True)
     upload_path = Column(String, nullable=False)
     result_zip_path = Column(String, nullable=True)

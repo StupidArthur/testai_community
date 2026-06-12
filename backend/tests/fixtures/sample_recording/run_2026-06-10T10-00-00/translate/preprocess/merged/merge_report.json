@@ -1,0 +1,15 @@
+{
+  "totalOriginal": 5,
+  "inputRecognized": 1,
+  "dblclickDeduped": 0,
+  "details": [
+    {
+      "index": 1,
+      "rule": "input-recognize",
+      "from": "click",
+      "to": "input",
+      "inputValue": "testuser"
+    }
+  ],
+  "noiseMarked": 0
+}

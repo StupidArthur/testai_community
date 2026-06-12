@@ -1,12 +1,8 @@
-"""配置常量 + AI 配置加载（config/ai.yaml）"""
+"""配置常量（pipeline 参数）。LLM 配置统一走 core/config.py 读环境变量。"""
 
 from __future__ import annotations
 
-import os
-import sys
 from pathlib import Path
-
-import yaml
 
 # ==================== 录制数据规范 ====================
 
@@ -74,65 +70,3 @@ CASES_MD = f"{PHASE2_SUBDIR}/cases.md"
 CASES_FALLBACK_MD = f"{PHASE2_SUBDIR}/cases_fallback.md"
 COVERAGE_MD = f"{PHASE2_SUBDIR}/coverage.md"
 AGENTS_TXT = f"{PHASE4_SUBDIR}/agents.txt"
-
-# ==================== 路径工具 ====================
-
-DEFAULT_MODEL = "MiniMax-M2.7-highspeed"
-
-
-def get_app_dir() -> Path:
-    """获取应用根目录（EXE 所在目录或 CWD）"""
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
-    return Path.cwd()
-
-
-def _get_package_dir() -> Path:
-    """获取 backend 包所在目录"""
-    return Path(__file__).resolve().parent.parent.parent
-
-
-def get_config_dir() -> Path:
-    """获取 config 目录路径"""
-    return get_app_dir() / "config"
-
-
-# ==================== AI 配置加载 ====================
-
-
-def _get_config_candidates() -> list[Path]:
-    """构建配置文件搜索路径"""
-    app_dir = get_app_dir()
-    pkg_dir = _get_package_dir()
-    return [
-        app_dir / "config" / "ai.yaml",
-        app_dir / "config" / "ai.local.json",
-        pkg_dir / "config" / "ai.yaml",
-        pkg_dir / "config" / "ai.local.json",
-        Path.cwd() / "config" / "ai.yaml",
-        Path.cwd() / "config" / "ai.local.json",
-    ]
-
-
-def load_ai_config() -> dict:
-    """
-    加载 AI 配置，查找顺序：
-    1. config/ai.yaml（EXE 同级或 CWD）
-    2. config/ai.local.json（兼容旧格式）
-    3. 环境变量 AI_BASE_URL / AI_API_KEY / AI_MODEL
-    """
-    for p in _get_config_candidates():
-        if not p.exists():
-            continue
-        raw = p.read_text(encoding="utf-8-sig")
-        if p.suffix in (".yaml", ".yml"):
-            return yaml.safe_load(raw)
-        else:
-            import json
-            return json.loads(raw)
-
-    return {
-        "baseUrl": os.environ.get("AI_BASE_URL", ""),
-        "apiKey": os.environ.get("AI_API_KEY", ""),
-        "model": os.environ.get("AI_MODEL", ""),
-    }

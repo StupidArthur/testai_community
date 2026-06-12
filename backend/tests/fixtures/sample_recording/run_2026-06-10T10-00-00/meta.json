@@ -1,0 +1,47 @@
+{
+  "recordStartTime": "2026-06-10T10:00:00.000Z",
+  "recordEndTime": "2026-06-10T10:00:15.000Z",
+  "totalActions": 5,
+  "targetUrl": "https://example.com/login",
+  "startPageTitle": "Demo App",
+  "pageCount": 1,
+  "snapshotPollIntervalMs": 300,
+  "convention": "action_N: pre=snapshot_{N-1}, post=snapshot_{N}",
+  "actionSummary": [
+    {
+      "index": 1,
+      "type": "click",
+      "desc": "点击 <input> \"请输入用户名\"",
+      "page": "Demo App",
+      "url": "https://example.com/login"
+    },
+    {
+      "index": 2,
+      "type": "click",
+      "desc": "点击 <input> \"请输入密码\"",
+      "page": "Demo App",
+      "url": "https://example.com/login"
+    },
+    {
+      "index": 3,
+      "type": "click",
+      "desc": "点击 <input> \"agree\"",
+      "page": "Demo App",
+      "url": "https://example.com/login"
+    },
+    {
+      "index": 4,
+      "type": "input",
+      "desc": "输入 <input> \"请输入用户名\"",
+      "page": "Demo App",
+      "url": "https://example.com/login"
+    },
+    {
+      "index": 5,
+      "type": "click",
+      "desc": "点击 <button> \"登录\"",
+      "page": "Demo App",
+      "url": "https://example.com/login"
+    }
+  ]
+}

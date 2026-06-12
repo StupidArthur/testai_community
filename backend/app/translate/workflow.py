@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Callable
 
 from .audit import LlmAudit
-from .client import LLMClient
 from .config import PHASE1_BATCH_SIZE, PHASE2_WINDOW_SIZE, PHASE4_WINDOW_SIZE
 from .models import EnrichedAction, StructuredStep
 from .phases.phase1 import run_phase1
@@ -40,16 +39,13 @@ async def run_workflow(
     phase1_batch_size: int = PHASE1_BATCH_SIZE,
     phase2_window_size: int = PHASE2_WINDOW_SIZE,
     phase4_window_size: int = PHASE4_WINDOW_SIZE,
-    client: LLMClient | None = None,
+    client=None,
     log_instance=None,
     progress_callback: ProgressCallback | None = None,
 ) -> WorkflowResult:
     _log = log_instance or log
 
-    if client is None:
-        client = LLMClient.from_config()
-
-    audit = LlmAudit(run_dir, client, _log)
+    audit = LlmAudit(run_dir, _log)
 
     progress_state = {"offset": 0, "total": 0}
 

@@ -93,10 +93,9 @@ def _format_steps_window(steps: list[dict]) -> str:
 
 def _parse_case_meta(raw_reply: str, expected_indices: list[int]) -> dict:
     """从 LLM 回复中解析 <case_meta> 和正文"""
-    from ..client import clean_markdown_fence
     from ..xml_parse import preprocess_llm_xml_output
 
-    text, _ = preprocess_llm_xml_output(clean_markdown_fence(raw_reply))
+    text, _ = preprocess_llm_xml_output(raw_reply)
 
     # 提取 consumeStepCount
     meta_m = re.search(r'<case_meta[^>]*\bconsumeStepCount\s*=\s*["\']?(\d+)["\']?[^>]*/?>', text, re.IGNORECASE)

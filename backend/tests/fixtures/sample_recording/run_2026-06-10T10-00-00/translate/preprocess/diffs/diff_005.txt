@@ -1,0 +1,14 @@
+- - WebArea "Demo App"
+-   - text "Demo App"
+-   - text "欢迎登录"
+-   - textbox "请输入用户名" [required, value="testuser"]
+-   - textbox "请输入密码" [required, value="••••••"]
+-   - checkbox "同意协议" [checked]
+-   - text "同意用户协议"
+-   - button "登录"
++ - WebArea "Dashboard"
++   - text "Dashboard"
++   - text "欢迎, testuser"
++   - link "首页"
++   - link "设置"
++   - link "退出"

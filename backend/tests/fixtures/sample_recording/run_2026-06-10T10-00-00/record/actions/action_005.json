@@ -1,0 +1,24 @@
+{
+  "index": 5,
+  "type": "click",
+  "element": {
+    "tag": "button",
+    "id": null,
+    "name": null,
+    "type": "submit",
+    "text": "登录",
+    "placeholder": null,
+    "title": null,
+    "href": null,
+    "xpath": "//button[normalize-space(.)='登录']",
+    "label": null
+  },
+  "url": "https://example.com/login",
+  "title": "Demo App",
+  "timestamp": 1780573218351,
+  "formStateDelta": {
+    "//*[@id='username']": {"value": "testuser"},
+    "//*[@id='password']": {"value": "testpass"},
+    "//*[@id='agree']": {"value": "on", "checked": true}
+  }
+}

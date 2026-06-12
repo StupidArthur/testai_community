@@ -16,11 +16,12 @@ from pathlib import Path
 from typing import Optional
 
 from app.core.database import SessionLocal
+from app.core.config import MAX_CONCURRENT_JOBS
 from app.translate.models_db import TranslateJob as TranslateJobRow
+from app.translate.schemas import JobView
 
 # ==================== 常量 ====================
 
-MAX_CONCURRENT_JOBS = 1
 JOB_TIMEOUT_SEC = 600
 EVENT_QUEUE_MAX = 1024
 MEMORY_TTL_HOURS = 24
@@ -46,6 +47,8 @@ class Job:
     upload_path: Path
     created_at: datetime
     updated_at: datetime
+    name: str = ""
+    username: str = ""
     message: str = ""
     error: Optional[str] = None
     current_phase: str = ""
@@ -77,6 +80,8 @@ def persist_job(job: Job) -> None:
         row = db.query(TranslateJobRow).filter(TranslateJobRow.id == job.id).first()
         if row:
             row.status = job.status.value
+            row.name = job.name
+            row.username = job.username
             row.upload_path = str(job.upload_path)
             row.result_zip_path = str(job.result_zip_path) if job.result_zip_path else None
             row.current_phase = job.current_phase
@@ -89,6 +94,8 @@ def persist_job(job: Job) -> None:
             row = TranslateJobRow(
                 id=job.id,
                 status=job.status.value,
+                name=job.name,
+                username=job.username,
                 upload_path=str(job.upload_path),
                 result_zip_path=str(job.result_zip_path) if job.result_zip_path else None,
                 current_phase=job.current_phase,
@@ -118,6 +125,8 @@ def load_all_jobs_from_db() -> dict[str, Job]:
                 upload_path=Path(row.upload_path),
                 created_at=row.created_at,
                 updated_at=row.updated_at,
+                name=row.name or "",
+                username=row.username or "",
                 message=row.message or "",
                 error=row.error,
                 current_phase=row.current_phase or "",
@@ -134,16 +143,20 @@ def load_all_jobs_from_db() -> dict[str, Job]:
 # ==================== 辅助函数 ====================
 
 
-def create_job(upload_path: Path) -> Job:
+def create_job(upload_path: Path, name: str = "", username: str = "") -> Job:
     """创建新 job，加入 FIFO 队列，并持久化到数据库。"""
     jid = uuid.uuid4().hex
     now = datetime.now()
+    if not name:
+        name = f"{now.strftime('%Y%m%d_%H%M%S')}_{username}"
     job = Job(
         id=jid,
         status=JobStatus.QUEUED,
         upload_path=upload_path,
         created_at=now,
         updated_at=now,
+        name=name,
+        username=username,
     )
     jobs[jid] = job
     job_queue.append(jid)
@@ -176,21 +189,42 @@ def _push_event(job: Job, event: dict) -> None:
         pass
 
 
-def job_to_view(job: Job) -> dict:
-    """序列化 Job 为 API 返回视图。"""
+def job_to_view(job: Job) -> JobView:
     ahead, qtotal = (
         get_queue_position(job.id) if job.status == JobStatus.QUEUED else (0, 0)
     )
-    return {
-        "job_id": job.id,
-        "status": job.status.value,
-        "created_at": job.created_at.isoformat(timespec="seconds"),
-        "updated_at": job.updated_at.isoformat(timespec="seconds"),
-        "current_phase": job.current_phase,
-        "current_step": job.current_step,
-        "total_steps": job.total_steps,
-        "message": job.message,
-        "queue_ahead": ahead,
-        "queue_total": qtotal,
-        "error": job.error,
-    }
+    return JobView(
+        job_id=job.id,
+        name=job.name,
+        username=job.username,
+        status=job.status.value,
+        created_at=job.created_at.isoformat(timespec="seconds"),
+        updated_at=job.updated_at.isoformat(timespec="seconds"),
+        current_phase=job.current_phase,
+        current_step=job.current_step,
+        total_steps=job.total_steps,
+        message=job.message,
+        queue_ahead=ahead,
+        queue_total=qtotal,
+        error=job.error,
+    )
+
+
+def recover_on_startup() -> None:
+    """启动时从数据库恢复所有 Job 元数据到内存。"""
+    from datetime import datetime
+    import logging
+
+    log = logging.getLogger("app.translate")
+    restored = load_all_jobs_from_db()
+    for jid, job in restored.items():
+        if job.status == JobStatus.QUEUED:
+            job_queue.append(jid)
+        elif job.status == JobStatus.RUNNING:
+            job.status = JobStatus.FAILED
+            job.error = "服务重启，任务中断"
+            job.updated_at = datetime.now()
+            persist_job(job)
+        jobs[jid] = job
+    if jobs:
+        log.info(f"[recover] restored {len(jobs)} jobs from database")

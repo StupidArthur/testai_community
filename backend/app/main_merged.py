@@ -1,12 +1,10 @@
 """
 main_merged.py - 合并后端入口
 
-将 skill_hub 和 translate_server 合并到同一个端口：
-  /api/*           → skill_hub 路由
-  /translate/api/* → translate 路由（translate app 的 /api/* 被 mount 到 /translate）
-  /*               → 前端 SPA 回落（返回 index.html）
-
-两个原始后端代码完全不动。
+将 skill_hub 和 translate 合并到同一个端口：
+  /api/*              → skill_hub / auth / changelog 路由
+  /api/translate/*    → translate 路由
+  /*                  → 前端 SPA 回落（返回 index.html）
 """
 
 import asyncio
@@ -31,31 +29,69 @@ from app.skill_hub.integration_models import LLMTask
 from app.translate.models_db import TranslateJob
 from app.changelog.models import ChangelogEntry
 from app.changelog.router import router as changelog_router
-
-from app.translate.app import app as translate_app, _dispatcher_loop, _janitor_loop, _recover_jobs_from_db
+from app.translate.router import router as translate_router
+from app.translate.worker import start_background_tasks, stop_background_tasks
 
 DIST_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 
 
-_translate_dispatcher_task = None
-_translate_janitor_task = None
+def assert_all_routes_protected(router):
+    def collect_dep_names(dependant) -> set[str]:
+        names = set()
+        for d in dependant.dependencies:
+            name = getattr(d.call, '__name__', None) or type(d.call).__name__
+            names.add(name)
+            names.update(collect_dep_names(d))
+        return names
+
+    for route in router.routes:
+        if route.path in ("/health", "/api/health"):
+            continue
+        all_deps = collect_dep_names(route.dependant)
+        if "get_user_for_request" not in all_deps and "RequireRole" not in all_deps:
+            raise RuntimeError(
+                f"[安全] 路由 {route.path} 缺少 get_user_for_request 依赖，"
+                f"实际依赖: {all_deps}"
+            )
 
 
 @asynccontextmanager
 async def lifespan(app_instance: FastAPI):
-    global _translate_dispatcher_task, _translate_janitor_task
     Base.metadata.create_all(bind=engine)
-    _recover_jobs_from_db()
-    _translate_dispatcher_task = asyncio.create_task(_dispatcher_loop())
-    _translate_janitor_task = asyncio.create_task(_janitor_loop())
+    _migrate_translate_jobs(engine)
+    await start_background_tasks()
+    assert_all_routes_protected(translate_router)
     yield
-    if _translate_dispatcher_task:
-        _translate_dispatcher_task.cancel()
-    if _translate_janitor_task:
-        _translate_janitor_task.cancel()
+    await stop_background_tasks()
+
+
+def _migrate_translate_jobs(engine):
+    import sqlite3
+    db_path = str(engine.url).replace("sqlite:///", "")
+    if not db_path:
+        return
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(translate_jobs)")
+    existing = {row[1] for row in cursor.fetchall()}
+    for col in ("name", "username"):
+        if col not in existing:
+            cursor.execute(f"ALTER TABLE translate_jobs ADD COLUMN {col} VARCHAR DEFAULT ''")
+    conn.commit()
+    conn.close()
 
 
 app = FastAPI(title="QA Platform Merged", version="3.0.0", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def ensure_utf8_charset(request, call_next):
+    response = await call_next(request)
+    ct = response.headers.get("content-type", "")
+    if "application/json" in ct and "charset" not in ct:
+        response.headers["content-type"] = "application/json; charset=utf-8"
+    return response
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -71,14 +107,13 @@ app.include_router(skill_router)
 app.include_router(llm_router)
 app.include_router(integration_router)
 app.include_router(changelog_router)
+app.include_router(translate_router)
 
 
 @app.get("/api/health")
 def health_check():
     return {"status": "ok", "service": "merged"}
 
-
-app.mount("/translate", translate_app)
 
 if (DIST_DIR / "assets").is_dir():
     app.mount("/assets", StaticFiles(directory=DIST_DIR / "assets"), name="static-assets")

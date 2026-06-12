@@ -1,0 +1,24 @@
+{
+  "index": 1,
+  "type": "click",
+  "element": {
+    "tag": "input",
+    "id": "username",
+    "name": null,
+    "type": "text",
+    "text": "",
+    "placeholder": "请输入用户名",
+    "title": null,
+    "href": null,
+    "xpath": "//*[@id='username']",
+    "label": null
+  },
+  "url": "https://example.com/login",
+  "title": "Demo App",
+  "timestamp": 1780573206937,
+  "formStateDelta": {
+    "//*[@id='username']": {"value": ""},
+    "//*[@id='password']": {"value": ""},
+    "//*[@id='agree']": {"value": "on", "checked": false}
+  }
+}

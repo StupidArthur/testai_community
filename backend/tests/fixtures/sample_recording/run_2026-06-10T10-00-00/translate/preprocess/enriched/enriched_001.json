@@ -1,0 +1,58 @@
+{
+  "index": 1,
+  "type": "input",
+  "original_type": "click",
+  "input_value": "testuser",
+  "element": {
+    "tag": "input",
+    "id": "username",
+    "type": "text",
+    "text": "",
+    "placeholder": "请输入用户名",
+    "xpath": "//*[@id='username']"
+  },
+  "url": "https://example.com/login",
+  "page_title": "Demo App",
+  "timestamp": 1780573206937,
+  "form_state": {
+    "//*[@id='username']": {
+      "value": ""
+    },
+    "//*[@id='password']": {
+      "value": ""
+    },
+    "//*[@id='agree']": {
+      "value": "on",
+      "checked": false
+    }
+  },
+  "snapshot_diff": "-   - textbox \"请输入用户名\" [required]\n+   - textbox \"请输入用户名\" [required, value=\"testuser\"]",
+  "pre_snapshot": "[见 record/snapshots/snapshot_000.txt]",
+  "post_snapshot": "[见 record/snapshots/snapshot_001.txt]",
+  "context_excerpt": "- WebArea \"Demo App\"\n  - text \"Demo App\"\n  - text \"欢迎登录\"\n  - textbox \"请输入用户名\" [required]  ← [操作目标]\n  - textbox \"请输入密码\" [required]\n  - checkbox \"同意协议\" [unchecked]\n  - text \"同意用户协议\"\n  - button \"登录\"\n",
+  "form_state_changes": {
+    "changed": {},
+    "added": {
+      "//*[@id='agree']": {
+        "value": "on",
+        "checked": false
+      },
+      "//*[@id='username']": {
+        "value": ""
+      },
+      "//*[@id='password']": {
+        "value": ""
+      }
+    },
+    "removed": {},
+    "hasChanges": true
+  },
+  "form_state_change_text": "[新增] //*[@id='agree']: \"{'value': 'on', 'checked': False}\"\n[新增] //*[@id='username']: \"{'value': ''}\"\n[新增] //*[@id='password']: \"{'value': ''}\"",
+  "classification": {
+    "category": "form-input",
+    "element_type": "input",
+    "hints": [
+      "这是一次文本输入操作（由语义归并识别），用户在此元素中输入了 \"testuser\"。请以此值为准描述操作。"
+    ]
+  }
+}

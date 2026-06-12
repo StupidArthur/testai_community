@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 class UserRegister(BaseModel):
     username: str
-    password: str = Field(min_length=6, max_length=128, description="密码至少 6 位")
+    password: str = Field(default="123456", min_length=6, max_length=128, description="密码至少 6 位")
     role: str = "Engineer"
 
 

@@ -1,11 +1,12 @@
 import { useNavigate } from 'react-router-dom'
-import { Button, Space, Typography } from 'antd'
+import { Button, Space, Typography, Select, Tag, Modal } from 'antd'
 import { type ProColumns, ProTable } from '@ant-design/pro-components'
 import { DownloadOutlined, DeleteOutlined } from '@ant-design/icons'
 import { StatusBadge } from './StatusBadge'
 import type { JobView } from '../../shared/api/translate-jobs'
-import { cancelJob, getDownloadUrl } from '../../shared/api/translate-jobs'
+import { cancelJob, getDownloadUrl, deleteJobRecord } from '../../shared/api/translate-jobs'
 import { message } from 'antd'
+import { useMemo, useState } from 'react'
 
 const { Text } = Typography
 
@@ -23,29 +24,64 @@ const PHASE_LABELS: Record<string, string> = {
   finalize: '打包结果',
 }
 
+const STATUS_OPTIONS = [
+  { text: '排队中', value: 'queued' },
+  { text: '运行中', value: 'running' },
+  { text: '已完成', value: 'completed' },
+  { text: '失败', value: 'failed' },
+  { text: '已取消', value: 'cancelled' },
+]
+
 export function JobList({ jobs, isLoading, refetch }: JobListProps) {
   const navigate = useNavigate()
+  const currentUser = JSON.parse(localStorage.getItem('user') || '{}')
+  const isAdmin = currentUser?.role === 'Admin'
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+  const [deletingJob, setDeletingJob] = useState<JobView | null>(null)
+
+  const usernameOptions = useMemo(() => {
+    const set = new Set(jobs.map((j) => j.username).filter(Boolean))
+    return Array.from(set).map((u) => ({ text: u, value: u }))
+  }, [jobs])
 
   const columns: ProColumns<JobView>[] = [
     {
-      title: '任务 ID',
-      dataIndex: 'job_id',
-      key: 'job_id',
-      width: 200,
-      render: (_, row) => (
-        <Text
-          copyable={{ text: row.job_id }}
-          style={{ fontFamily: 'monospace', fontSize: 12 }}
-        >
-          {row.job_id.slice(0, 8)}...
-        </Text>
-      ),
+      title: '任务名称',
+      dataIndex: 'name',
+      key: 'name',
+      ellipsis: true,
+      hideInSearch: false,
+      fieldProps: { placeholder: '搜索任务名称' },
+    },
+    {
+      title: '用户',
+      dataIndex: 'username',
+      key: 'username',
+      width: 120,
+      hideInSearch: false,
+      valueType: 'select',
+      fieldProps: { placeholder: '选择用户' },
+      request: async () => usernameOptions,
+      filters: usernameOptions,
+      onFilter: (value, row) => row.username === value,
     },
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
       width: 100,
+      hideInSearch: false,
+      valueType: 'select',
+      fieldProps: { placeholder: '选择状态' },
+      valueEnum: {
+        queued: { text: '排队中' },
+        running: { text: '运行中' },
+        completed: { text: '已完成' },
+        failed: { text: '失败' },
+        cancelled: { text: '已取消' },
+      },
+      filters: STATUS_OPTIONS,
+      onFilter: (value, row) => row.status === value,
       render: (_, row) => <StatusBadge status={row.status} />,
     },
     {
@@ -53,46 +89,15 @@ export function JobList({ jobs, isLoading, refetch }: JobListProps) {
       dataIndex: 'current_phase',
       key: 'current_phase',
       width: 100,
+      hideInSearch: true,
       render: (_, row) => (PHASE_LABELS[row.current_phase] ?? row.current_phase) || '-',
-    },
-    {
-      title: '进度',
-      key: 'progress',
-      width: 140,
-      render: (_, row) => {
-        if (row.total_steps === 0) return '-'
-        const pct = Math.round((row.current_step / row.total_steps) * 100)
-        return (
-          <div>
-            <div
-              style={{
-                height: 4,
-                background: 'var(--color-border)',
-                borderRadius: 2,
-                overflow: 'hidden',
-              }}
-            >
-              <div
-                style={{
-                  width: `${pct}%`,
-                  height: '100%',
-                  background: 'var(--color-primary)',
-                  transition: 'width 0.3s',
-                }}
-              />
-            </div>
-            <Text type="secondary" style={{ fontSize: 11 }}>
-              {row.current_step}/{row.total_steps} · {pct}%
-            </Text>
-          </div>
-        )
-      },
     },
     {
       title: '消息',
       dataIndex: 'message',
       key: 'message',
       ellipsis: true,
+      hideInSearch: true,
       render: (_, row) => (
         <Text type="secondary" style={{ fontSize: 12 }}>
           {row.message || '-'}
@@ -100,27 +105,27 @@ export function JobList({ jobs, isLoading, refetch }: JobListProps) {
       ),
     },
     {
-      title: '创建时间',
-      dataIndex: 'created_at',
-      key: 'created_at',
-      width: 160,
-      render: (_, row) =>
-        new Date(row.created_at).toLocaleString('zh-CN', {
-          timeZone: 'Asia/Shanghai',
-        }),
-    },
-    {
       title: '操作',
       key: 'actions',
-      width: 160,
+      width: 220,
+      hideInSearch: true,
       render: (_, row) => (
         <Space size={4}>
+          <Button
+            size="small"
+            type="link"
+            onClick={() => navigate(`/translate/jobs/${row.job_id}`)}
+          >
+            详情
+          </Button>
           {row.status === 'completed' && (
             <Button
               size="small"
               icon={<DownloadOutlined />}
-              href={getDownloadUrl(row.job_id)}
-              target="_blank"
+              onClick={async () => {
+                const url = await getDownloadUrl(row.job_id)
+                window.open(url, '_blank')
+              }}
             >
               下载
             </Button>
@@ -143,29 +148,88 @@ export function JobList({ jobs, isLoading, refetch }: JobListProps) {
               取消
             </Button>
           )}
-          <Button
-            size="small"
-            type="link"
-            onClick={() => navigate(`/translate/jobs/${row.job_id}`)}
-          >
-            详情
-          </Button>
+          {isAdmin && row.status !== 'queued' && row.status !== 'running' && (
+            <Button
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => {
+                setDeletingJob(row)
+                setDeleteModalOpen(true)
+              }}
+            >
+              删除
+            </Button>
+          )}
         </Space>
       ),
+    },
+    {
+      title: '创建时间',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      width: 160,
+      hideInSearch: true,
+      render: (_, row) =>
+        new Date(row.created_at).toLocaleString('zh-CN', {
+          timeZone: 'Asia/Shanghai',
+        }),
     },
   ]
 
   return (
+    <>
     <ProTable
       columns={columns}
       dataSource={jobs}
       rowKey="job_id"
       loading={isLoading}
-      search={false}
+      search={{
+        filterType: 'light',
+        layout: 'inline',
+        defaultCollapsed: false,
+      }}
       toolBarRender={false}
-      pagination={false}
+      pagination={{
+        defaultPageSize: 15,
+        pageSizeOptions: [10, 15, 30, 50],
+        showSizeChanger: true,
+        showTotal: (total) => `共 ${total} 条`,
+      }}
       options={false}
+      scroll={{ y: 'calc(100vh - 280px)' }}
       style={{ background: 'transparent' }}
     />
+
+    <Modal
+      title="确认删除翻译记录"
+      open={deleteModalOpen}
+      onCancel={() => {
+        setDeleteModalOpen(false)
+        setDeletingJob(null)
+      }}
+      onOk={() => {
+        const job = deletingJob
+        setDeleteModalOpen(false)
+        setDeletingJob(null)
+        if (job) {
+          deleteJobRecord(job.job_id)
+            .then(() => {
+              message.success('已删除')
+              refetch?.()
+            })
+            .catch((err: any) => {
+              message.error(err.response?.data?.detail || '删除失败')
+            })
+        }
+      }}
+      okText="确认删除"
+      okType="danger"
+      cancelText="取消"
+      destroyOnClose
+    >
+      <p>确定要删除「<strong>{deletingJob?.name}</strong>」吗？仅删除数据库记录，磁盘数据保留。此操作不可撤销。</p>
+    </Modal>
+  </>
   )
 }

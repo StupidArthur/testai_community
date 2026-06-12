@@ -25,23 +25,23 @@ const navBtnStyle: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
   gap: 6,
-  padding: '4px 12px',
+  padding: '4px 14px',
   fontSize: 14,
   border: 'none',
-  borderRadius: 6,
+  borderRadius: 16,
   cursor: 'pointer',
   background: 'transparent',
-  transition: 'color 0.2s, border-color 0.2s',
+  boxShadow: 'none',
+  transition: 'color 0.2s, background 0.2s',
   fontFamily: 'inherit',
   lineHeight: '22px',
-  borderBottom: '2px solid transparent',
   color: 'var(--color-text-secondary)',
 }
 
 const navBtnActiveStyle: React.CSSProperties = {
   ...navBtnStyle,
   color: 'var(--color-primary)',
-  borderBottomColor: 'var(--color-primary)',
+  background: 'color-mix(in srgb, var(--color-primary) 10%, transparent)',
 }
 
 function NavButton({ icon, label, active, onClick }: { icon: ReactNode; label: string; active: boolean; onClick: () => void }) {
@@ -139,7 +139,7 @@ export default function AppLayout() {
           />
           <NavButton
             icon={<AppstoreOutlined />}
-            label="工作台"
+            label="Skill 管理"
             active={isActive('/skills')}
             onClick={() => navigate('/skills')}
           />
@@ -194,7 +194,7 @@ export default function AppLayout() {
           </Dropdown>
         </div>
       </Header>
-      <Content style={{ background: 'var(--color-bg-secondary)', padding: '24px', marginTop: 64, height: 'calc(100% - 64px)', overflowY: 'auto' }}>
+      <Content style={{ background: 'var(--color-bg-secondary)', padding: '24px', marginTop: 64, height: 'calc(100% - 64px)', overflow: 'hidden' }}>
         <Outlet />
       </Content>
 
