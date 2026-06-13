@@ -255,6 +255,27 @@ class TestResultZip:
 
 
 class TestModels:
+    def test_job_to_view_includes_name_and_username(self):
+        from datetime import datetime
+        from pathlib import Path
+
+        from app.translate.jobs import Job, JobStatus, job_to_view
+
+        job = Job(
+            id="test-job-id",
+            status=JobStatus.QUEUED,
+            upload_path=Path("/tmp/run"),
+            created_at=datetime(2026, 6, 10, 10, 0, 0),
+            updated_at=datetime(2026, 6, 10, 10, 0, 5),
+            name="登录流程",
+            username="eng_test",
+            message="排队中",
+        )
+        view = job_to_view(job)
+        assert view.name == "登录流程"
+        assert view.username == "eng_test"
+        assert view.job_id == "test-job-id"
+
     def test_recording_meta_from_v0(self):
         raw = {
             "recordStartTime": "2026-06-10T10:00:00.000Z",

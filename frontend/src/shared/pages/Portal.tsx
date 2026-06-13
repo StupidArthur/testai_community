@@ -95,6 +95,10 @@ export default function Portal() {
           </div>
         </Card>
       </div>
+
+      <Text type="secondary" style={{ marginTop: 48, fontSize: 12 }}>
+        designed by @yuzechao
+      </Text>
     </div>
   )
 }

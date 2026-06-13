@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from app.core.llm import chat
-from app.core.config import MINIMAX_MODEL
+from app.ai_service.client import chat
+from app.platform.config import MINIMAX_MODEL
 from .config import LLM_AUDIT_SUBDIR
 
 

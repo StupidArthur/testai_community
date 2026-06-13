@@ -4,6 +4,7 @@ import { PlusOutlined, ThunderboltOutlined, CodeOutlined, BookOutlined } from '@
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { skillsApi } from '../../shared/api/client'
+import { useCurrentUser, isAdmin as checkAdmin } from '../../shared/hooks/useAuth'
 import type { Skill } from '../../shared/api/client'
 
 const { Title, Text } = Typography
@@ -33,14 +34,8 @@ export default function Dashboard() {
     },
   })
 
-  const currentUser = (() => {
-    try {
-      return JSON.parse(localStorage.getItem('user') || '{}')
-    } catch {
-      return {}
-    }
-  })()
-  const isAdmin = currentUser.role === 'Admin'
+  const currentUser = useCurrentUser()
+  const isAdmin = checkAdmin(currentUser)
 
   const handleCreate = async () => {
     if (!form.name.trim() || !form.display_name.trim()) {

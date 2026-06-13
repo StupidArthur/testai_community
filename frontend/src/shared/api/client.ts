@@ -45,18 +45,16 @@ export type { User, Skill, Branch, SkillVersion, EvaluateDraftResponse, ForkResp
 export const authApi = {
   login: (data: { username: string; password: string }) =>
     apiClient.post<{ access_token: string; user: User }>('/auth/login', data),
-  register: (data: { username: string; password?: string; role?: string }) =>
-    apiClient.post('/auth/register', data),
-}
-
-export const usersApi = {
-  list: () => apiClient.get<User[]>('/users'),
+  currentUser: () => apiClient.get<User>('/auth/current-user'),
+  addUser: (data: { username: string; password?: string; role?: string }) =>
+    apiClient.post('/auth/add-user', data),
+  userList: () => apiClient.get<User[]>('/auth/user-list'),
   resetPassword: (userId: number, data: { new_password: string }) =>
-    apiClient.post(`/users/${userId}/reset-password`, data),
-  changeOwnPassword: (data: { old_password: string; new_password: string }) =>
-    apiClient.post('/users/me/password', data),
-  delete: (userId: number) =>
-    apiClient.delete(`/users/${userId}`),
+    apiClient.post(`/auth/${userId}/reset-password`, data),
+  changePassword: (data: { old_password: string; new_password: string }) =>
+    apiClient.put('/auth/password', data),
+  deleteUser: (userId: number) =>
+    apiClient.delete(`/auth/${userId}`),
 }
 
 export const skillsApi = {

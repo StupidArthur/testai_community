@@ -5,6 +5,8 @@ import { DownloadOutlined, DeleteOutlined } from '@ant-design/icons'
 import { StatusBadge } from './StatusBadge'
 import type { JobView } from '../../shared/api/translate-jobs'
 import { cancelJob, getDownloadUrl, deleteJobRecord } from '../../shared/api/translate-jobs'
+import { parseApiErrorMessage } from '../../shared/api/translate-client'
+import { useCurrentUser, isAdmin as checkAdmin } from '../../shared/hooks/useAuth'
 import { message } from 'antd'
 import { useMemo, useState } from 'react'
 
@@ -34,8 +36,8 @@ const STATUS_OPTIONS = [
 
 export function JobList({ jobs, isLoading, refetch }: JobListProps) {
   const navigate = useNavigate()
-  const currentUser = JSON.parse(localStorage.getItem('user') || '{}')
-  const isAdmin = currentUser?.role === 'Admin'
+  const currentUser = useCurrentUser()
+  const isAdmin = checkAdmin(currentUser)
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
   const [deletingJob, setDeletingJob] = useState<JobView | null>(null)
 
@@ -218,8 +220,8 @@ export function JobList({ jobs, isLoading, refetch }: JobListProps) {
               message.success('已删除')
               refetch?.()
             })
-            .catch((err: any) => {
-              message.error(err.response?.data?.detail || '删除失败')
+            .catch((err: unknown) => {
+              message.error(parseApiErrorMessage(err, '删除失败'))
             })
         }
       }}

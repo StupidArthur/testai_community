@@ -26,6 +26,9 @@ export const useThemeStore = create<ThemeState>()(
     }),
     {
       name: 'theme-mode',
+      onRehydrateStorage: () => (state) => {
+        applyTheme(state?.mode ?? 'light')
+      },
     },
   )
 )

@@ -14,16 +14,17 @@ import {
 } from 'antd'
 import { UserAddOutlined, SettingOutlined, KeyOutlined, DeleteOutlined, TranslationOutlined } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { usersApi, authApi } from '../../shared/api/client'
+import { authApi } from '../../shared/api/client'
 import { listJobs, deleteJobRecord } from '../../shared/api/translate-jobs'
 import type { User } from '../../shared/api/client'
 import type { JobView } from '../../shared/api/translate-jobs'
+import { useCurrentUser } from '../../shared/hooks/useAuth'
 
 const { Title, Text } = Typography
 
 export default function AdminPage() {
   const queryClient = useQueryClient()
-  const currentUser = JSON.parse(localStorage.getItem('user') || '{}')
+  const currentUser = useCurrentUser() ?? ({} as User)
   const [registerModalOpen, setRegisterModalOpen] = useState(false)
   const [resetModalOpen, setResetModalOpen] = useState(false)
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
@@ -35,12 +36,12 @@ export default function AdminPage() {
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: () => usersApi.list().then((r) => r.data),
+    queryFn: () => authApi.userList().then((r) => r.data),
   })
 
   const registerMutation = useMutation({
     mutationFn: (data: { username: string; password?: string; role?: string }) =>
-      authApi.register(data),
+      authApi.addUser(data),
     onSuccess: (_, values) => {
       message.success(`用户 ${values.username} 添加成功`)
       registerForm.resetFields()
@@ -54,7 +55,7 @@ export default function AdminPage() {
 
   const resetMutation = useMutation({
     mutationFn: ({ userId, newPassword }: { userId: number; newPassword: string }) =>
-      usersApi.resetPassword(userId, { new_password: newPassword }),
+      authApi.resetPassword(userId, { new_password: newPassword }),
     onSuccess: () => {
       message.success(`用户 ${selectedUser?.username} 密码已重置`)
       setResetModalOpen(false)
@@ -67,7 +68,7 @@ export default function AdminPage() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (userId: number) => usersApi.delete(userId),
+    mutationFn: (userId: number) => authApi.deleteUser(userId),
     onSuccess: () => {
       message.success(`用户 ${selectedUser?.username} 已删除`)
       setSelectedUser(null)

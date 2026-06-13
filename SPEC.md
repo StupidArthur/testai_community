@@ -38,22 +38,24 @@ G:/github/testai_community/
 │   ├── app/
 │   │   ├── auth/                      # 认证模块
 │   │   │   ├── models.py             # User 模型
-│   │   │   ├── router.py             # /api/auth/*, /api/users/*
+│   │   │   ├── router.py             # /api/auth/*
 │   │   │   ├── schemas.py            # Pydantic schemas
 │   │   │   └── service.py            # hash_password, verify_password, create_access_token
 │   │   │
 │   │   ├── skill_hub/                # 技能管理模块
 │   │   │   ├── skills_router.py      # /api/skills/*
-│   │   │   ├── llm_router.py        # /api/llm/* (run/lint/diff)
-│   │   │   ├── integration_router.py # /api/v1/integration/*
 │   │   │   ├── models.py             # Skill, Branch, SkillVersion 模型
 │   │   │   ├── schemas.py
 │   │   │   ├── service.py
-│   │   │   ├── utils.py
-│   │   │   ├── integration_models.py # LLMTask, TaskStatus
-│   │   │   ├── integration_service.py
-│   │   │   ├── minimimax_client.py  # MiniMax LLM 调用封装
-│   │   │   └── migrate_to_5fields.py
+│   │   │   └── utils.py
+│   │   │
+│   │   ├── ai_service/               # AI 基础服务（LLM；后续 RAG/Memory）
+│   │   │   ├── client.py
+│   │   │   └── exceptions.py
+│   │   ├── external_api/             # 外部 API（X-API-Key）
+│   │   │   ├── router.py            # /api/v1/external/*
+│   │   │   ├── service.py           # ServiceAccount, verify_api_key
+│   │   │   └── models.py            # LLMTask, TaskStatus
 │   │   │
 │   │   ├── translate/                 # AI 翻译模块
 │   │   │   ├── app.py               # FastAPI 实例（/api/* 路由）
@@ -64,12 +66,11 @@ G:/github/testai_community/
 │   │   │   ├── zip_utils.py
 │   │   │   └── __main__.py
 │   │   │
-│   │   ├── core/                     # 公共基础设施
-│   │   │   ├── config.py            # DATABASE_URL 等配置
-│   │   │   ├── database.py          # SQLAlchemy engine, SessionLocal
-│   │   │   └── security.py          # JWT Bearer 认证依赖
-│   │   │
-│   │   ├── main_merged.py           # ⚠️ 启动入口
+│   │   ├── platform/                # config / database / factory
+│   │   │   ├── config.py
+│   │   │   ├── database.py
+│   │   │   ├── route_guard.py
+│   │   │   └── factory.py           # create_app()
 │   │   └── main_combined.py         # (废弃，网关模式)
 │   │
 │   ├── database.sqlite
@@ -95,10 +96,8 @@ G:/github/testai_community/
     │   │   └── JobDetailPage.tsx    # 任务详情/进度/下载
     │   │
     │   ├── translate/components/      # AI 翻译组件
-    │   │   ├── UploadZone.tsx
     │   │   ├── JobList.tsx
     │   │   ├── JobProgress.tsx
-    │   │   ├── ResultPreview.tsx
     │   │   └── StatusBadge.tsx
     │   │
     │   └── shared/                  # 公共模块
@@ -110,6 +109,7 @@ G:/github/testai_community/
     │       ├── components/
     │       │   └── AppLayout.tsx     # 导航栏 + Content 布局
     │       ├── hooks/
+    │       │   ├── useAuth.ts       # 当前用户 / Admin 判断
     │       │   ├── useTheme.ts      # 主题切换
     │       │   └── useTranslateStream.ts
     │       ├── pages/
@@ -134,12 +134,13 @@ G:/github/testai_community/
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/auth/register` | 注册用户 |
 | POST | `/api/auth/login` | 登录，返回 JWT token |
-| GET | `/api/users/me` | 获取当前用户信息 |
-| GET | `/api/users` | 获取用户列表（Admin） |
-| POST | `/api/users/{user_id}/reset-password` | 重置密码（Admin） |
-| POST | `/api/users/me/password` | 修改自己密码 |
+| POST | `/api/auth/add-user` | 添加用户（Admin） |
+| GET | `/api/auth/current-user` | 获取当前用户信息 |
+| GET | `/api/auth/user-list` | 获取用户列表（Admin） |
+| PUT | `/api/auth/password` | 修改自己密码 |
+| POST | `/api/auth/{user_id}/reset-password` | 重置密码（Admin） |
+| DELETE | `/api/auth/{user_id}` | 删除用户（Admin） |
 
 ### 4.2 技能管理模块（skill_hub）
 
@@ -155,27 +156,24 @@ G:/github/testai_community/
 | POST | `/api/skills/{skill_id}/merge` | 合并分支 |
 | POST | `/api/skills/{skill_id}/branches/{branch_id}/fork` | Fork 分支 |
 | POST | `/api/skills/{skill_id}/branches/{branch_id}/evaluate-draft` | 评估草稿 |
-| POST | `/api/llm/run` | 运行 LLM |
-| POST | `/api/llm/lint` | LLM Lint |
-| POST | `/api/llm/diff` | LLM Diff |
-| GET | `/api/v1/integration/skills/{skill_name}` | 获取集成技能 |
-| POST | `/api/v1/integration/skills/{skill_name}/execute-async` | 异步执行 |
-| GET | `/api/v1/integration/tasks/{task_id}` | 查询任务状态 |
+| GET | `/api/v1/external/skills/{skill_name}` | 获取 Skill（master 最新版） |
+| POST | `/api/v1/external/skills/{skill_name}/execute-async` | 异步执行 |
+| GET | `/api/v1/external/tasks/{task_id}` | 查询任务状态 |
 
 ### 4.3 AI 翻译模块（translate）
 
-translate 模块通过 `app.mount("/translate", translate_app)` 挂载，
-translate 后端的 `/api/*` 路由自动变成 `/translate/api/*`：
+translate 路由统一挂载在主应用 `/api/translate/*` 下（不再使用 `/translate/api/*` 前缀）：
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/translate/api/upload` | 上传录制 ZIP |
-| GET | `/translate/api/jobs` | 任务列表 |
-| GET | `/translate/api/jobs/{job_id}` | 任务详情 |
-| DELETE | `/translate/api/jobs/{job_id}` | 取消任务 |
-| GET | `/translate/api/jobs/{job_id}/stream` | SSE 进度流 |
-| GET | `/translate/api/jobs/{job_id}/download` | 下载结果 ZIP |
-| GET | `/translate/api/jobs/{job_id}/file` | 预览单个结果文件 |
+| POST | `/api/translate/jobs` | multipart 上传 ZIP，创建任务 |
+| GET | `/api/translate/jobs` | 任务列表（所有登录用户可见全部任务） |
+| GET | `/api/translate/jobs/{job_id}` | 任务详情 |
+| POST | `/api/translate/jobs/{job_id}/cancel` | 取消任务 |
+| GET | `/api/translate/jobs/{job_id}/stream` | SSE 进度流 |
+| GET | `/api/translate/jobs/{job_id}/download` | 下载结果 ZIP |
+| POST | `/api/translate/ticket` | 获取 prompts 下载 ticket |
+| GET | `/api/translate/prompts` | 下载 prompts ZIP（需 ticket） |
 
 ### 4.4 健康检查
 
@@ -249,7 +247,7 @@ Skill (技能)
 ```bash
 # 后端（端口 48010）
 cd G:/github/testai_community/backend
-python -c "import uvicorn; from app.main_merged import app; uvicorn.run(app, host='0.0.0.0', port=48010)"
+python -c "import uvicorn; from app.platform.factory import app; uvicorn.run(app, host='0.0.0.0', port=48010)"
 
 # 前端（端口 3003，proxy 到 48010）
 cd G:/github/testai_community/frontend
@@ -270,7 +268,7 @@ npm run dev
 |------|------|
 | `backend/app/translate/config/ai.local.json` | MiniMax API Key |
 | `backend/app/translate/config/ai.yaml` | 同上 YAML 版本 |
-| `backend/app/core/config.py` | DATABASE_URL 等 |
+| `backend/app/platform/config.py` | DATABASE_URL 等 |
 | `frontend/vite.config.ts` | Vite 配置，含 proxy |
 | `frontend/src/shared/styles/tokens.ts` | Ant Design 主题变量 |
 
@@ -280,9 +278,11 @@ npm run dev
 
 | 模块 | 后端目录 | 前端目录 | API 前缀 |
 |------|----------|----------|----------|
-| 认证 | `app/auth/` | `src/auth/` | `/api/auth/*`, `/api/users/*` |
-| 技能管理 | `app/skill_hub/` | `src/skill_hub/` | `/api/skills/*`, `/api/llm/*`, `/api/v1/integration/*` |
-| AI 翻译 | `app/translate/` | `src/translate/` | `/translate/api/*` |
+| 认证 | `app/auth/` | `src/auth/` | `/api/auth/*` |
+| 技能管理 | `app/skill_hub/` | `src/skill_hub/` | `/api/skills/*` |
+| AI 服务 | `app/ai_service/` | — | 无 HTTP（仅 `chat` 对内 API） |
+| 外部 API | `app/external_api/` | — | `/api/v1/external/*` |
+| AI 翻译 | `app/translate/` | `src/translate/` | `/api/translate/*` |
 
 ---
 

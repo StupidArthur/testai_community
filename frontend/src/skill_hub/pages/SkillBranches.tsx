@@ -24,6 +24,7 @@ import {
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { skillsApi } from '../../shared/api/client'
+import { useCurrentUser } from '../../shared/hooks/useAuth'
 import type { Skill, Branch } from '../../shared/api/client'
 
 const { Title, Text } = Typography
@@ -58,13 +59,7 @@ export default function SkillBranches() {
     },
   })
 
-  const currentUserId = useMemo(() => {
-    try {
-      return JSON.parse(localStorage.getItem('user') || '{}').id || null
-    } catch {
-      return null
-    }
-  }, [])
+  const currentUserId = useCurrentUser()?.id ?? null
 
   const hasMyPersonalBranch = useMemo(
     () => currentUserId !== null && branches.some((b: Branch) => b.user_id === currentUserId && b.branch_type === 'personal'),

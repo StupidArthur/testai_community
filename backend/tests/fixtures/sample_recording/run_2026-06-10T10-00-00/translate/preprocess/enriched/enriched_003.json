@@ -22,16 +22,16 @@
         "value": "on",
         "checked": false
       },
-      "//*[@id='username']": {
-        "value": "testuser"
-      },
       "//*[@id='password']": {
         "value": ""
+      },
+      "//*[@id='username']": {
+        "value": "testuser"
       }
     },
     "hasChanges": true
   },
-  "form_state_change_text": "[消失] //*[@id='agree']: \"{'value': 'on', 'checked': False}\"\n[消失] //*[@id='username']: \"{'value': 'testuser'}\"\n[消失] //*[@id='password']: \"{'value': ''}\"",
+  "form_state_change_text": "[消失] //*[@id='agree']: \"{'value': 'on', 'checked': False}\"\n[消失] //*[@id='password']: \"{'value': ''}\"\n[消失] //*[@id='username']: \"{'value': 'testuser'}\"",
   "classification": {
     "category": "toggle",
     "element_type": "checkbox",

@@ -15,8 +15,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
-from app.core.database import SessionLocal
-from app.core.config import MAX_CONCURRENT_JOBS
+from app.platform.database import SessionLocal
+from app.platform.config import MAX_CONCURRENT_JOBS
 from app.translate.models_db import TranslateJob as TranslateJobRow
 from app.translate.schemas import JobView
 

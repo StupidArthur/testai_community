@@ -1,14 +1,31 @@
+"""
+pytest 配置：强制使用独立测试库与测试数据目录，不污染 A 开发环境。
+
+必须在 import app 之前设置环境变量（load_dotenv 不会覆盖已存在的 env）。
+"""
+
+from __future__ import annotations
+
+import os
 import sys
-import shutil
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+TEST_DB = BACKEND_DIR / "database_test.sqlite"
+TEST_DATA_DIR = BACKEND_DIR / "tests" / ".data"
+
+# 测试专用库与 Translate 目录（与 database_dev / database_prod 隔离）
+os.environ["DATABASE_URL"] = "sqlite:///" + str(TEST_DB.resolve()).replace("\\", "/")
+os.environ["TRANSLATE_UPLOAD_DIR"] = str((TEST_DATA_DIR / "uploads").resolve())
+os.environ["TRANSLATE_RESULT_DIR"] = str((TEST_DATA_DIR / "results").resolve())
+os.environ.setdefault("ENV", "dev")
+
+sys.path.insert(0, str(BACKEND_DIR))
 
 import pytest
-from app.main_merged import app
-from app.core.database import SessionLocal, engine, Base
-from app.auth.models import User
-from app.auth.service import hash_password
+from app.platform.factory import app
+from app.platform.database import engine, Base
+from app.auth.bootstrap import ensure_default_admin
 from fastapi.testclient import TestClient
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
@@ -33,7 +50,7 @@ def admin_token(client):
 @pytest.fixture(scope="session")
 def eng_token(client, admin_token):
     r = client.post(
-        "/api/auth/register",
+        "/api/auth/add-user",
         json={"username": "eng_test", "password": "eng123456", "role": "Engineer"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
@@ -55,16 +72,4 @@ def eng_headers(eng_token):
 
 
 def _ensure_admin_user():
-    db = SessionLocal()
-    try:
-        user = db.query(User).filter(User.username == "admin").first()
-        if not user:
-            user = User(
-                username="admin",
-                password_hash=hash_password("admin"),
-                role="admin",
-            )
-            db.add(user)
-            db.commit()
-    finally:
-        db.close()
+    ensure_default_admin()

@@ -28,6 +28,7 @@ import {
   type ChangelogView,
   type ChangelogCreate,
 } from '../shared/api/changelog'
+import { useCurrentUser, isAdmin as checkAdmin } from '../shared/hooks/useAuth'
 
 const { Title, Text } = Typography
 const { TextArea } = Input
@@ -42,8 +43,8 @@ export default function ChangelogPage() {
   const [submitting, setSubmitting] = useState(false)
   const [form] = Form.useForm()
 
-  const user = JSON.parse(localStorage.getItem('user') || '{}')
-  const isAdmin = user.role === 'Admin'
+  const user = useCurrentUser()
+  const isAdmin = checkAdmin(user)
 
   const fetchEntries = useCallback(async () => {
     setLoading(true)

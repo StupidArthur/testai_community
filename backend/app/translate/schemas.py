@@ -23,7 +23,9 @@ class JobView(BaseModel):
     error: str | None
 
 
-class UploadResponse(BaseModel):
+class CreateJobResponse(BaseModel):
+    """POST /jobs 创建任务后的响应。"""
+
     job_id: str
     status: str
     queue_ahead: int

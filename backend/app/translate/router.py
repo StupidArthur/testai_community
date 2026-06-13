@@ -2,29 +2,31 @@
 
 from __future__ import annotations
 
+import io
 import logging
 import shutil
+import zipfile
 from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
-from app.auth.service import get_user_for_request, create_ticket, RequireRole
+from app.auth.service import (
+    get_current_user,
+    get_current_user_by_ticket,
+    create_ticket,
+    RequireRole,
+)
 from app.auth.models import User, UserRole
-from app.core.database import SessionLocal
+from app.platform.database import SessionLocal
 
 from . import jobs as J
-from . import UPLOAD_DIR, RESULT_DIR
+from . import UPLOAD_DIR
 from .worker import dispatch_queued
-from .schemas import JobView, UploadResponse
+from .schemas import JobView, CreateJobResponse
 from .sse import event_gen
 from .zip_utils import MAX_UPLOAD_SIZE_MB, safe_extract
-from .result_zip import RESULT_WHITELIST, create_result_zip
-
-import io
-import zipfile
-
 from .prompts.loader import load_prompt_md
 
 log = logging.getLogger("app.translate")
@@ -68,48 +70,38 @@ def _load_job_from_db(job_id: str) -> J.Job:
         db.close()
 
 
-@router.post("/ticket")
-async def issue_ticket(user: User = Depends(get_user_for_request)) -> dict:
-    return create_ticket(user)
+def _get_job(job_id: str) -> J.Job:
+    job = J.jobs.get(job_id)
+    if not job:
+        job = _load_job_from_db(job_id)
+    return job
 
 
-PROMPT_FILES = [
-    ("snapshots-2-steps-skill.md", "snapshots-2-steps-skill.md"),
-    ("steps-2-cases-skill.md", "steps-2-cases-skill.md"),
-    ("case-4-agents-skill.md", "case-4-agents-skill.md"),
-]
-
-
-@router.get("/prompts")
-async def download_prompts(user: User = Depends(get_user_for_request)):
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for rel_path, arc_name in PROMPT_FILES:
-            content = load_prompt_md(rel_path)
-            zf.writestr(arc_name, content)
-    buf.seek(0)
-    return StreamingResponse(
-        buf,
-        media_type="application/zip",
-        headers={"Content-Disposition": "attachment; filename=prompts.zip"},
-    )
-
-
-@router.post("/upload", response_model=UploadResponse)
-async def upload(
+async def _create_job_from_upload(
     request: Request,
     file: UploadFile,
-    name: str = Form(""),
-    user: User = Depends(get_user_for_request),
-) -> UploadResponse:
+    name: str,
+    user: User,
+) -> CreateJobResponse:
+    """解压上传 ZIP 并创建翻译任务。"""
     cl = request.headers.get("content-length")
-    if cl and int(cl) > MAX_UPLOAD_SIZE_MB * 1024 * 1024:
+    max_bytes = MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    if cl and int(cl) > max_bytes:
         raise HTTPException(413, f"上传文件超过 {MAX_UPLOAD_SIZE_MB}MB")
 
     job_tmp_id = f"upload-{datetime.now().timestamp():.0f}"
     raw_zip = UPLOAD_DIR / f"{job_tmp_id}.zip"
+    written = 0
     with raw_zip.open("wb") as fh:
-        shutil.copyfileobj(file.file, fh)
+        while True:
+            chunk = file.file.read(1024 * 1024)
+            if not chunk:
+                break
+            written += len(chunk)
+            if written > max_bytes:
+                raw_zip.unlink(missing_ok=True)
+                raise HTTPException(413, f"上传文件超过 {MAX_UPLOAD_SIZE_MB}MB")
+            fh.write(chunk)
 
     extract_dir = UPLOAD_DIR / job_tmp_id
     try:
@@ -124,7 +116,7 @@ async def upload(
     job = J.create_job(upload_path=run_dir, name=name, username=user.username)
     dispatch_queued()
     ahead, total = J.get_queue_position(job.id)
-    return UploadResponse(
+    return CreateJobResponse(
         job_id=job.id,
         status=job.status.value,
         queue_ahead=ahead,
@@ -134,8 +126,46 @@ async def upload(
     )
 
 
+@router.post("/ticket")
+async def issue_ticket(user: User = Depends(get_current_user)) -> dict:
+    return create_ticket(user)
+
+
+PROMPT_FILES = [
+    ("snapshots-2-steps-skill.md", "snapshots-2-steps-skill.md"),
+    ("steps-2-cases-skill.md", "steps-2-cases-skill.md"),
+    ("case-4-agents-skill.md", "case-4-agents-skill.md"),
+]
+
+
+@router.get("/prompts")
+async def download_prompts(user: User = Depends(get_current_user_by_ticket)):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for rel_path, arc_name in PROMPT_FILES:
+            content = load_prompt_md(rel_path)
+            zf.writestr(arc_name, content)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=prompts.zip"},
+    )
+
+
+@router.post("/jobs", response_model=CreateJobResponse)
+async def create_job(
+    request: Request,
+    file: UploadFile,
+    name: str = Form(""),
+    user: User = Depends(get_current_user),
+) -> CreateJobResponse:
+    """multipart 上传 ZIP 并创建翻译任务。"""
+    return await _create_job_from_upload(request, file, name, user)
+
+
 @router.get("/jobs", response_model=list[JobView])
-async def list_jobs(user: User = Depends(get_user_for_request)) -> list[JobView]:
+async def list_jobs(user: User = Depends(get_current_user)) -> list[JobView]:
     all_from_db = J.load_all_jobs_from_db()
     for jid, job in all_from_db.items():
         if jid not in J.jobs:
@@ -153,22 +183,21 @@ async def list_jobs(user: User = Depends(get_user_for_request)) -> list[JobView]
 @router.get("/jobs/{job_id}", response_model=JobView)
 async def get_job(
     job_id: str,
-    user: User = Depends(get_user_for_request),
+    user: User = Depends(get_current_user),
 ) -> JobView:
-    job = J.jobs.get(job_id)
-    if not job:
-        job = _load_job_from_db(job_id)
+    job = _get_job(job_id)
     return J.job_to_view(job)
 
 
-@router.delete("/jobs/{job_id}")
+@router.post("/jobs/{job_id}/cancel")
 async def cancel_job(
     job_id: str,
-    user: User = Depends(get_user_for_request),
+    user: User = Depends(get_current_user),
 ) -> dict:
-    job = J.jobs.get(job_id)
-    if not job:
-        job = _load_job_from_db(job_id)
+    job = _get_job(job_id)
+    is_admin = user.role == UserRole.Admin
+    if not is_admin and job.username != user.username:
+        raise HTTPException(403, "无权取消他人任务")
     if job.status not in (J.JobStatus.QUEUED, J.JobStatus.RUNNING):
         raise HTTPException(400, "任务不在可取消状态")
     J.cancel(job)
@@ -212,11 +241,9 @@ async def delete_job_record(
 async def stream(
     job_id: str,
     request: Request,
-    user: User = Depends(get_user_for_request),
+    user: User = Depends(get_current_user_by_ticket),
 ) -> StreamingResponse:
-    job = J.jobs.get(job_id)
-    if not job:
-        job = _load_job_from_db(job_id)
+    job = _get_job(job_id)
     return StreamingResponse(
         event_gen(job, request), media_type="text/event-stream"
     )
@@ -225,11 +252,9 @@ async def stream(
 @router.get("/jobs/{job_id}/download")
 async def download(
     job_id: str,
-    user: User = Depends(get_user_for_request),
+    user: User = Depends(get_current_user_by_ticket),
 ) -> FileResponse:
-    job = J.jobs.get(job_id)
-    if not job:
-        job = _load_job_from_db(job_id)
+    job = _get_job(job_id)
     if job.status == J.JobStatus.CANCELLED:
         raise HTTPException(410, "任务已取消")
     if job.status != J.JobStatus.COMPLETED or not job.result_zip_path:
@@ -239,26 +264,3 @@ async def download(
         filename=f"translate-result-{job_id}.zip",
         media_type="application/zip",
     )
-
-
-@router.get("/jobs/{job_id}/file")
-async def get_result_file(
-    job_id: str,
-    p: str,
-    user: User = Depends(get_user_for_request),
-) -> FileResponse:
-    job = J.jobs.get(job_id)
-    if not job:
-        job = _load_job_from_db(job_id)
-    if p not in RESULT_WHITELIST:
-        raise HTTPException(400, "文件不在白名单内")
-    fp = job.upload_path / p
-    if not fp.exists():
-        raise HTTPException(404, "文件不存在")
-    if p.endswith(".md"):
-        media = "text/markdown; charset=utf-8"
-    elif p.endswith(".json"):
-        media = "application/json; charset=utf-8"
-    else:
-        media = "text/plain; charset=utf-8"
-    return FileResponse(fp, media_type=media)

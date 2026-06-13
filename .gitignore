@@ -24,6 +24,10 @@ build/
 # ====== Database ======
 *.sqlite
 *.db
+backend/database_test.sqlite
+
+# ====== Test runtime data ======
+backend/tests/.data/
 
 # ====== Environment variables ======
 .env
@@ -55,6 +59,7 @@ htmlcov/
 # ====== Translation / Upload files ======
 backend/app/uploads/
 backend/app/results/
+data/ai_news/
 
 # ====== Misc ======
 *.tmp

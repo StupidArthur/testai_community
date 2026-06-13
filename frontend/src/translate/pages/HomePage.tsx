@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Button, Modal, Form, Input, Upload, message } from 'antd'
 import { UploadOutlined, DownloadOutlined } from '@ant-design/icons'
 import { useQuery } from '@tanstack/react-query'
-import { listJobs, uploadJob, getPromptsDownloadUrl } from '../../shared/api/translate-jobs'
+import { listJobs, createJob, getPromptsDownloadUrl } from '../../shared/api/translate-jobs'
 import { JobList } from '../components/JobList'
 
 export default function HomePage() {
@@ -30,7 +30,7 @@ export default function HomePage() {
     const name = uploadForm.getFieldValue('name')?.trim() || ''
     setUploading(true)
     try {
-      const res = await uploadJob(fileList, name || undefined)
+      const res = await createJob(fileList, name || undefined)
       message.success('上传成功，任务已加入队列')
       setUploadModalOpen(false)
       uploadForm.resetFields()
@@ -48,7 +48,14 @@ export default function HomePage() {
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8, gap: 8 }}>
         <Button
           icon={<DownloadOutlined />}
-          onClick={() => window.open(getPromptsDownloadUrl(), '_blank')}
+          onClick={async () => {
+            try {
+              const url = await getPromptsDownloadUrl()
+              window.open(url, '_blank')
+            } catch (err: unknown) {
+              message.error(err instanceof Error ? err.message : '下载失败')
+            }
+          }}
         >
           下载 Prompts
         </Button>

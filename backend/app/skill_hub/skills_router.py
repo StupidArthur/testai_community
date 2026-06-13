@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db, SessionLocal
+from app.platform.database import get_db, SessionLocal
 from app.auth.service import get_current_user
 from app.auth.models import User, UserRole
 from app.skill_hub.models import Skill, Branch, SkillVersion
@@ -40,7 +40,8 @@ from app.skill_hub.service import (
     generate_ai_commit_summary,
     version_to_langgpt_payload,
 )
-from app.skill_hub.minimax_client import call_minimax
+from app.ai_service.client import chat
+from app.skill_hub.llm_prompts import build_evaluate_draft_messages
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/skills", tags=["skills"])
@@ -508,31 +509,9 @@ async def evaluate_draft(
     new_payload = _draft_to_langgpt(data)
     old_payload = version_to_langgpt_payload(prev) if prev else "（首版，无旧版对比）"
 
-    system_prompt = (
-        "你是一个 LangGPT Prompt 评审专家。请基于以下 9 维 LangGPT 规范的旧版本与新草稿，"
-        "输出三段内容（用中文，Markdown 格式）：\n\n"
-        "1. 【diff_summary】用 3-5 个 bullet 简明扼要总结新旧版本在结构与内容上的实质性变化。\n\n"
-        "2. 【evaluation】客观评估新草稿的合规性与质量：是否覆盖了 Role/Profile/Background/Goals/"
-        "Constraints/Core Skills/Workflows/Output Format/Initialization 这 9 个维度；"
-        "Constraints 是否使用强硬祈使句；Workflows 是否为有序 SOP；"
-        "Core Skills 是否给出具体实现逻辑而非空泛名字。\n\n"
-        "3. 【suggestions】给出 3-5 条具体的可执行改进建议。\n\n"
-        "输出格式严格按以下结构（用 --- 分隔三段，不要多余前言）：\n"
-        "---\n"
-        "【diff_summary】\n<内容>\n"
-        "---\n"
-        "【evaluation】\n<内容>\n"
-        "---\n"
-        "【suggestions】\n<内容>\n"
-    )
-    user_prompt = f"【旧版本】\n{old_payload}\n\n【新草稿】\n{new_payload}"
-
     try:
-        raw = await call_minimax(
-            [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+        raw = await chat(
+            build_evaluate_draft_messages(old_payload, new_payload),
             temperature=0.2,
         )
     except Exception as exc:

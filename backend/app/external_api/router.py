@@ -1,13 +1,15 @@
+"""external_api HTTP 路由：/api/v1/external/*，认证 X-API-Key。"""
+
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
-from app.skill_hub.integration_service import ServiceAccount, verify_api_key, process_llm_task_bg
-from app.skill_hub.integration_models import LLMTask, TaskStatus
-from app.skill_hub.service import get_skill_by_name, version_to_langgpt_payload
+from app.platform.database import get_db
+from app.external_api.service import verify_api_key, process_llm_task_bg
+from app.external_api.models import LLMTask, TaskStatus, ServiceAccount
+from app.skill_hub.service import get_skill_by_name, get_master_latest_version, version_to_langgpt_payload
 
-router = APIRouter(prefix="/api/v1/integration", tags=["integration"])
+router = APIRouter(prefix="/api/v1/external", tags=["external_api"])
 
 
 class ExecuteRequest(BaseModel):
@@ -15,16 +17,16 @@ class ExecuteRequest(BaseModel):
 
 
 @router.get("/skills/{skill_name}")
-def get_integration_skill(
+def get_external_skill(
     skill_name: str,
     db: Session = Depends(get_db),
-    sa: ServiceAccount = Depends(verify_api_key),
+    _sa: ServiceAccount = Depends(verify_api_key),
 ):
     skill = get_skill_by_name(db, skill_name)
     if not skill:
         raise HTTPException(status_code=404, detail="Skill不存在或未发布")
 
-    latest_version = skill.versions[0] if skill.versions else None
+    latest_version = get_master_latest_version(db, skill)
     payload = ""
     icio = {}
     if latest_version:
@@ -56,7 +58,7 @@ def execute_skill_async(
     data: ExecuteRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    sa: ServiceAccount = Depends(verify_api_key),
+    _sa: ServiceAccount = Depends(verify_api_key),
 ):
     skill = get_skill_by_name(db, skill_name)
     if not skill:
@@ -79,7 +81,7 @@ def execute_skill_async(
 def get_task_result(
     task_id: str,
     db: Session = Depends(get_db),
-    sa: ServiceAccount = Depends(verify_api_key),
+    _sa: ServiceAccount = Depends(verify_api_key),
 ):
     task = db.query(LLMTask).filter(LLMTask.id == task_id).first()
     if not task:

@@ -8,8 +8,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
-from app.core.llm import chat
-
 from . import jobs as J
 from .config import PHASE1_BATCH_SIZE, PHASE2_WINDOW_SIZE, PHASE4_WINDOW_SIZE
 from .preprocess import preprocess

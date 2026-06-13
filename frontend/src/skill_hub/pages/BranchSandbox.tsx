@@ -32,6 +32,7 @@ import {
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { skillsApi } from '../../shared/api/client'
+import { useCurrentUser, isAdmin as checkAdmin } from '../../shared/hooks/useAuth'
 import type { Skill, Branch, SkillVersion, EvaluateDraftResponse } from '../../shared/api/client'
 
 const { Title, Text } = Typography
@@ -196,13 +197,9 @@ export default function BranchSandbox() {
   const [commitMessage, setCommitMessage] = useState('')
   const [savingAfterReview, setSavingAfterReview] = useState(false)
 
-  const currentUserId = useMemo(() => {
-    try { return JSON.parse(localStorage.getItem('user') || '{}').id || null } catch { return null }
-  }, [])
-  const currentUserRole = useMemo(() => {
-    try { return JSON.parse(localStorage.getItem('user') || '{}').role || null } catch { return null }
-  }, [])
-  const isAdmin = currentUserRole === 'Admin'
+  const currentUser = useCurrentUser()
+  const currentUserId = currentUser?.id ?? null
+  const isAdmin = checkAdmin(currentUser)
   const isMaster = branch?.branch_type === 'master'
   const isStandard = branch?.branch_type === 'standard'
   const isOwner = branch?.user_id === currentUserId
@@ -258,6 +255,9 @@ export default function BranchSandbox() {
     },
     onError: (err: any) => {
       setEvaluationError(err.response?.data?.detail || err.message || '评估请求失败，您仍可跳过审查直接提交。')
+    },
+    onSettled: () => {
+      setIsEvaluating(false)
     },
   })
 

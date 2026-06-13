@@ -15,7 +15,8 @@ import {
 } from '@ant-design/icons'
 import { useNavigate, useLocation, Outlet } from 'react-router-dom'
 import { useThemeStore } from '../hooks/useTheme'
-import { usersApi, setOnUnauthorized } from '../api/client'
+import { authApi, setOnUnauthorized } from '../api/client'
+import { useCurrentUser } from '../hooks/useAuth'
 import type { ReactNode } from 'react'
 
 const { Header, Content } = Layout
@@ -68,8 +69,8 @@ export default function AppLayout() {
   const [passwordForm, setPasswordForm] = useState({ old_password: '', new_password: '', confirm_password: '' })
   const [changePwdLoading, setChangePwdLoading] = useState(false)
 
-  const user = JSON.parse(localStorage.getItem('user') || '{}')
-  const isAdmin = user.role === 'Admin'
+  const user = useCurrentUser()
+  const isAdmin = user?.role === 'Admin'
 
   const handleLogout = () => {
     localStorage.removeItem('token')
@@ -88,7 +89,7 @@ export default function AppLayout() {
     }
     setChangePwdLoading(true)
     try {
-      await usersApi.changeOwnPassword({
+      await authApi.changePassword({
         old_password: passwordForm.old_password,
         new_password: passwordForm.new_password,
       })
@@ -189,7 +190,7 @@ export default function AppLayout() {
           >
             <AntButton type="text" style={{ color: 'var(--color-text-secondary)' }}>
               <UserOutlined style={{ marginRight: 6 }} />
-              {user.username}
+              {user?.username ?? ''}
             </AntButton>
           </Dropdown>
         </div>

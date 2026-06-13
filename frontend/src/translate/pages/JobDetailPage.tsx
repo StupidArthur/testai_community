@@ -5,7 +5,6 @@ import { useQuery } from '@tanstack/react-query'
 import { getJob, getDownloadUrl } from '../../shared/api/translate-jobs'
 import { useTranslateStream } from '../../shared/hooks/useTranslateStream'
 import { JobProgress } from '../components/JobProgress'
-import { ResultPreview } from '../components/ResultPreview'
 import { StatusBadge } from '../components/StatusBadge'
 
 const { Title } = Typography
@@ -95,12 +94,6 @@ export default function JobDetailPage() {
           </div>
         )}
       </Card>
-
-      {job.status === 'completed' && job.job_id && (
-        <Card title="结果预览">
-          <ResultPreview job={job} />
-        </Card>
-      )}
     </div>
   )
 }

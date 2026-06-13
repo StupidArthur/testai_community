@@ -1,4 +1,6 @@
+import { useState, useEffect } from 'react'
 import { createBrowserRouter, Navigate } from 'react-router-dom'
+import { Spin } from 'antd'
 import Login from './auth/Login'
 import Dashboard from './skill_hub/pages/Dashboard'
 import SkillBranches from './skill_hub/pages/SkillBranches'
@@ -9,6 +11,7 @@ import Portal from './shared/pages/Portal'
 import TranslateHomePage from './translate/pages/HomePage'
 import TranslateJobDetailPage from './translate/pages/JobDetailPage'
 import ChangelogPage from './changelog/ChangelogPage'
+import { refreshCurrentUser, isAdmin } from './shared/hooks/useAuth'
 
 function decodeJWTPayload(token: string): Record<string, unknown> | null {
   try {
@@ -38,6 +41,38 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function GuestRoute({ children }: { children: React.ReactNode }) {
   if (hasValidToken()) {
+    return <Navigate to="/" replace />
+  }
+  return <>{children}</>
+}
+
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const [ready, setReady] = useState(false)
+  const [allowed, setAllowed] = useState(false)
+
+  useEffect(() => {
+    if (!hasValidToken()) {
+      setAllowed(false)
+      setReady(true)
+      return
+    }
+    void refreshCurrentUser().then((user) => {
+      setAllowed(isAdmin(user))
+      setReady(true)
+    })
+  }, [])
+
+  if (!hasValidToken()) {
+    return <Navigate to="/login" replace />
+  }
+  if (!ready) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
+        <Spin />
+      </div>
+    )
+  }
+  if (!allowed) {
     return <Navigate to="/" replace />
   }
   return <>{children}</>
@@ -74,7 +109,7 @@ export const router = createBrowserRouter([
       },
       {
         path: 'admin',
-        element: <AdminPage />,
+        element: <AdminRoute><AdminPage /></AdminRoute>,
       },
       {
         path: 'translate',

@@ -11,6 +11,21 @@ export class ApiError extends Error {
   }
 }
 
+/** 解析 apiFetch / XHR 抛出的错误文案。 */
+export function parseApiErrorMessage(err: unknown, fallback = '操作失败'): string {
+  if (err instanceof ApiError) {
+    try {
+      const parsed = JSON.parse(err.body) as { detail?: string }
+      if (parsed.detail) return parsed.detail
+    } catch {
+      /* 非 JSON */
+    }
+    return err.message
+  }
+  if (err instanceof Error) return err.message
+  return fallback
+}
+
 export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const token = localStorage.getItem('token')
   const headers = new Headers(options?.headers)

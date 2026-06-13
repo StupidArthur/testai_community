@@ -29,7 +29,7 @@ except Exception:  # noqa: BLE001
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.core.database import Base, SessionLocal, engine  # noqa: E402
+from app.platform.database import Base, SessionLocal, engine  # noqa: E402
 from app.auth.models import User, UserRole  # noqa: E402
 from app.auth.service import hash_password  # noqa: E402
 from app.skill_hub.models import Skill, Branch, SkillVersion  # noqa: E402
@@ -164,7 +164,7 @@ def main() -> None:
 
         print(">> 写入 4 个 Branch...")
         master_branch = _add_branch(db, skill.id, admin.id, "master")
-        template_branch = _add_branch(db, skill.id, admin.id, "template")
+        template_branch = _add_branch(db, skill.id, admin.id, "standard")
         alice_personal = _add_branch(db, skill.id, alice.id, "personal")
         arthur_personal = _add_branch(db, skill.id, arthur.id, "personal")
         print(f"   admin  → master(#{master_branch.id}) + template(#{template_branch.id})")

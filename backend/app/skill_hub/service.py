@@ -3,8 +3,9 @@
 """
 from sqlalchemy.orm import Session
 
-from app.skill_hub.models import Skill, SkillVersion
-from app.skill_hub.minimax_client import semantic_diff
+from app.ai_service.client import chat
+from app.skill_hub.llm_prompts import build_commit_diff_messages
+from app.skill_hub.models import Skill, Branch, SkillVersion
 
 
 def get_skill_by_name(db: Session, name: str) -> Skill | None:
@@ -13,6 +14,23 @@ def get_skill_by_name(db: Session, name: str) -> Skill | None:
 
 def get_skill_version(db: Session, version_id: str) -> SkillVersion | None:
     return db.query(SkillVersion).filter(SkillVersion.id == version_id).first()
+
+
+def get_master_latest_version(db: Session, skill: Skill) -> SkillVersion | None:
+    """external_api 发布版：取 master 分支最新版本，而非全 skill 跨分支最高 version_num。"""
+    master = (
+        db.query(Branch)
+        .filter(Branch.skill_id == skill.id, Branch.branch_type == "master")
+        .first()
+    )
+    if not master:
+        return None
+    return (
+        db.query(SkillVersion)
+        .filter(SkillVersion.branch_id == master.id)
+        .order_by(SkillVersion.version_num.desc())
+        .first()
+    )
 
 
 def get_latest_version_num(db: Session, branch_id: int) -> int:
@@ -48,6 +66,9 @@ async def generate_ai_commit_summary(old_version: SkillVersion | None, new_versi
     try:
         old_payload = version_to_langgpt_payload(old_version)
         new_payload = version_to_langgpt_payload(new_version)
-        return await semantic_diff(old_payload, new_payload)
+        return await chat(
+            build_commit_diff_messages(old_payload, new_payload),
+            temperature=0.3,
+        )
     except Exception:
         return ""  # 失败兜底：留空，不阻塞主流程

@@ -17,7 +17,7 @@ export interface JobView {
   error: string | null
 }
 
-export interface UploadResponse {
+export interface CreateJobResponse {
   job_id: string
   status: string
   queue_ahead: number
@@ -26,10 +26,11 @@ export interface UploadResponse {
   current_step: number
 }
 
-export function uploadJob(
+/** multipart 上传 ZIP 创建翻译任务。 */
+export function createJob(
   file: File,
   name?: string,
-): Promise<UploadResponse> {
+): Promise<CreateJobResponse> {
   return new Promise((resolve, reject) => {
     const token = localStorage.getItem('token')
     const xhr = new XMLHttpRequest()
@@ -48,16 +49,16 @@ export function uploadJob(
       } else {
         try {
           const detail = JSON.parse(xhr.responseText)?.detail
-          reject(new Error(detail || `上传失败: ${xhr.status}`))
+          reject(new Error(detail || `创建任务失败: ${xhr.status}`))
         } catch {
-          reject(new Error(`上传失败: ${xhr.status}`))
+          reject(new Error(`创建任务失败: ${xhr.status}`))
         }
       }
     })
 
     xhr.addEventListener('error', () => reject(new Error('Network error')))
 
-    xhr.open('POST', '/api/translate/upload')
+    xhr.open('POST', '/api/translate/jobs')
     if (token) {
       xhr.setRequestHeader('Authorization', `Bearer ${token}`)
     }
@@ -74,9 +75,10 @@ export async function getJob(jobId: string): Promise<JobView> {
 }
 
 export async function cancelJob(jobId: string): Promise<{ status: string }> {
-  return apiFetch<{ status: string }>(`/api/translate/jobs/${encodeURIComponent(jobId)}`, {
-    method: 'DELETE',
-  })
+  return apiFetch<{ status: string }>(
+    `/api/translate/jobs/${encodeURIComponent(jobId)}/cancel`,
+    { method: 'POST' },
+  )
 }
 
 export async function deleteJobRecord(jobId: string): Promise<{ message: string }> {
@@ -85,17 +87,13 @@ export async function deleteJobRecord(jobId: string): Promise<{ message: string 
   })
 }
 
-export function getPromptsDownloadUrl(): string {
-  const token = localStorage.getItem('token')
-  return `/api/translate/prompts${token ? `?token=${encodeURIComponent(token)}` : ''}`
+export function getPromptsDownloadUrl(): Promise<string> {
+  return fetchTicket().then(
+    (ticket) => `/api/translate/prompts?ticket=${encodeURIComponent(ticket)}`,
+  )
 }
 
 export async function getDownloadUrl(jobId: string): Promise<string> {
   const ticket = await fetchTicket()
   return `/api/translate/jobs/${encodeURIComponent(jobId)}/download?ticket=${encodeURIComponent(ticket)}`
-}
-
-export async function getFileUrl(jobId: string, path: string): Promise<string> {
-  const ticket = await fetchTicket()
-  return `/api/translate/jobs/${encodeURIComponent(jobId)}/file?p=${encodeURIComponent(path)}&ticket=${encodeURIComponent(ticket)}`
 }

@@ -13,7 +13,7 @@ import uuid
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, func, UniqueConstraint
 from sqlalchemy.orm import relationship
 
-from app.core.database import Base
+from app.platform.database import Base
 
 
 def generate_uuid() -> str:

@@ -2,10 +2,12 @@ import { ConfigProvider, theme } from 'antd'
 import { RouterProvider } from 'react-router-dom'
 import { router } from './router'
 import { useThemeStore } from './shared/hooks/useTheme'
+import { useAuthBootstrap } from './shared/hooks/useAuth'
 import { antdTheme, antdThemeDark } from './shared/styles/tokens'
 
 export default function App() {
   const mode = useThemeStore((s) => s.mode)
+  useAuthBootstrap()
   return (
     <ConfigProvider
       theme={{
