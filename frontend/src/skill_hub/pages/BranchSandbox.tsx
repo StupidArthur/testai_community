@@ -203,6 +203,7 @@ export default function BranchSandbox() {
   const isMaster = branch?.branch_type === 'master'
   const isStandard = branch?.branch_type === 'standard'
   const isOwner = branch?.user_id === currentUserId
+  const canEditBranch = !isMaster || isAdmin
   const canMerge = isAdmin && !isMaster && isLatestVersion
 
   useEffect(() => {
@@ -306,7 +307,7 @@ export default function BranchSandbox() {
   })
 
   const handleCommit = () => {
-    if (!isLatestVersion) return
+    if (!isLatestVersion || !canEditBranch) return
     let draft = form
     if (editMode === 'raw') {
       const { form: parsed, warnings } = parseToFormData(rawText)
@@ -363,6 +364,8 @@ export default function BranchSandbox() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
           <Space size={6}>
             <Tag color="cyan" style={{ margin: 0 }}>v{v.version_num}</Tag>
+            <Tag style={{ margin: 0 }}>rev {v.revision ?? 0}</Tag>
+            {v.source_version_id && <Tag color="purple" style={{ margin: 0 }}>溯源</Tag>}
             {isLatest && <Tag color="green" style={{ margin: 0 }}><ClockCircleOutlined /> HEAD</Tag>}
           </Space>
           <Text type="secondary" style={{ fontSize: 11 }}>{v.created_at?.slice(0, 16) || ''}</Text>
@@ -388,12 +391,17 @@ export default function BranchSandbox() {
         </div>
       )
     }
-    const disabled = !isLatestVersion
+    const disabled = !isLatestVersion || !canEditBranch
     return (
       <>
-        {disabled && (
+        {disabled && !isLatestVersion && (
           <Alert type="warning" showIcon style={{ marginBottom: 20 }}
             message={<span>⚠️ 当前正在查看历史版本 v{selectedVersion.version_num}，<Text strong>只读模式</Text>。如要修改请切到最新版本（HEAD）。</span>}
+          />
+        )}
+        {disabled && isLatestVersion && isMaster && !isAdmin && (
+          <Alert type="info" showIcon style={{ marginBottom: 20 }}
+            message={<span>master 为发布主干，<Text strong>仅 Admin 可编辑</Text>。请在自己的 personal 分支修改后，由 Admin Merge 发布。</span>}
           />
         )}
         {editMode === 'structured' ? (
@@ -556,6 +564,7 @@ export default function BranchSandbox() {
               </Text>
               {selectedVersion && <Tag color="cyan" style={{ margin: 0 }}>v{selectedVersion.version_num}</Tag>}
               {!isLatestVersion ? <Tag color="orange" style={{ margin: 0 }}><EyeOutlined /> HISTORY · 只读</Tag>
+                : !canEditBranch ? <Tag color="default" style={{ margin: 0 }}><EyeOutlined /> MASTER · 只读</Tag>
                 : <Tag color="green" style={{ margin: 0 }}><EditOutlined /> EDIT · 可编辑</Tag>}
             </Space>
             <Space>
@@ -572,7 +581,7 @@ export default function BranchSandbox() {
           <div style={{ flex: 1, overflowY: 'auto', padding: '20px 28px 60px' }}>
             {versionsLoading ? <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div> : renderEditor()}
           </div>
-          {isLatestVersion && selectedVersion && (
+          {isLatestVersion && selectedVersion && canEditBranch && (
             <div style={{
               position: 'sticky', bottom: 0, padding: '14px 28px',
               background: 'linear-gradient(to top, var(--color-bg-secondary) 70%, transparent)',

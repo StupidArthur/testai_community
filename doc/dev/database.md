@@ -41,7 +41,7 @@ erDiagram
     string skill_id FK
     int branch_id FK
     int version_num
-    text role profile background goals
+    text payload
   }
 
   changelog_entries {
@@ -79,8 +79,9 @@ erDiagram
 |------|----------|------|
 | `users` | **auth** | 登录账号；被 skill_hub、platform.changelog 外键引用 |
 | `skills` | **skill_hub** | Skill 仓库根实体 |
+| `skill_categories` | **skill_hub** | 平台分类目录（Admin 配置） |
 | `branches` | **skill_hub** | 分支（master / standard / personal） |
-| `skill_versions` | **skill_hub** | 九维 Prompt 不可变版本快照 |
+| `skill_versions` | **skill_hub** | LangGPT payload 不可变版本快照 |
 | `changelog_entries` | **platform.changelog** | 平台版本更新说明 |
 | `translate_jobs` | **translate** | 翻译任务元数据（**无 FK**，`username` 为冗余字符串） |
 | `llm_tasks` | **external_api** | 外部异步 LLM 执行任务 |
@@ -114,6 +115,8 @@ erDiagram
 | name | 唯一标识，Integration 按 name 查询 |
 | display_name | 展示名 |
 | definition | 详细定义文本 |
+| category | 平台分类 id（见 `skill_hub/categories.py`） |
+| tags | JSON 数组字符串，自由标签 |
 
 **branches**
 
@@ -124,11 +127,19 @@ erDiagram
 | branch_type | `master` / `standard` / `personal` |
 | 唯一约束 | (skill_id, user_id, branch_type) |
 
-**skill_versions** — 九维字段
+**skill_versions** — LangGPT payload 单字段存储九维内容
 
-`role`, `profile`, `background`, `goals`, `constraints`, `core_skills`, `workflows`, `output_format`, `initialization`
+| 字段 | 说明 |
+|------|------|
+| payload | LangGPT Markdown（`# Role` / `## Profile` / …），**唯一内容存储** |
+| version_num | 分支内递增 |
+| revision | Skill 级全局递增序号 |
+| source_version_id | Merge/Fork 溯源（FK → skill_versions.id，可空） |
+| commit_message | 用户提交说明 |
+| ai_commit_summary | 异步 LLM 生成的变更摘要 |
+| extra_metadata | JSON 扩展（可选） |
 
-另：`version_num`（分支内递增）、`commit_message`、`ai_commit_summary`（异步 LLM 生成）。
+API 响应仍暴露九维字段，由 `skill_version_to_out()` 从 `payload` 解析。
 
 ---
 
@@ -154,6 +165,8 @@ erDiagram
 | result_zip_path | 结果 ZIP 路径，可空 |
 | current_phase / current_step / total_steps | 进度 |
 | message / error | 状态文案 |
+| phase2_skill_ref_json | Phase2 SkillRef JSON（可空） |
+| phase2_resolved_version_id | Phase2 启动时固化的 version_id |
 
 **模块关系**：仅 translate 读写；与 `users` 逻辑关联但不建外键。
 
@@ -161,7 +174,7 @@ erDiagram
 
 ### 2.5 llm_tasks / service_accounts（external_api）
 
-**llm_tasks**：外部调用 `execute-async` 后写入；`skill_name` 字符串关联 skills.name（无 FK）。
+**llm_tasks**：外部调用 `execute-async` 后写入；`skill_name` 字符串关联 skills.name（无 FK）。可选 `skill_ref_json`、`resolved_version_id`。
 
 **service_accounts**：存储 API Key 指纹与 bcrypt hash，供 `X-API-Key` 校验。
 

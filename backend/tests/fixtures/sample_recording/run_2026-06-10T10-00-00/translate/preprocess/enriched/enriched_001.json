@@ -33,21 +33,21 @@
   "form_state_changes": {
     "changed": {},
     "added": {
-      "//*[@id='agree']": {
-        "value": "on",
-        "checked": false
-      },
       "//*[@id='password']": {
         "value": ""
       },
       "//*[@id='username']": {
         "value": ""
+      },
+      "//*[@id='agree']": {
+        "value": "on",
+        "checked": false
       }
     },
     "removed": {},
     "hasChanges": true
   },
-  "form_state_change_text": "[新增] //*[@id='agree']: \"{'value': 'on', 'checked': False}\"\n[新增] //*[@id='password']: \"{'value': ''}\"\n[新增] //*[@id='username']: \"{'value': ''}\"",
+  "form_state_change_text": "[新增] //*[@id='password']: \"{'value': ''}\"\n[新增] //*[@id='username']: \"{'value': ''}\"\n[新增] //*[@id='agree']: \"{'value': 'on', 'checked': False}\"",
   "classification": {
     "category": "form-input",
     "element_type": "input",

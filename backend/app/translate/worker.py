@@ -120,6 +120,25 @@ async def _execute_job(job: J.Job) -> None:
 async def _run_pipeline(job: J.Job) -> None:
     loop = asyncio.get_running_loop()
 
+    phase2_system_prompt = None
+    from app.translate.skill_refs import PHASE2_SKILL_REF
+    if PHASE2_SKILL_REF is not None:
+        from app.platform.database import SessionLocal
+        from app.skill_hub.service import resolve_skill_ref
+        from app.translate.models_db import TranslateJob as TranslateJobRow
+
+        db = SessionLocal()
+        try:
+            resolved = resolve_skill_ref(db, PHASE2_SKILL_REF)
+            phase2_system_prompt = resolved.payload
+            row = db.query(TranslateJobRow).filter(TranslateJobRow.id == job.id).first()
+            if row:
+                row.phase2_skill_ref_json = PHASE2_SKILL_REF.model_dump_json()
+                row.phase2_resolved_version_id = resolved.version_id
+                db.commit()
+        finally:
+            db.close()
+
     J._push_event(
         job,
         {
@@ -144,6 +163,7 @@ async def _run_pipeline(job: J.Job) -> None:
         phase1_batch_size=PHASE1_BATCH_SIZE,
         phase2_window_size=PHASE2_WINDOW_SIZE,
         phase4_window_size=PHASE4_WINDOW_SIZE,
+        phase2_system_prompt=phase2_system_prompt,
         client=None,
         log_instance=log,
         progress_callback=cb,

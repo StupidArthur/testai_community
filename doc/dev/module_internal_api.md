@@ -134,13 +134,20 @@ flowchart TB
 | 符号 | 用途 | 允许调用方 |
 |------|------|------------|
 | `get_skill_by_name(db, name)` | 按 name 查 Skill | external_api |
-| `get_master_latest_version(db, skill)` | master 最新版 | external_api |
-| `version_to_langgpt_payload(v)` | 九维 → Markdown | external_api, skills_router |
-| `get_skill_version` | 按 id 查版本 | skills_router（内部） |
-| `get_latest_version_num` | 分支版本号 | skills_router（内部） |
+| `get_master_latest_version(db, skill)` | master 最新版（语法糖） | external_api |
+| `resolve_skill_ref(db, ref)` | **SkillRef 唯一解析入口** | external_api, translate, 各业务 |
+| `get_skill_version_by_id(db, id)` | 按 id 查版本 | 经 resolve 间接使用 |
+| `version_to_langgpt_payload(v)` | payload 文本 | external_api, skills_router |
+| `version_to_fields(v)` | 九维 dict | external_api |
+| `build_version_locator_for_version(db, v)` | 人类可读定位串 | skills_router |
+| `allocate_version(db, skill_id, branch_id)` | 分配 version_num + revision | skills_router（内部） |
 | `generate_ai_commit_summary` | 异步 commit 摘要 | skills_router（内部） |
 
+**Pydantic 模型（可 import）**：`SkillRef`, `ResolvedSkill`, `ResolveMode` — 见 `app.skill_hub.skill_ref`。
+
 **模型（仅 platform.registry 建表 + ORM FK）**：`Skill`, `Branch`, `SkillVersion` — 其它 App **不得**直接 query，应走 `service`。
+
+详细设计见 [skill_ref_design.md](../skill_ref_design.md)。
 
 **不对外**：`skills_router`, `utils`, `schemas` 给外部 App。
 

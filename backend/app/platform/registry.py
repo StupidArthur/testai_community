@@ -11,7 +11,8 @@ from app.auth import bootstrap as auth_bootstrap
 from app.auth.models import User
 from app.auth.router import router as auth_router
 
-from app.skill_hub.models import Branch, Skill, SkillVersion
+from app.skill_hub import bootstrap as skill_hub_bootstrap
+from app.skill_hub.models import Branch, Skill, SkillCategory, SkillVersion
 from app.skill_hub.skills_router import router as skill_router
 
 from app.translate import bootstrap as translate_bootstrap
@@ -37,7 +38,8 @@ APPS: tuple[AppModule, ...] = (
     AppModule(
         name="skills",
         router=skill_router,
-        models=(Skill, Branch, SkillVersion),
+        models=(Skill, SkillCategory, Branch, SkillVersion),
+        startup_sync=skill_hub_bootstrap.ensure_skill_hub_startup,
     ),
     AppModule(
         name="external_api",

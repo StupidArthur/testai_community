@@ -18,5 +18,7 @@ class TranslateJob(Base):
     total_steps = Column(Integer, default=0)
     message = Column(Text, default="")
     error = Column(Text, nullable=True)
+    phase2_skill_ref_json = Column(Text, nullable=True)
+    phase2_resolved_version_id = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

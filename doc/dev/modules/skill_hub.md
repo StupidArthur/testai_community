@@ -72,13 +72,19 @@ flowchart LR
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
-| GET | `/skills` | JWT | Skill 列表 |
-| POST | `/skills` | JWT Admin | 创建 Skill + master/standard 分支 + v0 |
+| GET | `/skills/tags/suggestions` | JWT | 历史 tag 联想（`?q=`） |
+| GET | `/skills/categories` | JWT | 启用中的分类 |
+| GET | `/skills/categories/manage` | JWT Admin | 全部分类（含停用） |
+| POST | `/skills/categories` | JWT Admin | 新建分类 |
+| PUT | `/skills/categories/{id}` | JWT Admin | 更新分类 / 启停 |
+| GET | `/skills` | JWT | Skill 列表（可选 `?category=` 筛选） |
+| POST | `/skills` | JWT | 创建 Skill（**category 必选**，tags 可选） |
+| PATCH | `/skills/{skill_id}` | JWT | 更新 tags（创建者/Admin）或 category（Admin） |
 | GET | `/skills/{skill_id}` | JWT | Skill 详情 |
 | GET | `/skills/{skill_id}/branches` | JWT | 分支列表（含 user 信息） |
 | POST | `/skills/{skill_id}/branches` | JWT | 当前用户创建 personal 分支（幂等） |
 | GET | `/skills/{skill_id}/branches/{branch_id}/versions` | JWT | 版本列表 |
-| POST | `/skills/{skill_id}/branches/{branch_id}/versions` | JWT | 提交新版本（异步 AI summary） |
+| POST | `/skills/{skill_id}/branches/{branch_id}/versions` | JWT | 提交新版本；master 仅 Admin |
 | POST | `/skills/{skill_id}/merge` | JWT Admin | 合并到 master |
 | POST | `/skills/{skill_id}/branches/{branch_id}/fork` | JWT | Fork 到 personal |
 | POST | `/skills/{skill_id}/branches/{branch_id}/evaluate-draft` | JWT | Commit 前 LLM 评估 |
@@ -113,7 +119,7 @@ flowchart LR
 | 依赖 | 用途 |
 |------|------|
 | auth `get_current_user` | 所有 skills 路由 |
-| auth `UserRole.Admin` | 创建 Skill、Merge |
+| auth `UserRole.Admin` | Merge；**master 写入** |
 | `platform.database` | ORM |
 | ai_service `client.chat` | LLM 调用；prompt 见本模块 `llm_prompts.py` |
 
@@ -130,6 +136,7 @@ flowchart LR
 | `get_skill_by_name` | `(db, name) → Skill \| None` | **external_api** |
 | `get_master_latest_version` | `(db, skill) → SkillVersion \| None` | **external_api** |
 | `version_to_langgpt_payload` | `(v) → str` | **external_api**, skills_router |
+| `version_to_fields` | `(v) → dict` | **external_api** |
 | `get_skill_version` | `(db, version_id)` | 仅 skills_router（模块内） |
 | `get_latest_version_num` | `(db, branch_id)` | 仅 skills_router（模块内） |
 | `generate_ai_commit_summary` | async | 仅 skills_router（模块内） |
@@ -158,9 +165,33 @@ flowchart LR
 |----|------|
 | `skills` | Skill 根 |
 | `branches` | FK → skills, users |
-| `skill_versions` | FK → skills, branches |
+| `skill_versions` | FK → skills, branches；**`payload` 单列**存 LangGPT 九维 Markdown |
+
+**分支写权限**
+
+| 分支 | 谁可写 |
+|------|--------|
+| `master` | **仅 Admin**（含 Merge；创建者不可直接 Commit） |
+| `standard` | 创建者（分支主人）或 Admin |
+| `personal` | 分支主人或 Admin |
+
+创建 Skill 时：`standard.user_id` = 创建者；`master.user_id` = 平台 Admin。
+
+**存储策略**：DB 只存 `payload`；HTTP API 仍暴露九维 JSON 字段（`skill_version_to_out` 读时解析，写时 `dimensions_to_payload` 组装）。前端无需改动。
 
 详见 [database.md](../database.md)。
+
+---
+
+## 6. 跨模块版本引用（SkillRef）
+
+- **模型**：`skill_ref.py` — `SkillRef` / `ResolvedSkill`
+- **解析**：`service.resolve_skill_ref()` — 唯一入口
+- **HTTP**：`POST /api/skills/resolve`
+- **版本字段**：`revision`（Skill 全局）、`source_version_id`（Merge/Fork 溯源）
+- **前端**：`SkillRefPicker` / `SkillRefSummary`（Admin 面板可调试）
+
+业务模块存 `skill_ref_json`，任务启动时固化 `resolved_version_id`。详见 [skill_ref_design.md](../skill_ref_design.md)。
 
 ---
 

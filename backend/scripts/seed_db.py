@@ -32,7 +32,9 @@ sys.path.insert(0, str(BACKEND_ROOT))
 from app.platform.database import Base, SessionLocal, engine  # noqa: E402
 from app.auth.models import User, UserRole  # noqa: E402
 from app.auth.service import hash_password  # noqa: E402
-from app.skill_hub.models import Skill, Branch, SkillVersion  # noqa: E402
+from app.skill_hub.models import Skill, Branch, SkillVersion, SkillCategory  # noqa: E402
+from app.skill_hub.bootstrap import ensure_default_categories  # noqa: E402
+from app.skill_hub.utils import dimensions_to_payload  # noqa: E402
 
 # ============================================================
 # 9 维模板数据：standard（标准模板）—— 全员 fork 起点
@@ -122,15 +124,26 @@ def _add_branch(db, skill_id: str, user_id: int, branch_type: str) -> Branch:
     return b
 
 
-def _add_version(db, skill_id: str, branch_id: int, version_num: int, payload: dict,
-                 commit_message: str, ai_summary: str) -> SkillVersion:
+def _add_version(
+    db,
+    skill_id: str,
+    branch_id: int,
+    version_num: int,
+    revision: int,
+    payload: dict,
+    commit_message: str,
+    ai_summary: str,
+    source_version_id: str | None = None,
+) -> SkillVersion:
     v = SkillVersion(
         skill_id=skill_id,
         branch_id=branch_id,
         version_num=version_num,
+        revision=revision,
+        source_version_id=source_version_id,
         commit_message=commit_message,
         ai_commit_summary=ai_summary,
-        **payload,
+        payload=dimensions_to_payload(**payload),
     )
     db.add(v)
     db.flush()
@@ -141,6 +154,7 @@ def main() -> None:
     print(">> drop_all + create_all (彻底重置库结构)...")
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+    ensure_default_categories(engine)
 
     db = SessionLocal()
     try:
@@ -157,6 +171,8 @@ def main() -> None:
             name="API_Test_Generator",
             display_name="API 测试用例生成专家",
             definition="为 QA 团队生成高覆盖率的 API 测试用例，支持 Swagger/YApi/JSON 文档。",
+            category="api_testing",
+            tags='["openapi", "回归测试"]',
         )
         db.add(skill)
         db.flush()
@@ -172,23 +188,27 @@ def main() -> None:
         print(f"   arthur → personal(#{arthur_personal.id})")
 
         print(">> 写入 4 个 v0 版本...")
+        rev = 0
         _add_version(
-            db, skill.id, template_branch.id, 0, STANDARD_9D,
+            db, skill.id, template_branch.id, 0, rev, STANDARD_9D,
             commit_message="initial 9-dimension standard template",
             ai_summary="🟢 初始版本：建立了 9 维结构骨架，6 个核心 Agent 设定维度全部填充。",
         )
+        rev += 1
         _add_version(
-            db, skill.id, master_branch.id, 0, MASTER_9D,
+            db, skill.id, master_branch.id, 0, rev, MASTER_9D,
             commit_message="initial master seed",
             ai_summary="🟢 初始主干：与 standard v0 对齐作为发布起点。",
         )
+        rev += 1
         _add_version(
-            db, skill.id, alice_personal.id, 0, STANDARD_9D,
+            db, skill.id, alice_personal.id, 0, rev, STANDARD_9D,
             commit_message="alice's fork of standard v0",
             ai_summary="🔵 Fork 自 standard v0，alice 的个人分支。",
         )
+        rev += 1
         _add_version(
-            db, skill.id, arthur_personal.id, 0, STANDARD_9D,
+            db, skill.id, arthur_personal.id, 0, rev, STANDARD_9D,
             commit_message="arthur's fork of standard v0",
             ai_summary="🔵 Fork 自 standard v0，arthur 的个人分支。",
         )

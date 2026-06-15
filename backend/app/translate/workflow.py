@@ -39,6 +39,7 @@ async def run_workflow(
     phase1_batch_size: int = PHASE1_BATCH_SIZE,
     phase2_window_size: int = PHASE2_WINDOW_SIZE,
     phase4_window_size: int = PHASE4_WINDOW_SIZE,
+    phase2_system_prompt: str | None = None,
     client=None,
     log_instance=None,
     progress_callback: ProgressCallback | None = None,
@@ -96,6 +97,7 @@ async def run_workflow(
         run_dir, steps,
         window_size=phase2_window_size, audit=audit, log=_log,
         progress_callback=_wrapped,
+        phase2_system_prompt=phase2_system_prompt,
     )
 
     _log.info(f"[Phase 2] 完成")

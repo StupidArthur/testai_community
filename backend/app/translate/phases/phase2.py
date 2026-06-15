@@ -260,6 +260,7 @@ async def run_phase2(
     audit: LlmAudit,
     log=None,
     progress_callback: ProgressCallback | None = None,
+    phase2_system_prompt: str | None = None,
 ) -> tuple[Phase2Result, int]:
     """
     Phase 2：滑动窗口归纳测试用例。
@@ -282,7 +283,7 @@ async def run_phase2(
         return Phase2Result(), 0
 
     case_blocks: list[dict] = []
-    system_prompt = build_phase2_window_system_prompt()
+    system_prompt = build_phase2_window_system_prompt(phase2_system_prompt)
     max_rounds = max_sliding_window_rounds(len(slim_all), window_size)
 
     cursor = 0

@@ -5,8 +5,10 @@ from __future__ import annotations
 from .loader import load_prompt_md
 
 
-def build_phase2_window_system_prompt() -> str:
-    """构建 Phase 2 单窗口 System Prompt"""
+def build_phase2_window_system_prompt(system_prompt_override: str | None = None) -> str:
+    """构建 Phase 2 单窗口 System Prompt；override 来自 skill_hub resolve。"""
+    if system_prompt_override:
+        return system_prompt_override
     return load_prompt_md("steps-2-cases-skill.md")
 
 

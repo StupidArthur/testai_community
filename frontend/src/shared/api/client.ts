@@ -1,5 +1,5 @@
 import axios, { AxiosError } from 'axios'
-import type { User, Skill, Branch, SkillVersion, EvaluateDraftResponse, ForkResponse } from '../types/models'
+import type { User, Skill, SkillCategory, Branch, SkillVersion, EvaluateDraftResponse, ForkResponse, SkillRef, ResolvedSkill } from '../types/models'
 
 export const apiClient = axios.create({
   baseURL: '/api',
@@ -40,7 +40,7 @@ apiClient.interceptors.response.use(
   }
 )
 
-export type { User, Skill, Branch, SkillVersion, EvaluateDraftResponse, ForkResponse }
+export type { User, Skill, SkillCategory, Branch, SkillVersion, EvaluateDraftResponse, ForkResponse, SkillRef, ResolvedSkill }
 
 export const authApi = {
   login: (data: { username: string; password: string }) =>
@@ -58,10 +58,28 @@ export const authApi = {
 }
 
 export const skillsApi = {
-  list: () => apiClient.get<Skill[]>('/skills'),
+  listCategories: () => apiClient.get<SkillCategory[]>('/skills/categories'),
+  listCategoriesManage: () => apiClient.get<SkillCategory[]>('/skills/categories/manage'),
+  createCategory: (data: { id: string; label: string; sort_order?: number }) =>
+    apiClient.post<SkillCategory>('/skills/categories', data),
+  updateCategory: (
+    categoryId: string,
+    data: { label?: string; sort_order?: number; enabled?: boolean },
+  ) => apiClient.put<SkillCategory>(`/skills/categories/${categoryId}`, data),
+  tagSuggestions: (q?: string) =>
+    apiClient.get<{ tags: string[] }>('/skills/tags/suggestions', { params: q ? { q } : {} }),
+  list: (category?: string) =>
+    apiClient.get<Skill[]>('/skills', { params: category ? { category } : {} }),
   get: (skillId: string) => apiClient.get<Skill>(`/skills/${skillId}`),
-  create: (data: { name: string; display_name: string; definition?: string }) =>
-    apiClient.post<Skill>('/skills', data),
+  patch: (skillId: string, data: { category?: string; tags?: string[] }) =>
+    apiClient.patch<Skill>(`/skills/${skillId}`, data),
+  create: (data: {
+    name: string
+    display_name: string
+    definition?: string
+    category: string
+    tags?: string[]
+  }) => apiClient.post<Skill>('/skills', data),
   listBranches: (skillId: string) =>
     apiClient.get<Branch[]>(`/skills/${skillId}/branches`),
   createBranch: (skillId: string) =>
@@ -84,4 +102,6 @@ export const skillsApi = {
     apiClient.post<ForkResponse>(`/skills/${skillId}/branches/${branchId}/fork`),
   merge: (skillId: string, data: { source_version_id: string; commit_message?: string }) =>
     apiClient.post(`/skills/${skillId}/merge`, data),
+  resolve: (ref: SkillRef) =>
+    apiClient.post<ResolvedSkill>('/skills/resolve', ref),
 }

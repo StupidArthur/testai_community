@@ -19,12 +19,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.platform.database import get_db, SessionLocal
-from app.auth.service import get_current_user
+from app.auth.service import get_current_user, RequireRole
 from app.auth.models import User, UserRole
-from app.skill_hub.models import Skill, Branch, SkillVersion
+from app.skill_hub.models import Skill, Branch, SkillVersion, SkillCategory
 from app.skill_hub.schemas import (
     SkillCreate,
+    SkillUpdate,
     SkillOut,
+    SkillCategoryOut,
+    SkillCategoryCreate,
+    SkillCategoryUpdate,
+    TagSuggestionOut,
     BranchOut,
     VersionCreate,
     SkillVersionOut,
@@ -33,13 +38,35 @@ from app.skill_hub.schemas import (
     ForkResponse,
     EvaluateRequest,
     EvaluateResponse,
+    ResolvedSkillOut,
+    skill_version_to_out,
+    skill_to_out,
+    skill_category_to_out,
+)
+from app.skill_hub.skill_meta import tags_to_json
+from app.skill_hub.category_service import (
+    list_enabled_categories,
+    list_all_categories,
+    assert_category_enabled,
+    assert_category_exists,
+    validate_category_id_format,
+    create_category,
+    update_category,
+    collect_tag_suggestions,
+    get_skill_standard_owner_id,
+    validate_tags_list,
 )
 from app.skill_hub.service import (
     get_skill_by_name,
-    get_latest_version_num,
+    allocate_version,
     generate_ai_commit_summary,
     version_to_langgpt_payload,
+    get_primary_admin_user,
+    assert_can_write_branch,
+    resolve_skill_ref,
 )
+from app.skill_hub.skill_ref import SkillRef
+from app.skill_hub.utils import dimensions_to_payload
 from app.ai_service.client import chat
 from app.skill_hub.llm_prompts import build_evaluate_draft_messages
 
@@ -93,14 +120,89 @@ async def _async_diff_task(version_id: str) -> None:
 
 
 # ============================================================
+# 分类 / 标签（须在 /{skill_id} 之前注册）
+# ============================================================
+@router.get("/tags/suggestions", response_model=TagSuggestionOut)
+def tag_suggestions(
+    q: str | None = None,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """全站已使用过的 tags，供创建时联想选择。"""
+    return TagSuggestionOut(tags=collect_tag_suggestions(db, q=q, limit=limit))
+
+
+@router.get("/categories/manage", response_model=list[SkillCategoryOut])
+def list_skill_categories_manage(
+    db: Session = Depends(get_db),
+    _admin: User = Depends(RequireRole(["Admin"])),
+):
+    """Admin：全部分类（含停用）。"""
+    return [skill_category_to_out(c) for c in list_all_categories(db)]
+
+
+@router.post("/categories", response_model=SkillCategoryOut, status_code=status.HTTP_201_CREATED)
+def create_skill_category(
+    data: SkillCategoryCreate,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(RequireRole(["Admin"])),
+):
+    cid = validate_category_id_format(data.id)
+    row = create_category(db, cid, data.label, data.sort_order)
+    return skill_category_to_out(row)
+
+
+@router.put("/categories/{category_id}", response_model=SkillCategoryOut)
+def update_skill_category(
+    category_id: str,
+    data: SkillCategoryUpdate,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(RequireRole(["Admin"])),
+):
+    row = update_category(
+        db,
+        category_id,
+        label=data.label,
+        sort_order=data.sort_order,
+        enabled=data.enabled,
+    )
+    return skill_category_to_out(row)
+
+
+@router.get("/categories", response_model=list[SkillCategoryOut])
+def list_skill_categories(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """启用中的分类（创建 Skill 下拉 / 列表筛选）。"""
+    return [skill_category_to_out(c) for c in list_enabled_categories(db)]
+
+
+@router.post("/resolve", response_model=ResolvedSkillOut)
+def resolve_skill(
+    ref: SkillRef,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """解析 SkillRef → ResolvedSkill（pin / branch_head）。"""
+    return resolve_skill_ref(db, ref)
+
+
+# ============================================================
 # Skill 列表 / 详情 / 创建
 # ============================================================
 @router.get("", response_model=list[SkillOut])
 def list_skills(
+    category: str | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return db.query(Skill).order_by(Skill.created_at.desc()).all()
+    q = db.query(Skill)
+    if category:
+        q = q.filter(Skill.category == category.strip())
+    rows = q.order_by(Skill.created_at.desc()).all()
+    return [skill_to_out(s, db) for s in rows]
 
 
 @router.post("", response_model=SkillOut)
@@ -115,23 +217,34 @@ def create_skill(
             detail=f"Skill 名称已存在：{data.name}",
         )
 
-    skill = Skill(name=data.name, display_name=data.display_name, definition=data.definition)
+    assert_category_enabled(db, data.category)
+
+    skill = Skill(
+        name=data.name,
+        display_name=data.display_name,
+        definition=data.definition,
+        category=data.category,
+        tags=tags_to_json(validate_tags_list(data.tags)),
+    )
     db.add(skill)
     db.flush()  # 拿到 id
 
-    # 自动建 master + standard 两个 branch
-    master_branch = Branch(skill_id=skill.id, user_id=current_user.id, branch_type="master")
-    template_branch = Branch(skill_id=skill.id, user_id=current_user.id, branch_type="standard")
+    admin_user = get_primary_admin_user(db)
+    if not admin_user:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="系统未配置 Admin 用户，无法创建 Skill",
+        )
+
+    # master 归 Admin；standard 归创建者（维护模板起点）
+    master_branch = Branch(skill_id=skill.id, user_id=admin_user.id, branch_type="master")
+    standard_branch = Branch(skill_id=skill.id, user_id=current_user.id, branch_type="standard")
     db.add(master_branch)
-    db.add(template_branch)
+    db.add(standard_branch)
     db.flush()
 
     # 为 standard 自动生成 v0 初始版本
-    initial_version = SkillVersion(
-        skill_id=skill.id,
-        branch_id=template_branch.id,
-        version_num=0,
-        commit_message="initial standard v0",
+    initial_payload = dimensions_to_payload(
         role="技能助手",
         profile="- Author: System\n- Version: 0.1\n- Language: 中文",
         background="",
@@ -141,12 +254,54 @@ def create_skill(
         workflows="",
         output_format="",
         initialization="作为提示词助手，你必须遵守上述规则，并使用中文与用户对话。",
+    )
+    initial_version = SkillVersion(
+        skill_id=skill.id,
+        branch_id=standard_branch.id,
+        version_num=0,
+        revision=0,
+        commit_message="initial standard v0",
+        payload=initial_payload,
         ai_commit_summary="🟢 初始版本：建立了 9 维结构骨架。",
     )
     db.add(initial_version)
     db.commit()
     db.refresh(skill)
-    return skill
+    return skill_to_out(skill, db)
+
+
+@router.patch("/{skill_id}", response_model=SkillOut)
+def update_skill_metadata(
+    skill_id: str,
+    data: SkillUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """更新 Skill 元数据：category 仅 Admin；tags 为 standard 创建者或 Admin。"""
+    skill = db.query(Skill).filter(Skill.id == skill_id).first()
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill 不存在")
+
+    is_admin = current_user.role == UserRole.Admin
+    owner_id = get_skill_standard_owner_id(db, skill_id)
+    is_creator = owner_id is not None and owner_id == current_user.id
+
+    if data.category is not None:
+        if not is_admin:
+            raise HTTPException(status_code=403, detail="仅 Admin 可修改 category")
+        skill.category = assert_category_exists(db, data.category)
+
+    if data.tags is not None:
+        if not is_admin and not is_creator:
+            raise HTTPException(status_code=403, detail="仅 Skill 创建者或 Admin 可修改 tags")
+        skill.tags = tags_to_json(validate_tags_list(data.tags))
+
+    if data.category is None and data.tags is None:
+        raise HTTPException(status_code=400, detail="未提供可更新字段")
+
+    db.commit()
+    db.refresh(skill)
+    return skill_to_out(skill, db)
 
 
 @router.get("/{skill_id}", response_model=SkillOut)
@@ -158,7 +313,7 @@ def get_skill(
     skill = db.query(Skill).filter(Skill.id == skill_id).first()
     if not skill:
         raise HTTPException(status_code=404, detail="Skill 不存在")
-    return skill
+    return skill_to_out(skill, db)
 
 
 # ============================================================
@@ -253,12 +408,15 @@ def list_branch_versions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return (
-        db.query(SkillVersion)
-        .filter(SkillVersion.skill_id == skill_id, SkillVersion.branch_id == branch_id)
-        .order_by(SkillVersion.version_num.desc())
-        .all()
-    )
+    return [
+        skill_version_to_out(v, db)
+        for v in (
+            db.query(SkillVersion)
+            .filter(SkillVersion.skill_id == skill_id, SkillVersion.branch_id == branch_id)
+            .order_by(SkillVersion.version_num.desc())
+            .all()
+        )
+    ]
 
 
 @router.post("/{skill_id}/branches/{branch_id}/versions", response_model=SkillVersionOut)
@@ -271,7 +429,7 @@ def create_branch_version(
     current_user: User = Depends(get_current_user),
 ):
     """在指定 branch 下新建版本：
-       1. 权限校验：仅 branch 主人或 Admin 可写
+       1. 权限校验：master 仅 Admin；standard/personal 为分支主人或 Admin
        2. 计算 version_num = (MAX over this branch) + 1
        3. 9 维数据持久化（ai_commit_summary 留空）
        4. 异步后台任务跑 LLM diff，写回 ai_commit_summary
@@ -286,28 +444,29 @@ def create_branch_version(
     if not branch:
         raise HTTPException(status_code=404, detail="Branch 不存在")
 
-    # 权限校验：仅 branch 主人或 Admin 可写
-    is_admin = current_user.role == UserRole.Admin
-    if branch.user_id != current_user.id and not is_admin:
-        raise HTTPException(status_code=403, detail="无权修改他人的分支")
+    assert_can_write_branch(branch, current_user)
 
-    new_num = get_latest_version_num(db, branch_id) + 1
+    new_num, new_rev = allocate_version(db, skill_id, branch_id)
+    version_payload = dimensions_to_payload(
+        role=data.role,
+        profile=data.profile,
+        background=data.background,
+        goals=data.goals,
+        constraints=data.constraints,
+        core_skills=data.core_skills,
+        workflows=data.workflows,
+        output_format=data.output_format,
+        initialization=data.initialization,
+    )
 
     for _attempt in range(3):
         sv = SkillVersion(
             skill_id=skill_id,
             branch_id=branch_id,
             version_num=new_num,
+            revision=new_rev,
             commit_message=data.commit_message or "Update prompt",
-            role=data.role,
-            profile=data.profile,
-            background=data.background,
-            goals=data.goals,
-            constraints=data.constraints,
-            core_skills=data.core_skills,
-            workflows=data.workflows,
-            output_format=data.output_format,
-            initialization=data.initialization,
+            payload=version_payload,
             ai_commit_summary="",
         )
         db.add(sv)
@@ -316,7 +475,7 @@ def create_branch_version(
             break
         except IntegrityError:
             db.rollback()
-            new_num = get_latest_version_num(db, branch_id) + 1
+            new_num, new_rev = allocate_version(db, skill_id, branch_id)
     else:
         raise HTTPException(status_code=409, detail="版本号冲突，请刷新后重试")
     db.refresh(sv)
@@ -324,7 +483,7 @@ def create_branch_version(
     # 注册后台异步任务
     background.add_task(_async_diff_task, sv.id)
 
-    return sv
+    return skill_version_to_out(sv, db)
 
 
 # ============================================================
@@ -360,28 +519,22 @@ def merge_to_master(
     if not src:
         raise HTTPException(status_code=404, detail="源版本不存在")
 
-    new_num = get_latest_version_num(db, master_branch.id) + 1
+    new_num, new_rev = allocate_version(db, skill_id, master_branch.id)
 
     new_v = SkillVersion(
         skill_id=skill_id,
         branch_id=master_branch.id,
         version_num=new_num,
+        revision=new_rev,
+        source_version_id=src.id,
         commit_message=data.commit_message or f"Merge #{src.version_num} to master",
-        role=src.role,
-        profile=src.profile,
-        background=src.background,
-        goals=src.goals,
-        constraints=src.constraints,
-        core_skills=src.core_skills,
-        workflows=src.workflows,
-        output_format=src.output_format,
-        initialization=src.initialization,
+        payload=src.payload,
         ai_commit_summary=src.ai_commit_summary,
     )
     db.add(new_v)
     db.commit()
     db.refresh(new_v)
-    return new_v
+    return skill_version_to_out(new_v, db)
 
 
 # ============================================================
@@ -429,22 +582,16 @@ def fork_branch_to_my_personal(
         db.flush()
         newly_created_branch = True
 
-    new_num = get_latest_version_num(db, personal.id) + 1
+    new_num, new_rev = allocate_version(db, skill_id, personal.id)
 
     new_v = SkillVersion(
         skill_id=skill_id,
         branch_id=personal.id,
         version_num=new_num,
+        revision=new_rev,
+        source_version_id=src_latest.id,
         commit_message=f"forked from branch#{branch_id} (user#{branch.user_id}) v{src_latest.version_num}",
-        role=src_latest.role,
-        profile=src_latest.profile,
-        background=src_latest.background,
-        goals=src_latest.goals,
-        constraints=src_latest.constraints,
-        core_skills=src_latest.core_skills,
-        workflows=src_latest.workflows,
-        output_format=src_latest.output_format,
-        initialization=src_latest.initialization,
+        payload=src_latest.payload,
         ai_commit_summary="",
     )
     db.add(new_v)
@@ -463,7 +610,7 @@ def fork_branch_to_my_personal(
         branch_type=personal.branch_type,
         created_at=personal.created_at,
     )
-    return ForkResponse(branch=branch_out, version=new_v)
+    return ForkResponse(branch=branch_out, version=skill_version_to_out(new_v, db))
 
 
 # ============================================================
@@ -499,6 +646,15 @@ async def evaluate_draft(
     """提交前预评估：对比当前草稿与该分支最新版本，输出 diff/评估/建议。
     失败时返回 200 + 空字符串（让前端 Modal 显示"跳过审查直接提交"路径）。
     """
+    branch = (
+        db.query(Branch)
+        .filter(Branch.skill_id == skill_id, Branch.id == branch_id)
+        .first()
+    )
+    if not branch:
+        raise HTTPException(status_code=404, detail="Branch 不存在")
+    assert_can_write_branch(branch, current_user)
+
     prev = (
         db.query(SkillVersion)
         .filter(SkillVersion.branch_id == branch_id, SkillVersion.skill_id == skill_id)

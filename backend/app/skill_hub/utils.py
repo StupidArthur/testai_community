@@ -10,10 +10,14 @@ SECTION_MAP = {
     "## Initialization": "initialization",
 }
 
+# 九维字段键名顺序（与 LangGPT 章节一一对应）
 SECTION_ORDER = [
     "role", "profile", "background", "goals", "constraints",
     "core_skills", "workflows", "output_format", "initialization",
 ]
+
+# 空九维字典，供解析兜底
+EMPTY_DIMENSIONS: dict[str, str] = {key: "" for key in SECTION_ORDER}
 
 SECTION_HEADERS = {
     "role": "# Role",
@@ -28,32 +32,51 @@ SECTION_HEADERS = {
 }
 
 
+def payload_to_dimensions(payload: str) -> dict[str, str]:
+    """将 LangGPT Markdown payload 解析为九维字典。"""
+    return parse_langgpt_to_fields(payload)
+
+
+def dimensions_to_payload(**kwargs: str) -> str:
+    """将九维字段组装为 LangGPT Markdown payload（持久化唯一格式）。"""
+    return fields_to_langgpt(
+        role=kwargs.get("role", ""),
+        profile=kwargs.get("profile", ""),
+        background=kwargs.get("background", ""),
+        goals=kwargs.get("goals", ""),
+        constraints=kwargs.get("constraints", ""),
+        core_skills=kwargs.get("core_skills", ""),
+        workflows=kwargs.get("workflows", ""),
+        output_format=kwargs.get("output_format", ""),
+        initialization=kwargs.get("initialization", ""),
+    )
+
+
 def parse_langgpt_to_fields(payload: str) -> dict[str, str]:
-    result = {key: "" for key in SECTION_ORDER}
+    """解析 LangGPT Markdown；章节标题可与内容同行，也可在下一行起续写。"""
+    result = dict(EMPTY_DIMENSIONS)
     if not payload:
         return result
 
-    current_section = None
+    current_section: str | None = None
     for line in payload.split("\n"):
         stripped = line.strip()
         matched = False
         for marker, key in SECTION_MAP.items():
             if stripped.startswith(marker):
                 current_section = key
-                if key == "role":
-                    prefix = marker
-                    role_value = stripped[len(prefix):].strip()
-                    result["role"] = role_value
+                inline = stripped[len(marker):].strip()
+                if inline:
+                    result[key] = inline + "\n"
                 matched = True
                 break
         if matched:
             continue
-        if current_section and current_section != "role":
+        if current_section:
             result[current_section] += stripped + "\n"
 
     for key in result:
-        if key != "role":
-            result[key] = result[key].strip()
+        result[key] = result[key].strip()
     return result
 
 

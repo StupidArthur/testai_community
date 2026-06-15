@@ -39,7 +39,12 @@ def skill_name(client, auth_headers):
     name = f"ext_skill_{uuid.uuid4().hex[:8]}"
     r = client.post(
         "/api/skills",
-        json={"name": name, "display_name": "External API 测试", "definition": ""},
+        json={
+            "name": name,
+            "display_name": "External API 测试",
+            "definition": "",
+            "category": "other",
+        },
         headers=auth_headers,
     )
     assert r.status_code == 200

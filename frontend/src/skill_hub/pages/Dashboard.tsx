@@ -1,32 +1,58 @@
-import { useState } from 'react'
-import { Card, Row, Col, Button, Modal, Input, message, Typography, Tag, Space, Empty } from 'antd'
-import { PlusOutlined, ThunderboltOutlined, CodeOutlined, BookOutlined } from '@ant-design/icons'
+import { useState, useMemo } from 'react'
+import { Card, Row, Col, Button, Modal, Input, message, Typography, Tag, Space, Empty, Select } from 'antd'
+import { PlusOutlined, ThunderboltOutlined, CodeOutlined, BookOutlined, FilterOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { skillsApi } from '../../shared/api/client'
-import { useCurrentUser, isAdmin as checkAdmin } from '../../shared/hooks/useAuth'
-import type { Skill } from '../../shared/api/client'
+import type { Skill, SkillCategory } from '../../shared/api/client'
 
 const { Title, Text } = Typography
+
+const EMPTY_FORM = {
+  name: '',
+  display_name: '',
+  definition: '',
+  category: '',
+  tags: [] as string[],
+}
 
 export default function Dashboard() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [modalOpen, setModalOpen] = useState(false)
-  const [form, setForm] = useState({ name: '', display_name: '', definition: '' })
+  const [form, setForm] = useState(EMPTY_FORM)
+  const [filterCategory, setFilterCategory] = useState<string | undefined>(undefined)
+  const [tagSearch, setTagSearch] = useState('')
+
+  const { data: categories = [] } = useQuery({
+    queryKey: ['skill-categories'],
+    queryFn: () => skillsApi.listCategories().then((r) => r.data),
+  })
 
   const { data: skills = [], isLoading } = useQuery({
-    queryKey: ['skills'],
-    queryFn: () => skillsApi.list().then((r) => r.data),
+    queryKey: ['skills', filterCategory ?? 'all'],
+    queryFn: () => skillsApi.list(filterCategory || undefined).then((r) => r.data),
+  })
+
+  const { data: tagOptions = [] } = useQuery({
+    queryKey: ['tag-suggestions', tagSearch],
+    queryFn: () => skillsApi.tagSuggestions(tagSearch || undefined).then((r) => r.data.tags),
+    enabled: modalOpen,
   })
 
   const createMutation = useMutation({
-    mutationFn: (data: { name: string; display_name: string; definition?: string }) =>
-      skillsApi.create(data),
+    mutationFn: (data: typeof EMPTY_FORM) =>
+      skillsApi.create({
+        name: data.name,
+        display_name: data.display_name,
+        definition: data.definition,
+        category: data.category,
+        tags: data.tags,
+      }),
     onSuccess: () => {
       message.success('Skill 创建成功')
       setModalOpen(false)
-      setForm({ name: '', display_name: '', definition: '' })
+      setForm(EMPTY_FORM)
       queryClient.invalidateQueries({ queryKey: ['skills'] })
     },
     onError: (err: any) => {
@@ -34,12 +60,18 @@ export default function Dashboard() {
     },
   })
 
-  const currentUser = useCurrentUser()
-  const isAdmin = checkAdmin(currentUser)
+  const categoryOptions = useMemo(
+    () => categories.map((c: SkillCategory) => ({ value: c.id, label: c.label })),
+    [categories],
+  )
 
   const handleCreate = async () => {
     if (!form.name.trim() || !form.display_name.trim()) {
       message.warning('请填写 name 和 display_name')
+      return
+    }
+    if (!form.category) {
+      message.warning('请选择分类 category')
       return
     }
     createMutation.mutate(form)
@@ -53,6 +85,8 @@ export default function Dashboard() {
           justifyContent: 'space-between',
           alignItems: 'center',
           marginBottom: 24,
+          flexWrap: 'wrap',
+          gap: 12,
         }}
       >
         <div>
@@ -60,17 +94,26 @@ export default function Dashboard() {
             <ThunderboltOutlined style={{ color: 'var(--color-primary)', marginRight: 8 }} />
             Skill 仓库
           </Title>
-          <Text type="secondary">TestAI Community 资产中心 · 每个 Skill 是一个独立的 9 维 Agent 仓库</Text>
+          <Text type="secondary">TestAI Community 资产中心 · 按分类浏览与创建</Text>
         </div>
-        {isAdmin && (
+        <Space wrap>
+          <Select
+            allowClear
+            placeholder="按分类筛选"
+            style={{ minWidth: 180 }}
+            value={filterCategory}
+            onChange={(v) => setFilterCategory(v)}
+            options={categoryOptions}
+            suffixIcon={<FilterOutlined />}
+          />
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>
             新建 Skill 仓库
           </Button>
-        )}
+        </Space>
       </div>
 
       {isLoading ? null : skills.length === 0 ? (
-        <Empty description="暂无 Skill 仓库" />
+        <Empty description={filterCategory ? '该分类下暂无 Skill' : '暂无 Skill 仓库'} />
       ) : (
         <Row gutter={[16, 16]}>
           {skills.map((s: Skill) => (
@@ -99,7 +142,12 @@ export default function Dashboard() {
                   </div>
                 </Space>
                 <div style={{ marginTop: 12 }}>
-                  <Tag color="cyan">{s.id.slice(0, 8)}</Tag>
+                  <Space size={[4, 4]} wrap>
+                    <Tag color="blue">{s.category_label || s.category}</Tag>
+                    {(s.tags || []).map((t) => (
+                      <Tag key={t}>{t}</Tag>
+                    ))}
+                  </Space>
                 </div>
               </Card>
             </Col>
@@ -117,9 +165,36 @@ export default function Dashboard() {
         cancelText="取消"
       >
         <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-          系统会自动为你建好 master（主干）和 template（标准模板）两个 Branch，
-          template 会预置一个 v0 初始版本。
+          创建后你将拥有 standard 分支维护模板；master 仅 Admin 可写。请选择分类便于团队浏览。
         </Text>
+        <div style={{ marginBottom: 12 }}>
+          <Text strong style={{ display: 'block', marginBottom: 4 }}>
+            分类 category <span style={{ color: '#ff4d4f' }}>*</span>
+          </Text>
+          <Select
+            style={{ width: '100%' }}
+            placeholder="选择 Skill 所属分类"
+            value={form.category || undefined}
+            onChange={(v) => setForm((f) => ({ ...f, category: v }))}
+            options={categoryOptions}
+          />
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <Text strong style={{ display: 'block', marginBottom: 4 }}>
+            标签 tags（可选）
+          </Text>
+          <Select
+            mode="tags"
+            style={{ width: '100%' }}
+            placeholder="输入后回车；可从历史标签中选择"
+            value={form.tags}
+            onChange={(tags) => setForm((f) => ({ ...f, tags }))}
+            onSearch={setTagSearch}
+            filterOption={false}
+            options={tagOptions.map((t) => ({ value: t, label: t }))}
+            tokenSeparators={[',', '，']}
+          />
+        </div>
         <div style={{ marginBottom: 12 }}>
           <Text strong style={{ display: 'block', marginBottom: 4 }}>
             name <span style={{ color: '#ff4d4f' }}>*</span>
@@ -136,9 +211,6 @@ export default function Dashboard() {
         <div style={{ marginBottom: 12 }}>
           <Text strong style={{ display: 'block', marginBottom: 4 }}>
             display_name <span style={{ color: '#ff4d4f' }}>*</span>
-            <Tag color="default" style={{ marginLeft: 8 }}>
-              人类可读名
-            </Tag>
           </Text>
           <Input
             placeholder="如 API 测试用例生成专家"

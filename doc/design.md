@@ -96,10 +96,10 @@ testai_community/
 ```
 Skill (技能)
   └── Branch (分支: master / standard / personal)
-        └── SkillVersion (版本，九维 Text 字段)
+        └── SkillVersion (版本，payload 存 LangGPT 九维)
 ```
 
-**九维字段：** role, profile, background, goals, constraints, core_skills, workflows, output_format, initialization
+**九维字段：** role, profile, background, goals, constraints, core_skills, workflows, output_format, initialization — **API/前端结构化编辑**；持久化在 `skill_versions.payload` 单列（LangGPT Markdown）。
 
 **External API：** `/api/v1/external/*`，通过 `X-API-Key` 认证 ServiceAccount。
 

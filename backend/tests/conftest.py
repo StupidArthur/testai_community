@@ -34,8 +34,11 @@ SAMPLE_ZIP = FIXTURES_DIR / "sample_recording.zip"
 
 @pytest.fixture(scope="session")
 def client():
+    Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     _ensure_admin_user()
+    from app.skill_hub.bootstrap import ensure_skill_hub_startup
+    ensure_skill_hub_startup(engine)
     with TestClient(app) as c:
         yield c
 
