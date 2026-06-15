@@ -74,7 +74,15 @@ TestAI Community 将原 **Skill Hub（技能管理）** 与 **Recorder Translate
 | CL-01 | 所有登录用户可查看 Changelog | P1 |
 | CL-02 | Admin 创建/编辑/删除 Changelog 条目 | P1 |
 
-### 3.5 门户与导航
+### 3.5 日报管理（Daily Report）
+
+| ID | 需求 | 优先级 |
+|----|------|--------|
+| DR-01 | 顶栏「日报管理」入口，纯文本上传日报 | P1 |
+| DR-02 | Skill `Daily_Report_Structurer` 结构化并校验 | P1 |
+| DR-03 | 结构化结果存 SQLite；工程师看自己、Admin 看全部 | P1 |
+
+### 3.6 门户与导航
 
 | ID | 需求 | 优先级 |
 |----|------|--------|

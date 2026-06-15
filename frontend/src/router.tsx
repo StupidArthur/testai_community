@@ -4,6 +4,7 @@ import { Spin } from 'antd'
 import Login from './auth/Login'
 import Dashboard from './skill_hub/pages/Dashboard'
 import SkillBranches from './skill_hub/pages/SkillBranches'
+import SkillDebugPage from './skill_hub/pages/SkillDebugPage'
 import BranchSandbox from './skill_hub/pages/BranchSandbox'
 import AdminPage from './skill_hub/pages/AdminPage'
 import AppLayout from './shared/components/AppLayout'
@@ -11,6 +12,7 @@ import Portal from './shared/pages/Portal'
 import TranslateHomePage from './translate/pages/HomePage'
 import TranslateJobDetailPage from './translate/pages/JobDetailPage'
 import ChangelogPage from './changelog/ChangelogPage'
+import DailyReportPage from './daily_report/pages/DailyReportPage'
 import { refreshCurrentUser, isAdmin } from './shared/hooks/useAuth'
 
 function decodeJWTPayload(token: string): Record<string, unknown> | null {
@@ -104,6 +106,10 @@ export const router = createBrowserRouter([
         element: <SkillBranches />,
       },
       {
+        path: 'skill/:skillId/debug',
+        element: <SkillDebugPage />,
+      },
+      {
         path: 'skill/:skillId/branch/:branchId',
         element: <BranchSandbox />,
       },
@@ -122,6 +128,10 @@ export const router = createBrowserRouter([
       {
         path: 'changelog',
         element: <ChangelogPage />,
+      },
+      {
+        path: 'daily-reports',
+        element: <DailyReportPage />,
       },
     ],
   },

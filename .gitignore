@@ -29,10 +29,14 @@ backend/database_test.sqlite
 # ====== Test runtime data ======
 backend/tests/.data/
 
-# ====== Environment variables ======
+# ====== Environment variables（勿提交密钥） ======
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+
+# ====== 本地开发脚本（个人环境，不入库） ======
+restart_dev.ps1
+restart_dev.bat
 
 # ====== Logs ======
 *.log

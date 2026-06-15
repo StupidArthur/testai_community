@@ -13,11 +13,13 @@ flowchart TB
     Skill["skill_hub"]
     Trans["translate"]
     Ext["external_api"]
+    Daily["daily_report → work_daily"]
     Script["news/__main__ 定时任务"]
   end
 
   subgraph AIS["ai_service"]
     Client["client.chat"]
+    WorkDaily["work_daily/audit"]
     Reg["registry.resolve_model"]
     Prov["providers/minimax"]
     News["news/ Tavily + pipeline"]
@@ -27,6 +29,7 @@ flowchart TB
     CFG["config MINIMAX_* TAVILY_*"]
   end
 
+  Daily --> Client
   Skill --> Client
   Trans --> Client
   Ext --> Client
@@ -52,7 +55,7 @@ flowchart TB
 
 | 模块路径 | 符号 | 用途 | 允许调用方 |
 |----------|------|------|------------|
-| `ai_service.client` | `chat(...)` | 经 Registry 路由到 Provider | skill_hub、translate、external_api、news |
+| `ai_service.client` | `chat(...)` | 经 Registry 路由到 Provider | skill_hub、translate、external_api、**work_daily**、news |
 | `ai_service.registry` | `resolve_model`, `list_models`, `DEFAULT_MODEL_ID` | 平台 model_id → Provider | 内部 |
 | `ai_service.news` | `generate_daily_news`, `search_ai_news`, `DailyNewsResult` | AI 早报流水线 | 脚本、将来 AI 控制台 |
 
@@ -108,6 +111,7 @@ python -m app.ai_service.news
 
 | 调用方 | 用法 |
 |--------|------|
+| daily_report / work_daily | `audit_work_daily` → `chat(think=False)` |
 | translate/audit | `chat(messages, think=False)` |
 | skill_hub | `chat(build_*_messages(...))` |
 | external_api | `chat(messages, temperature=0.7)` |

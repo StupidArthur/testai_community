@@ -10,6 +10,7 @@ import {
   Space,
   Button,
   Breadcrumb,
+  Alert,
 } from 'antd'
 import {
   ApartmentOutlined,
@@ -20,6 +21,7 @@ import {
   HomeOutlined,
   BranchesOutlined,
   DatabaseOutlined,
+  BugOutlined,
 } from '@ant-design/icons'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -195,26 +197,46 @@ export default function SkillBranches() {
           </Text>
         </div>
 
-        {!hasMyPersonalBranch && currentUserId && (
+        <Space>
           <Button
+            icon={<BugOutlined />}
             type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => createBranchMutation.mutate()}
-            loading={createBranchMutation.isPending}
+            ghost
+            onClick={() => navigate(`/skill/${skillId}/debug`)}
           >
-            创建个人分支
+            Skill 调试
           </Button>
-        )}
-        {hasMyPersonalBranch && myPersonalBranchId && (
-          <Button
-            icon={<HomeOutlined />}
-            onClick={() => navigate(`/skill/${skillId}/branch/${myPersonalBranchId}`)}
-            style={{ borderColor: '#a855f7', color: '#a855f7' }}
-          >
-            进入我的分支
-          </Button>
-        )}
+          {!skill?.platform_locked && !hasMyPersonalBranch && currentUserId && (
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => createBranchMutation.mutate()}
+              loading={createBranchMutation.isPending}
+            >
+              创建个人分支
+            </Button>
+          )}
+          {!skill?.platform_locked && hasMyPersonalBranch && myPersonalBranchId && (
+            <Button
+              icon={<HomeOutlined />}
+              onClick={() => navigate(`/skill/${skillId}/branch/${myPersonalBranchId}`)}
+              style={{ borderColor: '#a855f7', color: '#a855f7' }}
+            >
+              进入我的分支
+            </Button>
+          )}
+        </Space>
       </div>
+
+      {skill?.platform_locked && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="平台内置 Skill"
+          description="仅 Admin 可编辑 standard 分支；不可创建个人分支、Fork 或合并到 master。"
+        />
+      )}
 
       {isLoading ? null : sortedBranches.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 60, color: 'var(--color-text-secondary)' }}>

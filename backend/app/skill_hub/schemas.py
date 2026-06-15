@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.skill_hub.models import SkillVersion
 from app.skill_hub.utils import payload_to_dimensions
 from app.skill_hub.skill_meta import parse_tags_json, tags_to_json
-from app.skill_hub.category_service import validate_tags_list
+from app.skill_hub.category_service import validate_tags_list, get_category_label
 
 
 # ============================================================
@@ -74,6 +74,7 @@ class SkillOut(BaseModel):
     category: str
     category_label: str = ""
     tags: list[str] = Field(default_factory=list)
+    platform_locked: bool = False
     created_at: datetime
     updated_at: datetime | None = None
 
@@ -82,7 +83,7 @@ class SkillOut(BaseModel):
 
 def skill_to_out(skill, db) -> SkillOut:
     """ORM → API：补全 category_label 与 tags 列表。"""
-    from app.skill_hub.category_service import get_category_label
+    from app.skill_hub.platform_skills import is_platform_locked_skill
 
     return SkillOut(
         id=skill.id,
@@ -92,6 +93,7 @@ def skill_to_out(skill, db) -> SkillOut:
         category=skill.category,
         category_label=get_category_label(db, skill.category),
         tags=parse_tags_json(skill.tags),
+        platform_locked=is_platform_locked_skill(skill),
         created_at=skill.created_at,
         updated_at=skill.updated_at,
     )
@@ -222,6 +224,30 @@ class EvaluateResponse(BaseModel):
     diff_summary: str = ""
     evaluation: str = ""
     suggestions: str = ""
+
+
+# ============================================================
+# Skill 调试运行
+# ============================================================
+class SkillDebugRunRequest(BaseModel):
+    """沙箱调试：用户输入 + 可选版本定位。"""
+
+    user_input: str = Field(..., min_length=1, description="发送给 Skill 的用户消息")
+    branch_id: int | None = Field(default=None, description="branch_head 模式：指定分支")
+    version_id: str | None = Field(default=None, description="pinned 模式：指定版本 id（优先于 branch_id）")
+
+
+class SkillDebugRunResponse(BaseModel):
+    output: str
+    skill_id: str
+    skill_name: str
+    version_id: str
+    version_num: int
+    revision: int
+    branch_id: int
+    branch_type: str
+    version_locator: str
+    payload: str
 
 
 def skill_version_to_out(v: SkillVersion, db=None) -> SkillVersionOut:

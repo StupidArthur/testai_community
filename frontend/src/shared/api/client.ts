@@ -1,5 +1,5 @@
 import axios, { AxiosError } from 'axios'
-import type { User, Skill, SkillCategory, Branch, SkillVersion, EvaluateDraftResponse, ForkResponse, SkillRef, ResolvedSkill } from '../types/models'
+import type { User, Skill, SkillCategory, Branch, SkillVersion, EvaluateDraftResponse, ForkResponse, SkillRef, ResolvedSkill, SkillDebugRunRequest, SkillDebugRunResponse } from '../types/models'
 
 export const apiClient = axios.create({
   baseURL: '/api',
@@ -104,4 +104,6 @@ export const skillsApi = {
     apiClient.post(`/skills/${skillId}/merge`, data),
   resolve: (ref: SkillRef) =>
     apiClient.post<ResolvedSkill>('/skills/resolve', ref),
+  debugRun: (skillId: string, data: SkillDebugRunRequest) =>
+    apiClient.post<SkillDebugRunResponse>(`/skills/${skillId}/debug/run`, data, { timeout: 120000 }),
 }

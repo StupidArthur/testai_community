@@ -39,6 +39,8 @@ from app.skill_hub.schemas import (
     EvaluateRequest,
     EvaluateResponse,
     ResolvedSkillOut,
+    SkillDebugRunRequest,
+    SkillDebugRunResponse,
     skill_version_to_out,
     skill_to_out,
     skill_category_to_out,
@@ -56,6 +58,10 @@ from app.skill_hub.category_service import (
     get_skill_standard_owner_id,
     validate_tags_list,
 )
+from app.skill_hub.platform_skills import (
+    assert_can_fork_platform_skill,
+    assert_no_branch_creation_for_platform_skill,
+)
 from app.skill_hub.service import (
     get_skill_by_name,
     allocate_version,
@@ -64,6 +70,7 @@ from app.skill_hub.service import (
     get_primary_admin_user,
     assert_can_write_branch,
     resolve_skill_ref,
+    run_skill_debug,
 )
 from app.skill_hub.skill_ref import SkillRef
 from app.skill_hub.utils import dimensions_to_payload
@@ -316,6 +323,38 @@ def get_skill(
     return skill_to_out(skill, db)
 
 
+@router.post("/{skill_id}/debug/run", response_model=SkillDebugRunResponse)
+async def debug_run_skill(
+    skill_id: str,
+    data: SkillDebugRunRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Skill 沙箱调试：以指定版本 payload 为 system prompt，执行用户输入。
+    所有登录用户可用；不写库。
+    """
+    resolved, output = await run_skill_debug(
+        db,
+        skill_id,
+        data.user_input,
+        branch_id=data.branch_id,
+        version_id=data.version_id,
+    )
+    return SkillDebugRunResponse(
+        output=output,
+        skill_id=resolved.skill_id,
+        skill_name=resolved.skill_name,
+        version_id=resolved.version_id,
+        version_num=resolved.version_num,
+        revision=resolved.revision,
+        branch_id=resolved.branch_id,
+        branch_type=resolved.branch_type,
+        version_locator=resolved.version_locator,
+        payload=resolved.payload,
+    )
+
+
 # ============================================================
 # Branch 列表 / 创建
 # ============================================================
@@ -370,6 +409,8 @@ def create_my_branch(
     skill = db.query(Skill).filter(Skill.id == skill_id).first()
     if not skill:
         raise HTTPException(status_code=404, detail="Skill 不存在")
+
+    assert_no_branch_creation_for_platform_skill(db, skill_id)
 
     existing = (
         db.query(Branch)
@@ -444,7 +485,7 @@ def create_branch_version(
     if not branch:
         raise HTTPException(status_code=404, detail="Branch 不存在")
 
-    assert_can_write_branch(branch, current_user)
+    assert_can_write_branch(branch, current_user, db)
 
     new_num, new_rev = allocate_version(db, skill_id, branch_id)
     version_payload = dimensions_to_payload(
@@ -507,6 +548,10 @@ def merge_to_master(
     if not skill:
         raise HTTPException(status_code=404, detail="Skill 不存在")
 
+    from app.skill_hub.platform_skills import is_platform_locked_skill
+    if is_platform_locked_skill(skill):
+        raise HTTPException(status_code=403, detail="平台内置 Skill 不允许合并到主干")
+
     master_branch = (
         db.query(Branch)
         .filter(Branch.skill_id == skill_id, Branch.branch_type == "master")
@@ -555,6 +600,8 @@ def fork_branch_to_my_personal(
     branch = db.query(Branch).filter(Branch.id == branch_id, Branch.skill_id == skill_id).first()
     if not branch:
         raise HTTPException(status_code=404, detail="源 Branch 不存在")
+
+    assert_can_fork_platform_skill(db, skill_id)
 
     src_latest = (
         db.query(SkillVersion)
@@ -653,7 +700,7 @@ async def evaluate_draft(
     )
     if not branch:
         raise HTTPException(status_code=404, detail="Branch 不存在")
-    assert_can_write_branch(branch, current_user)
+    assert_can_write_branch(branch, current_user, db)
 
     prev = (
         db.query(SkillVersion)

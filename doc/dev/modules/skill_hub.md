@@ -88,6 +88,7 @@ flowchart LR
 | POST | `/skills/{skill_id}/merge` | JWT Admin | 合并到 master |
 | POST | `/skills/{skill_id}/branches/{branch_id}/fork` | JWT | Fork 到 personal |
 | POST | `/skills/{skill_id}/branches/{branch_id}/evaluate-draft` | JWT | Commit 前 LLM 评估 |
+| POST | `/skills/{skill_id}/debug/run` | JWT | **Skill 沙箱调试**（同步 LLM，不写库） |
 
 ---
 

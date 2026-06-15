@@ -203,8 +203,11 @@ export default function BranchSandbox() {
   const isMaster = branch?.branch_type === 'master'
   const isStandard = branch?.branch_type === 'standard'
   const isOwner = branch?.user_id === currentUserId
-  const canEditBranch = !isMaster || isAdmin
-  const canMerge = isAdmin && !isMaster && isLatestVersion
+  const isPlatformLocked = skill?.platform_locked === true
+  const canEditBranch = isPlatformLocked
+    ? isAdmin && isStandard
+    : !isMaster || isAdmin
+  const canMerge = isAdmin && !isMaster && isLatestVersion && !isPlatformLocked
 
   useEffect(() => {
     if (selectedVersion) {
@@ -564,6 +567,7 @@ export default function BranchSandbox() {
               </Text>
               {selectedVersion && <Tag color="cyan" style={{ margin: 0 }}>v{selectedVersion.version_num}</Tag>}
               {!isLatestVersion ? <Tag color="orange" style={{ margin: 0 }}><EyeOutlined /> HISTORY · 只读</Tag>
+                : isPlatformLocked && !canEditBranch ? <Tag color="default" style={{ margin: 0 }}><EyeOutlined /> 平台内置 · 只读</Tag>
                 : !canEditBranch ? <Tag color="default" style={{ margin: 0 }}><EyeOutlined /> MASTER · 只读</Tag>
                 : <Tag color="green" style={{ margin: 0 }}><EditOutlined /> EDIT · 可编辑</Tag>}
             </Space>
@@ -574,7 +578,7 @@ export default function BranchSandbox() {
                   <Radio.Button value="raw"><CodeOutlined /> 纯文本</Radio.Button>
                 </Radio.Group>
               )}
-              {isStandard && !isOwner && <Button size="small" icon={<ForkOutlined />} loading={forkMutation.isPending} onClick={() => forkMutation.mutate()}>Fork 到我的分支</Button>}
+              {isStandard && !isOwner && !isPlatformLocked && <Button size="small" icon={<ForkOutlined />} loading={forkMutation.isPending} onClick={() => forkMutation.mutate()}>Fork 到我的分支</Button>}
               {canMerge && <Button size="small" type="primary" icon={<ArrowUpOutlined />} loading={mergeMutation.isPending} onClick={() => mergeMutation.mutate()} style={{ background: '#722ed1', borderColor: '#722ed1' }}>合并到主干</Button>}
             </Space>
           </div>

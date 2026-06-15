@@ -12,11 +12,15 @@ from app.ai_service.client import chat
 from app.auth.models import User, UserRole
 from app.skill_hub.llm_prompts import build_commit_diff_messages
 from app.skill_hub.models import Skill, Branch, SkillVersion
+from app.skill_hub.platform_skills import assert_platform_branch_writable
 from app.skill_hub.skill_ref import SkillRef, ResolvedSkill, ResolveMode
 from app.skill_hub.utils import payload_to_dimensions
 
 # version_locator 中 id 前缀长度
 VERSION_LOCATOR_ID_PREFIX_LEN = 8
+
+# Skill 调试：用户输入最大长度
+MAX_SKILL_DEBUG_INPUT_LENGTH = 16000
 
 
 def get_skill_by_name(db: Session, name: str) -> Skill | None:
@@ -33,8 +37,10 @@ def get_primary_admin_user(db: Session) -> User | None:
     )
 
 
-def assert_can_write_branch(branch: Branch, user: User) -> None:
-    """分支写权限：master 仅 Admin；standard/personal 为分支主人或 Admin。"""
+def assert_can_write_branch(branch: Branch, user: User, db: Session | None = None) -> None:
+    """分支写权限：平台内置 Skill 仅 Admin 写 standard；master 仅 Admin；standard/personal 为分支主人或 Admin。"""
+    if db is not None:
+        assert_platform_branch_writable(db, branch, user)
     if branch.branch_type == "master":
         if user.role != UserRole.Admin:
             raise HTTPException(
@@ -246,6 +252,93 @@ def resolve_skill_ref(db: Session, ref: SkillRef) -> ResolvedSkill:
     if not v:
         raise HTTPException(status_code=404, detail="分支暂无版本")
     return _to_resolved_skill(db, v, skill, branch, resolved_at)
+
+
+async def run_skill_debug(
+    db: Session,
+    skill_id: str,
+    user_input: str,
+    *,
+    branch_id: int | None = None,
+    version_id: str | None = None,
+) -> tuple[ResolvedSkill, str]:
+    """
+    调试运行 Skill：解析版本 → system=payload → user=user_input → LLM。
+
+    版本定位：version_id（pinned）> branch_id（branch_head）> master HEAD（无则回退 standard）。
+    """
+    text = (user_input or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="用户输入不能为空")
+    if len(text) > MAX_SKILL_DEBUG_INPUT_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"输入过长，最多 {MAX_SKILL_DEBUG_INPUT_LENGTH} 字符",
+        )
+
+    skill = db.query(Skill).filter(Skill.id == skill_id).first()
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill 不存在")
+
+    if version_id:
+        ref = SkillRef(
+            resolve_mode=ResolveMode.pinned,
+            skill_name=skill.name,
+            version_id=version_id,
+        )
+    elif branch_id is not None:
+        branch = (
+            db.query(Branch)
+            .filter(Branch.id == branch_id, Branch.skill_id == skill_id)
+            .first()
+        )
+        if not branch:
+            raise HTTPException(status_code=404, detail="Branch 不存在或不属于该 Skill")
+        ref = SkillRef(
+            resolve_mode=ResolveMode.branch_head,
+            skill_name=skill.name,
+            branch_id=branch_id,
+        )
+    else:
+        ref = SkillRef(
+            resolve_mode=ResolveMode.branch_head,
+            skill_name=skill.name,
+            branch_type="master",
+        )
+
+    try:
+        resolved = resolve_skill_ref(db, ref)
+    except HTTPException as exc:
+        if (
+            exc.status_code == 404
+            and ref.resolve_mode == ResolveMode.branch_head
+            and (ref.branch_type == "master" or ref.branch_type is None)
+            and ref.branch_id is None
+        ):
+            fallback = SkillRef(
+                resolve_mode=ResolveMode.branch_head,
+                skill_name=skill.name,
+                branch_type="standard",
+            )
+            resolved = resolve_skill_ref(db, fallback)
+        else:
+            raise
+
+    messages = [
+        {"role": "system", "content": resolved.payload},
+        {"role": "user", "content": text},
+    ]
+    try:
+        output = await chat(messages, temperature=0.7, think=False)
+    except Exception as exc:
+        import logging
+        logging.getLogger("app.skill_hub").warning("skill debug LLM failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="LLM 调试调用失败，请检查 MINIMAX_API_KEY 或稍后重试",
+        ) from exc
+
+    return resolved, output
 
 
 def version_to_langgpt_payload(v: SkillVersion) -> str:

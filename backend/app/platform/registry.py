@@ -25,6 +25,10 @@ from app.external_api.router import router as external_api_router
 from app.platform.changelog.models import ChangelogEntry
 from app.platform.changelog.router import router as changelog_router
 
+from app.daily_report import bootstrap as daily_report_bootstrap
+from app.daily_report.models import DailyReport
+from app.daily_report.router import router as daily_report_router
+
 from app.platform.app_module import AppModule
 
 
@@ -58,5 +62,11 @@ APPS: tuple[AppModule, ...] = (
         startup_sync=translate_bootstrap.migrate_schema,
         startup_async=translate_bootstrap.on_startup,
         shutdown_async=translate_bootstrap.on_shutdown,
+    ),
+    AppModule(
+        name="daily_report",
+        router=daily_report_router,
+        models=(DailyReport,),
+        startup_sync=daily_report_bootstrap.ensure_daily_report_startup,
     ),
 )

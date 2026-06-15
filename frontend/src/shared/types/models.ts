@@ -38,6 +38,7 @@ export interface Skill {
   category: string
   category_label: string
   tags: string[]
+  platform_locked?: boolean
   created_at: string
 }
 
@@ -127,6 +128,82 @@ export interface MergeRequest {
   source_version_id: string
   commit_message?: string
 }
+
+export interface SkillDebugRunRequest {
+  user_input: string
+  branch_id?: number | null
+  version_id?: string | null
+}
+
+export interface SkillDebugRunResponse {
+  output: string
+  skill_id: string
+  skill_name: string
+  version_id: string
+  version_num: number
+  revision: number
+  branch_id: number
+  branch_type: string
+  version_locator: string
+  payload: string
+}
+
+export interface WorkDailyItem {
+  category: string
+  description: string
+  hours: number
+  ratio: number
+}
+
+export interface WorkDailyAudit {
+  valid: boolean
+  validation_issues: string[]
+  suggestions: string[]
+  work_items: WorkDailyItem[]
+  total_hours: number
+  dimension_coverage: string[]
+  missing_dimensions: string[]
+  feedback: string
+  summary: string
+}
+
+export interface WorkDailyAuditRequest {
+  report_date: string
+  report_role: string
+  raw_text: string
+}
+
+export interface WorkDailySubmitRequest extends WorkDailyAuditRequest {
+  audit?: WorkDailyAudit | null
+}
+
+export interface WorkDailyListItem {
+  id: string
+  user_id: number
+  username: string
+  report_date: string
+  report_role: string
+  summary_preview: string
+  total_hours: number
+  created_at: string
+}
+
+export interface WorkDailyReport {
+  id: string
+  user_id: number
+  username: string
+  report_date: string
+  report_role: string
+  raw_text: string
+  audit: WorkDailyAudit
+  skill_version_id?: string | null
+  created_at: string
+}
+
+/** @deprecated 旧类型别名 */
+export type DailyReport = WorkDailyReport
+export type DailyReportListItem = WorkDailyListItem
+export type DailyReportCreate = WorkDailySubmitRequest
 
 export interface ResetPasswordRequest {
   new_password: string

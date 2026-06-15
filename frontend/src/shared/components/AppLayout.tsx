@@ -12,6 +12,7 @@ import {
   LockOutlined,
   UserOutlined,
   HistoryOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useLocation, Outlet } from 'react-router-dom'
 import { useThemeStore } from '../hooks/useTheme'
@@ -143,6 +144,12 @@ export default function AppLayout() {
             label="Skill 管理"
             active={isActive('/skills')}
             onClick={() => navigate('/skills')}
+          />
+          <NavButton
+            icon={<FileTextOutlined />}
+            label="工作日报"
+            active={isActive('/daily-reports')}
+            onClick={() => navigate('/daily-reports')}
           />
           <NavButton
             icon={<HistoryOutlined />}

@@ -14,10 +14,11 @@
 | **auth** | `app/auth/` | `/api/auth` | JWT、用户、ticket |
 | **skill_hub** | `app/skill_hub/` | `/api/skills` | Skill / 分支 / 版本 |
 | **translate** | `app/translate/` | `/api/translate` | 上传、队列、SSE、worker |
+| **daily_report** | `app/daily_report/` | `/api/work-daily` | 工作日报：审核、提交、Admin 导出 |
 | **external_api** | `app/external_api/` | `/api/v1/external` | X-API-Key 外部调用 |
 | **ai_service** | `app/ai_service/` | **无** | 仅对内 `client.chat`（LLM） |
 
-**业务 App**（与 platform 并列、有独立领域模型）：auth、skill_hub、translate、external_api。  
+**业务 App**（与 platform 并列、有独立领域模型）：auth、skill_hub、translate、**daily_report**、external_api。  
 **基础设施**：platform（含 `changelog/`）、ai_service。
 
 ---
@@ -34,6 +35,7 @@
 | [translate.md](./modules/translate.md) | AI 翻译 |
 | [external_api.md](./modules/external_api.md) | 外部 API（X-API-Key） |
 | [ai_service.md](./modules/ai_service.md) | LLM 客户端 `chat`（无 HTTP） |
+| [daily_report.md](./modules/daily_report.md) | 工作日报（审核 / 提交 / 导出） |
 
 ---
 
@@ -56,6 +58,7 @@ flowchart TB
     Auth["auth"]
     Skill["skill_hub"]
     Trans["translate"]
+    Daily["daily_report"]
     ExtAPI["external_api"]
   end
 
@@ -69,6 +72,7 @@ flowchart TB
   end
 
   SPA -->|JWT| Auth
+  SPA --> Daily
   SPA --> Skill
   SPA --> Trans
   SPA --> Log
@@ -88,7 +92,9 @@ flowchart TB
   Log --> Auth
   ExtAPI --> SQLite
   ExtAPI --> Skill
-  ExtAPI --> Chat
+  Daily --> SQLite
+  Daily --> Chat
+  Daily --> Skill
   Chat --> Infra
 ```
 
@@ -102,6 +108,7 @@ flowchart TB
 | `/skills`、`/skill/:id`、`/skill/:id/branch/:id` | skill_hub |
 | `/translate`、`/translate/jobs/:id` | translate |
 | `/changelog` | platform.changelog |
+| `/daily-reports` | daily_report（工作日报） |
 | `/admin` | auth（用户）+ translate（删任务记录） |
 
 ---
