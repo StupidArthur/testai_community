@@ -40,6 +40,17 @@ MIMO_API_KEY = os.getenv("MIMO_API_KEY", "").strip()
 MINIMAX_API_URL = os.getenv("MINIMAX_API_URL", "https://api.minimaxi.com/v1").strip()
 MINIMAX_MODEL = os.getenv("MINIMAX_MODEL", "MiniMax-M2.7-highspeed").strip()
 
+# ==================== Ollama（本地 Embedding / 视觉） ====================
+
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip()
+OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "").strip()
+OLLAMA_VL_MODEL = os.getenv("OLLAMA_VL_MODEL", "qwen2.5vl:7b").strip()
+OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "bge-m3").strip()
+OLLAMA_VISION_PROMPT = os.getenv(
+    "OLLAMA_VISION_PROMPT",
+    "请详细描述这张图片中的文字、流程图结构、表格和关键信息，输出为可用于知识检索的纯文本。",
+).strip()
+
 # ==================== Tavily（AI 早报搜索） ====================
 
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "").strip()
@@ -67,12 +78,41 @@ TRANSLATE_RESULT_DIR = _resolve_data_path(
     _BACKEND_ROOT / "app" / "results",
 )
 
+# ==================== Tool Hub 制品目录 ====================
+
+TOOL_HUB_ARTIFACT_DIR = _resolve_data_path(
+    "TOOL_HUB_ARTIFACT_DIR",
+    _BACKEND_ROOT / "app" / "tool_artifacts",
+)
+TOOL_HUB_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+
 # ==================== AI 早报输出目录 ====================
 
 AI_NEWS_OUTPUT_DIR = _resolve_data_path(
     "AI_NEWS_OUTPUT_DIR",
     PROJECT_ROOT / "data" / "ai_news",
 )
+
+# ==================== 知识库（Knowledge Base） ====================
+
+KNOWLEDGE_BASE_DATA_DIR = _resolve_data_path(
+    "KNOWLEDGE_BASE_DATA_DIR",
+    PROJECT_ROOT / "data" / "knowledge_base",
+)
+KNOWLEDGE_BASE_CHROMA_DIR = _resolve_data_path(
+    "KNOWLEDGE_BASE_CHROMA_DIR",
+    KNOWLEDGE_BASE_DATA_DIR / "chroma",
+)
+KNOWLEDGE_BASE_DATA_DIR.mkdir(parents=True, exist_ok=True)
+KNOWLEDGE_BASE_CHROMA_DIR.mkdir(parents=True, exist_ok=True)
+
+KB_MAX_UPLOAD_MB = _int_env("KB_MAX_UPLOAD_MB", 30)
+KB_MAX_TOTAL_MB = _int_env("KB_MAX_TOTAL_MB", 500)
+KB_MAX_DOCS_PER_KB = _int_env("KB_MAX_DOCS_PER_KB", 100)
+KB_MAX_CONCURRENT_JOBS = _int_env("KB_MAX_CONCURRENT_JOBS", 2)
+KB_CHUNK_SIZE = _int_env("KB_CHUNK_SIZE", 800)
+KB_CHUNK_OVERLAP = _int_env("KB_CHUNK_OVERLAP", 120)
+KB_RAG_TOP_K = _int_env("KB_RAG_TOP_K", 6)
 
 # ==================== 认证 / 数据库 ====================
 

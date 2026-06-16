@@ -15,10 +15,12 @@
 | **skill_hub** | `app/skill_hub/` | `/api/skills` | Skill / 分支 / 版本 |
 | **translate** | `app/translate/` | `/api/translate` | 上传、队列、SSE、worker |
 | **daily_report** | `app/daily_report/` | `/api/work-daily` | 工作日报：审核、提交、Admin 导出 |
+| **tool_hub** | `app/tool_hub/` | `/api/tool-hub` | 工具集：客户端下载 + 平台集成入口 |
+| **knowledge_base** | `app/knowledge_base/` | `/api/knowledge-base` | 知识库：文档上传、RAG 问答 |
 | **external_api** | `app/external_api/` | `/api/v1/external` | X-API-Key 外部调用 |
 | **ai_service** | `app/ai_service/` | **无** | 仅对内 `client.chat`（LLM） |
 
-**业务 App**（与 platform 并列、有独立领域模型）：auth、skill_hub、translate、**daily_report**、external_api。  
+**业务 App**（与 platform 并列、有独立领域模型）：auth、skill_hub、translate、**daily_report**、**knowledge_base**、external_api。  
 **基础设施**：platform（含 `changelog/`）、ai_service。
 
 ---
@@ -36,6 +38,12 @@
 | [external_api.md](./modules/external_api.md) | 外部 API（X-API-Key） |
 | [ai_service.md](./modules/ai_service.md) | LLM 客户端 `chat`（无 HTTP） |
 | [daily_report.md](./modules/daily_report.md) | 工作日报（审核 / 提交 / 导出） |
+| [tool_hub.md](./modules/tool_hub.md) | 工具集 API 与数据模型 |
+| [knowledge_base.md](./modules/knowledge_base.md) | 知识库：RAG 架构与 API |
+| [../knowledge_base.md](../knowledge_base.md) | **知识库用户手册**（部署、用法） |
+| [tool_hub 测试](../../backend/tests/tool_hub/) | **工具集 pytest 用例**（42 项） |
+| [../tool_hub.md](../tool_hub.md) | **工具集使用手册**（下载、解压、工作流） |
+| [feature_recorder.md](./modules/feature_recorder.md) | 功能录制客户端（Playwright） |
 
 ---
 
@@ -59,6 +67,7 @@ flowchart TB
     Skill["skill_hub"]
     Trans["translate"]
     Daily["daily_report"]
+    KB["knowledge_base"]
     ExtAPI["external_api"]
   end
 
@@ -73,6 +82,7 @@ flowchart TB
 
   SPA -->|JWT| Auth
   SPA --> Daily
+  SPA --> KB
   SPA --> Skill
   SPA --> Trans
   SPA --> Log
@@ -95,6 +105,8 @@ flowchart TB
   Daily --> SQLite
   Daily --> Chat
   Daily --> Skill
+  KB --> SQLite
+  KB --> Chat
   Chat --> Infra
 ```
 
@@ -106,9 +118,11 @@ flowchart TB
 |----------|----------|
 | `/login` | auth |
 | `/skills`、`/skill/:id`、`/skill/:id/branch/:id` | skill_hub |
-| `/translate`、`/translate/jobs/:id` | translate |
+| `/tool-hub`、`/tool-hub/:id` | tool_hub |
+| `/translate`、`/translate/jobs/:id` | translate（经工具集进入） |
 | `/changelog` | platform.changelog |
 | `/daily-reports` | daily_report（工作日报） |
+| `/knowledge-base`、`/knowledge-base/:kbId` | knowledge_base |
 | `/admin` | auth（用户）+ translate（删任务记录） |
 
 ---

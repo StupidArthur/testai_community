@@ -64,3 +64,10 @@ class WorkDailyListOut(BaseModel):
     summary_preview: str
     total_hours: float
     created_at: datetime
+
+
+class WorkDailyListPage(BaseModel):
+    items: list[WorkDailyListOut]
+    total: int
+    page: int
+    page_size: int

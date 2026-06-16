@@ -82,12 +82,38 @@ TestAI Community 将原 **Skill Hub（技能管理）** 与 **Recorder Translate
 | DR-02 | Skill `Daily_Report_Structurer` 结构化并校验 | P1 |
 | DR-03 | 结构化结果存 SQLite；工程师看自己、Admin 看全部 | P1 |
 
-### 3.6 门户与导航
+### 3.6 工具集（Tool Hub）
 
 | ID | 需求 | 优先级 |
 |----|------|--------|
-| NAV-01 | 首页双卡片导航（Skill Hub / AI 翻译） | P0 |
+| TH-01 | 工具列表：客户端下载 + 平台集成跳转 | P0 |
+| TH-02 | 用户可上传/维护自己的 client 工具 | P1 |
+| TH-03 | Admin 可删除任意工具 | P1 |
+| TH-04 | 预置「功能录制」「AI 翻译」及推荐工作流 | P0 |
+
+详见 [tool_hub.md](./tool_hub.md)。
+
+### 3.7 知识库（Knowledge Base）
+
+| ID | 需求 | 优先级 |
+|----|------|--------|
+| KB-01 | 创建知识库（名称、描述）；全站列表可见 | P1 |
+| KB-02 | 上传文档：md/txt/doc/docx/pdf/pptx/xlsx；异步处理队列 | P1 |
+| KB-03 | 文档解析：文字提取 + 内嵌图片 VL 描述 + 分块向量化 | P1 |
+| KB-04 | RAG 问答：检索 ChromaDB + MiniMax 生成；返回引用来源 | P1 |
+| KB-05 | 对话历史：按用户隔离，持久化到 SQLite | P2 |
+| KB-06 | 权限：全员可读/上传/对话；创建者/Admin 改删库；上传者/Admin 删文档 | P1 |
+| KB-07 | 容量限制：单文件、单库总容量、单库文档数可配置 | P2 |
+
+详见 [knowledge_base.md](./knowledge_base.md)（用户手册）与 [dev/modules/knowledge_base.md](./dev/modules/knowledge_base.md)（技术架构）。
+
+### 3.8 门户与导航
+
+| ID | 需求 | 优先级 |
+|----|------|--------|
+| NAV-01 | 首页双卡片导航（Skill 管理 / 工具集） | P0 |
 | NAV-02 | 统一顶栏：模块切换、改密、退出、主题切换 | P1 |
+| NAV-03 | 顶栏「知识库」入口 | P1 |
 
 ---
 
@@ -119,11 +145,12 @@ TestAI Community 将原 **Skill Hub（技能管理）** 与 **Recorder Translate
 
 ## 6. 验收标准（概要）
 
-1. 登录后可访问 Skill Hub、Translate、Changelog 各模块
+1. 登录后可访问 Skill Hub、Translate、Changelog、知识库 各模块
 2. 上传合法录制 ZIP 后，任务能完成并下载结果
 3. Skill 九维编辑、版本提交、Fork/Merge 流程可用
-4. 无 token 访问 `/api/translate/*` 等受保护路由返回 401
-5. 生产环境未设置 `SECRET_KEY` / `MINIMAX_API_KEY` 时拒绝启动
+4. 知识库上传文档后可处理为「可用」状态，并能基于文档进行 RAG 问答
+5. 无 token 访问 `/api/translate/*` 等受保护路由返回 401
+6. 生产环境未设置 `SECRET_KEY` / `MINIMAX_API_KEY` 时拒绝启动
 
 ---
 

@@ -1,11 +1,14 @@
 import { useState } from 'react'
-import { Button, Modal, Form, Input, Upload, message } from 'antd'
+import { useNavigate } from 'react-router-dom'
+import { Button, Modal, Form, Input, Upload, message, Alert } from 'antd'
 import { UploadOutlined, DownloadOutlined } from '@ant-design/icons'
 import { useQuery } from '@tanstack/react-query'
 import { listJobs, createJob, getPromptsDownloadUrl } from '../../shared/api/translate-jobs'
 import { JobList } from '../components/JobList'
+import ReturnToToolHubButton from '../../tool_hub/components/ReturnToToolHubButton'
 
 export default function HomePage() {
+  const navigate = useNavigate()
   const [uploadModalOpen, setUploadModalOpen] = useState(false)
   const [uploadForm] = Form.useForm()
   const [fileList, setFileList] = useState<File | null>(null)
@@ -45,6 +48,18 @@ export default function HomePage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <ReturnToToolHubButton />
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 8 }}
+        message="需先使用工具集「功能录制」客户端录制并打包 zip，再在本页上传翻译。"
+        action={
+          <Button size="small" onClick={() => navigate('/tool-hub')}>
+            打开工具集
+          </Button>
+        }
+      />
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8, gap: 8 }}>
         <Button
           icon={<DownloadOutlined />}

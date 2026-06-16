@@ -33,7 +33,8 @@ import {
 } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import dayjs, { type Dayjs } from 'dayjs'
-import { workDailyApi } from '../../shared/api/daily-report'
+import { workDailyApi, PAGE_SIZE } from '../../shared/api/daily-report'
+import { authApi } from '../../shared/api/client'
 import { useCurrentUser, isAdmin as checkAdmin } from '../../shared/hooks/useAuth'
 import type { WorkDailyAudit, WorkDailyListItem, WorkDailyReport } from '../../shared/types/models'
 
@@ -200,17 +201,26 @@ export default function DailyReportPage() {
   const [dlEnd, setDlEnd] = useState<Dayjs>(dayjs())
   const [dlUserId, setDlUserId] = useState<number | undefined>()
   const [dlLoading, setDlLoading] = useState(false)
+  const [listPage, setListPage] = useState(1)
 
-  const { data: reports = [], isLoading } = useQuery({
-    queryKey: ['work-daily'],
-    queryFn: () => workDailyApi.list({ limit: 100 }).then((r) => r.data),
+  const { data: listData, isLoading } = useQuery({
+    queryKey: ['work-daily', listPage],
+    queryFn: () => workDailyApi.list({ page: listPage, page_size: PAGE_SIZE }).then((r) => r.data),
   })
 
-  const userOptions = useMemo(() => {
-    const map = new Map<number, string>()
-    reports.forEach((r) => map.set(r.user_id, r.username))
-    return Array.from(map.entries()).map(([id, name]) => ({ value: id, label: name }))
-  }, [reports])
+  const reports = listData?.items ?? []
+  const listTotal = listData?.total ?? 0
+
+  const { data: adminUsers = [] } = useQuery({
+    queryKey: ['auth', 'user-list'],
+    queryFn: () => authApi.userList().then((r) => r.data),
+    enabled: isAdmin,
+  })
+
+  const userOptions = useMemo(
+    () => adminUsers.map((u) => ({ value: u.id, label: u.username })),
+    [adminUsers],
+  )
 
   const auditMutation = useMutation({
     mutationFn: () =>
@@ -258,6 +268,7 @@ export default function DailyReportPage() {
       setCreateOpen(false)
       setRawText('')
       setAuditResult(null)
+      setListPage(1)
       queryClient.invalidateQueries({ queryKey: ['work-daily'] })
     },
     onError: (err: any) => {
@@ -475,7 +486,19 @@ export default function DailyReportPage() {
         ) : reports.length === 0 ? (
           <Empty description="暂无日报，点击右上角新建" />
         ) : (
-          <Table rowKey="id" columns={columns} dataSource={reports} pagination={{ pageSize: 10 }} />
+          <Table
+            rowKey="id"
+            columns={columns}
+            dataSource={reports}
+            pagination={{
+              current: listPage,
+              pageSize: PAGE_SIZE,
+              total: listTotal,
+              showSizeChanger: false,
+              showTotal: (t) => `共 ${t} 条`,
+              onChange: (p) => setListPage(p),
+            }}
+          />
         )}
       </Card>
 

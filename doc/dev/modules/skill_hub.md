@@ -86,7 +86,7 @@ flowchart LR
 | GET | `/skills/{skill_id}/branches/{branch_id}/versions` | JWT | 版本列表 |
 | POST | `/skills/{skill_id}/branches/{branch_id}/versions` | JWT | 提交新版本；master 仅 Admin |
 | POST | `/skills/{skill_id}/merge` | JWT Admin | 合并到 master |
-| POST | `/skills/{skill_id}/branches/{branch_id}/fork` | JWT | Fork 到 personal |
+| POST | `/skills/{skill_id}/branches/{branch_id}/fork` | JWT | 从任意 standard 等源分支 Fork 到当前用户 personal（**含 Skill 创建者 Fork 自己的 standard**；平台内置 Skill 禁止） |
 | POST | `/skills/{skill_id}/branches/{branch_id}/evaluate-draft` | JWT | Commit 前 LLM 评估 |
 | POST | `/skills/{skill_id}/debug/run` | JWT | **Skill 沙箱调试**（同步 LLM，不写库） |
 
@@ -177,6 +177,8 @@ flowchart LR
 | `personal` | 分支主人或 Admin |
 
 创建 Skill 时：`standard.user_id` = 创建者；`master.user_id` = 平台 Admin。
+
+**Fork**：任意登录用户（含 standard 分支创建者）可将源分支最新版本快照复制到自己的 `personal` 分支；`platform_locked` Skill 禁止 Fork。
 
 **存储策略**：DB 只存 `payload`；HTTP API 仍暴露九维 JSON 字段（`skill_version_to_out` 读时解析，写时 `dimensions_to_payload` 组装）。前端无需改动。
 

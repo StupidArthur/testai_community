@@ -9,5 +9,5 @@ from app.ai_service.work_daily.constants import (
     WORK_DAILY_SKILL_NAME,
 )
 
-DEFAULT_LIST_LIMIT = 50
-MAX_LIST_LIMIT = 200
+DEFAULT_PAGE_SIZE = 10
+MAX_PAGE_SIZE = 100

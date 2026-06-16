@@ -1,0 +1,232 @@
+/**
+ * config.js - 全局配置常量
+ *
+ * 集中管理所有可调参数，修改配置无需改动业务代码。
+ * 按功能域分组：录制器 → 截图 → 输出 → 快照 → 预处理 → AI 翻译 → 进程控制。
+ * 每个常量附带物理意义说明。
+ */
+
+// ==================== 录制目标 ====================
+
+/** 要录制的目标页面 URL（修改这里即可） */
+// export const TARGET_URL = 'http://10.16.11.45:31501/tpt-app/#/login';
+export const TARGET_URL = 'https://tpt.supcon.com/tpt-app/#/home/chat/main?TptSaasUserTenantryId=ATL43NW8';
+
+// ==================== 浏览器配置 ====================
+
+/**
+ * 是否启用原生窗口视口模式
+ * - true：使用浏览器真实可视区（context.viewport = null），避免地址栏/标签栏导致底部被裁切
+ * - false：使用固定 viewport（由 VIEWPORT_WIDTH/VIEWPORT_HEIGHT 指定）
+ */
+export const USE_NATIVE_WINDOW_VIEWPORT = true;
+
+/** 固定视口宽度（像素，仅 USE_NATIVE_WINDOW_VIEWPORT=false 时生效） */
+export const VIEWPORT_WIDTH = 1920;
+
+/** 固定视口高度（像素，仅 USE_NATIVE_WINDOW_VIEWPORT=false 时生效） */
+export const VIEWPORT_HEIGHT = 1080;
+
+/** 操作间慢速延迟（毫秒），方便用户观察和截图捕获 */
+export const SLOW_MO = 500;
+
+/** 浏览器启动超时时间（毫秒） */
+export const LAUNCH_TIMEOUT = 60000;
+
+/** 页面导航超时时间（毫秒） */
+export const NAVIGATION_TIMEOUT = 120000;
+
+/**
+ * 页面加载等待策略
+ * - 'domcontentloaded': DOM 解析完成即继续（推荐，更快）
+ * - 'networkidle': 网络空闲后继续（慢但更完整）
+ * - 'load': 页面 load 事件触发后继续
+ */
+export const WAIT_UNTIL = 'domcontentloaded';
+
+// ==================== 截图配置 ====================
+
+/** 是否启用操作截图（默认关闭，需要时手动开启） */
+export const SCREENSHOT_ENABLED = false;
+
+/**
+ * 截图格式
+ * - 'jpeg': 支持 quality 参数，文件更小
+ * - 'png': 无损，文件更大
+ */
+export const SCREENSHOT_FORMAT = 'jpeg';
+
+/** 截图质量（1-100），仅 jpeg 格式生效 */
+export const SCREENSHOT_QUALITY = 30;
+
+/** 是否截取全页面（true=整页滚动截图，false=仅可视区域） */
+export const SCREENSHOT_FULL_PAGE = false;
+
+/** 操作后截图延迟（毫秒），等待页面完成渲染再截图 */
+export const SCREENSHOT_DELAY_MS = 500;
+
+// ==================== 输出配置 ====================
+
+/** 输出根目录 */
+export const OUTPUT_BASE_DIR = './output';
+
+/**
+ * 以下路径均为相对 runDir 的相对路径，完整布局见 run-layout.js
+ */
+export {
+  META_FILENAME,
+  SCREENSHOTS_SUBDIR,
+  RECORD_ACTIONS_REL as ACTIONS_DATA_SUBDIR,
+  RECORD_SNAPSHOTS_REL as SNAPSHOTS_DATA_SUBDIR,
+  RECORD_LOG_REL as LOG_FILENAME,
+  TRANSLATE_PREPROCESS_REL as PREPROCESSED_SUBDIR,
+  TRANSLATE_GENERATE_LOG_REL as GENERATE_LOG_FILENAME,
+  TRANSLATE_PHASE1_STEPS_JSON_REL as AI_STEPS_STRUCTURED_FILENAME,
+  TRANSLATE_PHASE1_STEPS_XML_REL as AI_STEPS_STRUCTURED_XML_FILENAME,
+  TRANSLATE_PHASE1_LLM_RAW_XML_REL as AI_STEPS_LLM_RAW_XML_FILENAME,
+  TRANSLATE_PHASE1_ERRORS_JSON_REL as AI_STEPS_ERRORS_FILENAME,
+  TRANSLATE_PHASE2_CASES_MD_REL as AI_CASES_FILENAME,
+  TRANSLATE_PHASE2_CASES_FALLBACK_MD_REL as AI_CASES_FALLBACK_FILENAME,
+  TRANSLATE_PHASE2_COVERAGE_MD_REL as AI_CASES_COVERAGE_FILENAME,
+  TRANSLATE_PHASE4_AGENTS_TXT_REL as TRANSLATE_AGENT_TXT_FILENAME,
+  TRANSLATE_LLM_AUDIT_REL as LLM_AUDIT_DIRNAME,
+  DASHBOARD_PREVIEW_REL_PATHS as DASHBOARD_PREVIEW_FILES,
+} from './run-layout.js';
+
+// ==================== Snapshot 配置 ====================
+
+/**
+ * 快照树最大深度
+ * 限制 AX 树的遍历深度，避免快照体积过大
+ * 推荐值 6-10：覆盖 page > dialog > group > control 的常见层级
+ */
+export const SNAPSHOT_MAX_DEPTH = 8;
+
+/**
+ * 快照轮询间隔（毫秒）
+ * Node.js 后台周期性拍摄 AX 快照，缓存在内存中，
+ * 当用户 action 到达时直接使用缓存快照，避免异步延迟导致快照"不干净"。
+ */
+export const SNAPSHOT_POLL_INTERVAL_MS = 300;
+
+/**
+ * 主框架导航（framenavigated）后，再等待多久检测 window.__recorderInjected（毫秒）
+ *
+ * SPA 路由切换后 DOM/子 iframe 可能尚未就绪；过短会误判为「脚本丢失」，
+ * 且仅对主 frame 补注入时，应用在 iframe 内的交互仍无法上报。
+ */
+export const RECORDER_POST_NAV_INJECT_CHECK_DELAY_MS = 800;
+
+// ==================== 预处理配置（case_translate/preprocessor） ====================
+
+/** 快照 diff 输出子目录名（位于 translate/preprocess/ 下） */
+export const DIFFS_DATA_SUBDIR = 'diffs';
+
+/** 富化后的 action 输出子目录名（位于 translate/preprocess/ 下） */
+export const ENRICHED_DATA_SUBDIR = 'enriched';
+
+/** 预处理日志文件名 */
+export const PREPROCESS_LOG_FILENAME = 'preprocess.log';
+
+/**
+ * Diff 文本截断阈值（字符数）
+ * 超过此长度的 diff 将被截断，避免 AI 输入过长浪费 token。
+ * 截断后会保留首尾各一半，中间以省略号连接。
+ */
+export const DIFF_TRUNCATE_THRESHOLD = 3000;
+
+/**
+ * 上下文片段提取：被操作元素的同级兄弟节点最大数量
+ * 从快照中提取操作元素的父节点及其最近 N 个兄弟，构建精简的 UI 上下文。
+ */
+export const CONTEXT_EXCERPT_MAX_SIBLINGS = 5;
+
+// ==================== 语义归并配置（case_translate/preprocessor/action-merge） ====================
+
+/** 归并报告输出子目录名（位于 translate/preprocess/ 下） */
+export const MERGED_DATA_SUBDIR = 'merged';
+
+/**
+ * 双击去重：时间阈值（毫秒）
+ * 浏览器双击会依次触发 click → click → dblclick 三个事件，
+ * 若 click 与 dblclick 时间差在此阈值内且作用于同一元素，则视为冗余 click。
+ */
+export const DBLCLICK_TIME_THRESHOLD_MS = 500;
+
+// ==================== AI 用例翻译配置 ====================
+
+/**
+ * Evidence 滑动窗口大小
+ * 每次调用 AI 生成单条 evidence 时，携带最近 N 条已生成的 evidence 作为上下文，
+ * 帮助 AI 理解操作的连续性和业务流程。
+ */
+export const EVIDENCE_CONTEXT_WINDOW_SIZE = 10;
+
+/**
+ * Phase 1 局部字段自愈（description/uiChange/basis/confidence 等）
+ * false：严格使用 LLM 原始输出，缺失字段由校验捕获并记入 llm_audit
+ */
+export const LLM_AUTO_HEAL_ENABLED = false;
+
+/** 翻译开始前 LLM 探活超时（毫秒） */
+export const LLM_PING_TIMEOUT_MS = 3000;
+
+/** 探活 user 消息（极简，用于连通性检测） */
+export const LLM_PING_USER_MESSAGE = '你好';
+
+/** 探活失败时展示给用户的提示（超时、网络、config 错误等统一文案） */
+export const LLM_PING_FAIL_MESSAGE = 'LLM 调用出错，请确认 config 或者网络。';
+
+/**
+ * Phase 2：固定窗口内参与归纳的有效步数（仅统计 status=normal 的步骤）
+ * 窗口在过滤后的有效步骤数组上滑动；可通过调大该值覆盖更长业务流程片段。
+ */
+export const PHASE2_CASE_WINDOW_STEPS = 20;
+
+/**
+ * Phase 2：相邻有效步骤间隔超过该阈值时，瘦身字段 gapTag 记为 longGap，否则为 contiguous
+ * 与录制侧“空闲切分”思路一致，仅作弱边界信号，不写入毫秒原值。
+ */
+export const PHASE2_GAP_TAG_LONG_GAP_MS = 45000;
+
+/**
+ * Phase 2：传入模型的 assertText 最大字符数，超出则截断前缀
+ */
+export const PHASE2_ASSERT_TEXT_MAX_CHARS = 200;
+
+/**
+ * Phase 2：单窗口归纳时 LLM 最大输出 token
+ */
+export const PHASE2_CASE_WINDOW_MAX_TOKENS = 3500;
+
+// ==================== XML 解析（Phase 1/2/4 LLM 输出） ====================
+
+/** Phase 1 LLM 原始回复最大参与正则解析的字符数 */
+export const PHASE1_LLM_RAW_MAX_CHARS = 60000;
+
+/** Phase 1 `<step>` 块体内正则匹配最大字符数 */
+export const XML_REGEX_STEP_BLOCK_MAX_CHARS = 4000;
+
+/** Phase 1 `<action>` / `<observation>` 节点最大字符数 */
+export const XML_REGEX_ACTION_OBS_MAX_CHARS = 2000;
+
+/** Phase 4 `<logical_step>` 块体最大字符数 */
+export const XML_REGEX_LOGICAL_STEP_MAX_CHARS = 2000;
+
+/** Phase 4 `<micro>` 节点最大字符数 */
+export const XML_REGEX_MICRO_MAX_CHARS = 500;
+
+/**
+ * 滑动窗口最大轮次倍数（相对 ceil(total/windowSize)）
+ * 超出则本地兜底并退出，防止 consume=0 死循环
+ */
+export const SLIDING_WINDOW_MAX_ROUND_MULTIPLIER = 2;
+
+// ==================== 进程控制配置 ====================
+
+/** 停止录制超时时间（毫秒），超时强制退出 */
+export const STOP_TIMEOUT_MS = 60000;
+
+/** 进程退出前延迟（毫秒），确保日志写入完成 */
+export const EXIT_DELAY_MS = 1000;
+

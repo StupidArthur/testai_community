@@ -29,6 +29,14 @@ from app.daily_report import bootstrap as daily_report_bootstrap
 from app.daily_report.models import DailyReport
 from app.daily_report.router import router as daily_report_router
 
+from app.tool_hub import bootstrap as tool_hub_bootstrap
+from app.tool_hub.models import Tool, ToolVersion
+from app.tool_hub.router import router as tool_hub_router
+
+from app.knowledge_base import bootstrap as knowledge_base_bootstrap
+from app.knowledge_base.models import KnowledgeBase, KnowledgeChatMessage, KnowledgeDocument
+from app.knowledge_base.router import router as knowledge_base_router
+
 from app.platform.app_module import AppModule
 
 
@@ -68,5 +76,19 @@ APPS: tuple[AppModule, ...] = (
         router=daily_report_router,
         models=(DailyReport,),
         startup_sync=daily_report_bootstrap.ensure_daily_report_startup,
+    ),
+    AppModule(
+        name="tool_hub",
+        router=tool_hub_router,
+        models=(Tool, ToolVersion),
+        startup_sync=tool_hub_bootstrap.ensure_tool_hub_startup,
+    ),
+    AppModule(
+        name="knowledge_base",
+        router=knowledge_base_router,
+        models=(KnowledgeBase, KnowledgeDocument, KnowledgeChatMessage),
+        startup_sync=knowledge_base_bootstrap.ensure_knowledge_base_startup,
+        startup_async=knowledge_base_bootstrap.on_startup,
+        shutdown_async=knowledge_base_bootstrap.on_shutdown,
     ),
 )

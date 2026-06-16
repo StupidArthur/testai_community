@@ -1,6 +1,7 @@
 """工作日报 API 测试。"""
 from __future__ import annotations
 
+from datetime import date, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -57,7 +58,7 @@ class TestWorkDaily:
 
         lst = client.get("/api/work-daily", headers=eng_headers)
         assert lst.status_code == 200
-        assert len(lst.json()) >= 1
+        assert len(lst.json()["items"]) >= 1
 
     def test_same_day_multiple_submits(self, client, eng_headers):
         with patch(
@@ -68,7 +69,7 @@ class TestWorkDaily:
             client.post("/api/work-daily", json=_payload("第一次"), headers=eng_headers)
             client.post("/api/work-daily", json=_payload("第二次"), headers=eng_headers)
         lst = client.get("/api/work-daily", headers=eng_headers)
-        same_day = [x for x in lst.json() if x["report_date"] == "2026-06-15"]
+        same_day = [x for x in lst.json()["items"] if x["report_date"] == "2026-06-15"]
         assert len(same_day) >= 2
 
     def test_admin_can_read_engineer_report(self, client, auth_headers, eng_headers):
@@ -101,6 +102,33 @@ class TestWorkDaily:
         r = client.get("/api/work-daily/export", params={"report_date": "2026-06-13"}, headers=auth_headers)
         assert r.status_code == 200
         assert isinstance(r.json(), list)
+
+    def test_list_pagination(self, client, eng_headers):
+        page_date = (date.today() - timedelta(days=5)).isoformat()
+        with patch(
+            "app.ai_service.work_daily.audit.chat",
+            new_callable=AsyncMock,
+            return_value=MOCK_AUDIT.model_dump_json(),
+        ):
+            for i in range(12):
+                client.post(
+                    "/api/work-daily",
+                    json={**_payload(), "report_date": page_date, "raw_text": f"日报{i}"},
+                    headers=eng_headers,
+                )
+        p1 = client.get(
+            "/api/work-daily",
+            params={"page": 1, "page_size": 10, "report_date": page_date},
+            headers=eng_headers,
+        )
+        p2 = client.get(
+            "/api/work-daily",
+            params={"page": 2, "page_size": 10, "report_date": page_date},
+            headers=eng_headers,
+        )
+        assert p1.json()["total"] >= 12
+        assert len(p1.json()["items"]) == 10
+        assert len(p2.json()["items"]) >= 2
 
     def test_format_dict_suggestions(self):
         from app.ai_service.work_daily.audit import _normalize

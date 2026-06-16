@@ -63,23 +63,27 @@ class TestReq2ListAndCreate:
 
     def test_list_after_submit(self, client, eng_headers):
         with patch(PATCH_AUDIT, new_callable=AsyncMock, return_value=(MOCK_AUDIT_OK, "v1")):
-            assert client.post("/api/work-daily", json=_payload(), headers=eng_headers).status_code == 201
+            created = client.post("/api/work-daily", json=_payload(), headers=eng_headers)
+            assert created.status_code == 201
+        report_id = created.json()["id"]
         lst = client.get("/api/work-daily", headers=eng_headers)
         assert lst.status_code == 200
-        assert len(lst.json()) >= 1
-        assert "功能测试" in lst.json()[0]["summary_preview"]
+        ids = [x["id"] for x in lst.json()["items"]]
+        assert report_id in ids
+        row = next(x for x in lst.json()["items"] if x["id"] == report_id)
+        assert "功能测试" in row["summary_preview"]
 
 
 class TestReq3AuditAndSubmit:
     """REQ-3：审核与提交分离；角色；master Skill；可忽略审核直接提交。"""
 
     def test_audit_not_persisted(self, client, eng_headers):
-        before = len(client.get("/api/work-daily", headers=eng_headers).json())
+        before = client.get("/api/work-daily", headers=eng_headers).json()["total"]
         with patch(PATCH_AUDIT, new_callable=AsyncMock, return_value=(MOCK_AUDIT_INCOMPLETE, "v1")):
             r = client.post("/api/work-daily/audit", json=_payload(), headers=eng_headers)
         assert r.status_code == 200
         assert r.json()["audit"]["valid"] is False
-        after = len(client.get("/api/work-daily", headers=eng_headers).json())
+        after = client.get("/api/work-daily", headers=eng_headers).json()["total"]
         assert after == before
 
     def test_audit_uses_master_skill(self, client, eng_headers):

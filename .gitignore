@@ -62,8 +62,23 @@ htmlcov/
 
 # ====== Translation / Upload files ======
 backend/app/uploads/
+backend/app/tool_artifacts/
 backend/app/results/
+data/*
+!data/.gitkeep
 data/ai_news/
+data/knowledge_base/
+
+# ====== Feature Recorder (Node) ======
+feature_recorder/node_modules/
+feature_recorder/dist/
+feature_recorder/release/
+feature_recorder/output/
+feature_recorder/.pkg-cache/
+feature_recorder/.cache/
+
+# ====== Vendor clone (可选) ======
+vendor/
 
 # ====== Misc ======
 *.tmp

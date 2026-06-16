@@ -578,7 +578,7 @@ export default function BranchSandbox() {
                   <Radio.Button value="raw"><CodeOutlined /> 纯文本</Radio.Button>
                 </Radio.Group>
               )}
-              {isStandard && !isOwner && !isPlatformLocked && <Button size="small" icon={<ForkOutlined />} loading={forkMutation.isPending} onClick={() => forkMutation.mutate()}>Fork 到我的分支</Button>}
+              {isStandard && !isPlatformLocked && <Button size="small" icon={<ForkOutlined />} loading={forkMutation.isPending} onClick={() => forkMutation.mutate()}>Fork 到我的分支</Button>}
               {canMerge && <Button size="small" type="primary" icon={<ArrowUpOutlined />} loading={mergeMutation.isPending} onClick={() => mergeMutation.mutate()} style={{ background: '#722ed1', borderColor: '#722ed1' }}>合并到主干</Button>}
             </Space>
           </div>

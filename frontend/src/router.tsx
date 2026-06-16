@@ -13,6 +13,10 @@ import TranslateHomePage from './translate/pages/HomePage'
 import TranslateJobDetailPage from './translate/pages/JobDetailPage'
 import ChangelogPage from './changelog/ChangelogPage'
 import DailyReportPage from './daily_report/pages/DailyReportPage'
+import ToolHubPage from './tool_hub/pages/ToolHubPage'
+import ToolDetailPage from './tool_hub/pages/ToolDetailPage'
+import KnowledgeBaseListPage from './knowledge_base/pages/KnowledgeBaseListPage'
+import KnowledgeBaseDetailPage from './knowledge_base/pages/KnowledgeBaseDetailPage'
 import { refreshCurrentUser, isAdmin } from './shared/hooks/useAuth'
 
 function decodeJWTPayload(token: string): Record<string, unknown> | null {
@@ -132,6 +136,22 @@ export const router = createBrowserRouter([
       {
         path: 'daily-reports',
         element: <DailyReportPage />,
+      },
+      {
+        path: 'tool-hub',
+        element: <ToolHubPage />,
+      },
+      {
+        path: 'tool-hub/:toolId',
+        element: <ToolDetailPage />,
+      },
+      {
+        path: 'knowledge-base',
+        element: <KnowledgeBaseListPage />,
+      },
+      {
+        path: 'knowledge-base/:kbId',
+        element: <KnowledgeBaseDetailPage />,
       },
     ],
   },

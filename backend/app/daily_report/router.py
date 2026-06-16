@@ -11,11 +11,11 @@ from sqlalchemy.orm import Session
 
 from app.auth.models import User, UserRole
 from app.auth.service import get_current_user, RequireRole
-from app.daily_report import DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT
+from app.daily_report import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.daily_report.schemas import (
     WorkDailyAuditRequest,
     WorkDailyAuditResponse,
-    WorkDailyListOut,
+    WorkDailyListPage,
     WorkDailyOut,
     WorkDailySubmitRequest,
 )
@@ -52,15 +52,18 @@ async def submit_work_daily(
     return await submit_report(db, current_user, data)
 
 
-@router.get("", response_model=list[WorkDailyListOut])
+@router.get("", response_model=WorkDailyListPage)
 def list_work_daily(
     report_date: date | None = None,
     user_id: int | None = Query(default=None),
-    limit: int = Query(default=DEFAULT_LIST_LIMIT, ge=1, le=MAX_LIST_LIMIT),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return list_reports(db, current_user, report_date=report_date, user_id=user_id, limit=limit)
+    return list_reports(
+        db, current_user, report_date=report_date, user_id=user_id, page=page, page_size=page_size,
+    )
 
 
 @router.get("/export")

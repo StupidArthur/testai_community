@@ -8,11 +8,12 @@ import {
   LogoutOutlined,
   MoonOutlined,
   SunOutlined,
-  SwapOutlined,
   LockOutlined,
   UserOutlined,
   HistoryOutlined,
   FileTextOutlined,
+  ToolOutlined,
+  BookOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useLocation, Outlet } from 'react-router-dom'
 import { useThemeStore } from '../hooks/useTheme'
@@ -134,16 +135,22 @@ export default function AppLayout() {
             TestAI Community
           </Text>
           <NavButton
-            icon={<SwapOutlined />}
-            label="AI 翻译"
-            active={isActive('/translate')}
-            onClick={() => navigate('/translate')}
-          />
-          <NavButton
             icon={<AppstoreOutlined />}
             label="Skill 管理"
             active={isActive('/skills')}
             onClick={() => navigate('/skills')}
+          />
+          <NavButton
+            icon={<ToolOutlined />}
+            label="工具集"
+            active={isActive('/tool-hub')}
+            onClick={() => navigate('/tool-hub')}
+          />
+          <NavButton
+            icon={<BookOutlined />}
+            label="知识库"
+            active={isActive('/knowledge-base')}
+            onClick={() => navigate('/knowledge-base')}
           />
           <NavButton
             icon={<FileTextOutlined />}

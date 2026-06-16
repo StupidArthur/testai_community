@@ -18,6 +18,9 @@ TEST_DATA_DIR = BACKEND_DIR / "tests" / ".data"
 os.environ["DATABASE_URL"] = "sqlite:///" + str(TEST_DB.resolve()).replace("\\", "/")
 os.environ["TRANSLATE_UPLOAD_DIR"] = str((TEST_DATA_DIR / "uploads").resolve())
 os.environ["TRANSLATE_RESULT_DIR"] = str((TEST_DATA_DIR / "results").resolve())
+os.environ["TOOL_HUB_ARTIFACT_DIR"] = str((TEST_DATA_DIR / "tool_artifacts").resolve())
+os.environ["KNOWLEDGE_BASE_DATA_DIR"] = str((TEST_DATA_DIR / "knowledge_base").resolve())
+os.environ["KNOWLEDGE_BASE_CHROMA_DIR"] = str((TEST_DATA_DIR / "knowledge_base" / "chroma").resolve())
 os.environ.setdefault("ENV", "dev")
 
 sys.path.insert(0, str(BACKEND_DIR))

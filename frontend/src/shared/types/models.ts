@@ -188,6 +188,13 @@ export interface WorkDailyListItem {
   created_at: string
 }
 
+export interface WorkDailyListPage {
+  items: WorkDailyListItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
 export interface WorkDailyReport {
   id: string
   user_id: number

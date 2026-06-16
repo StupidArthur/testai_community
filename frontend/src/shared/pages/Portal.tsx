@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { Card, Typography } from 'antd'
-import { ThunderboltOutlined, SwapOutlined } from '@ant-design/icons'
+import { ThunderboltOutlined, ToolOutlined, BookOutlined } from '@ant-design/icons'
 
 const { Title, Text } = Typography
 
@@ -24,7 +24,7 @@ export default function Portal() {
           TestAI Community
         </Title>
         <Text type="secondary">
-          统一测试资产与 AI 翻译平台
+          统一测试资产与工具平台
         </Text>
       </div>
 
@@ -62,7 +62,7 @@ export default function Portal() {
           </div>
         </Card>
 
-        {/* AI 翻译卡片 */}
+        {/* 工具集卡片 */}
         <Card
           hoverable
           style={{
@@ -71,17 +71,50 @@ export default function Portal() {
             background: 'var(--color-bg)',
             cursor: 'pointer',
           }}
-          onClick={() => navigate('/translate')}
+          onClick={() => navigate('/tool-hub')}
         >
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '8px 0' }}>
-            <SwapOutlined style={{ fontSize: 48, color: 'var(--color-primary)' }} />
+            <ToolOutlined style={{ fontSize: 48, color: 'var(--color-primary)' }} />
             <Title level={4} style={{ color: 'var(--color-text)', margin: 0, textAlign: 'center' }}>
-              AI 翻译
+              工具集
             </Title>
             <Text type="secondary" style={{ textAlign: 'center' }}>
-              UI 录制文件上传<br />
-              自动翻译为中文测试用例<br />
-              阶段一 / 二 / 四完整 pipeline
+              功能录制（客户端下载）<br />
+              AI 翻译等平台集成工具<br />
+              说明书与版本 changelog
+            </Text>
+            <Text
+              style={{
+                color: 'var(--color-primary)',
+                fontWeight: 500,
+                marginTop: 8,
+              }}
+            >
+              进入 →
+            </Text>
+          </div>
+        </Card>
+
+        {/* 知识库卡片 */}
+        <Card
+          hoverable
+          style={{
+            width: 300,
+            border: '1px solid var(--color-border)',
+            background: 'var(--color-bg)',
+            cursor: 'pointer',
+          }}
+          onClick={() => navigate('/knowledge-base')}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '8px 0' }}>
+            <BookOutlined style={{ fontSize: 48, color: 'var(--color-primary)' }} />
+            <Title level={4} style={{ color: 'var(--color-text)', margin: 0, textAlign: 'center' }}>
+              知识库
+            </Title>
+            <Text type="secondary" style={{ textAlign: 'center' }}>
+              上传 md/docx/pdf 文档<br />
+              本地向量化 + RAG 问答<br />
+              图片流程图智能识别
             </Text>
             <Text
               style={{

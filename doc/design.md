@@ -10,14 +10,14 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                     Browser (React SPA)                      │
-│  Portal │ Skill Hub │ Translate │ Changelog │ Admin         │
+│  Portal │ Skill Hub │ Translate │ Knowledge Base │ Changelog │ Admin │
 └──────────────────────────┬──────────────────────────────────┘
                            │ HTTP / SSE
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
 │              FastAPI  platform/factory.py  (:48010)               │
 │  ┌─────────┐ ┌───────────┐ ┌───────────┐ ┌──────────────────────────┐  │
-│  │  auth   │ │ skill_hub │ │ translate │ │ platform (config/changelog)│  │
+│  │  auth   │ │ skill_hub │ │ translate │ │ knowledge_base │ platform   │  │
 │  └────┬────┘ └─────┬─────┘ └─────┬─────┘ └────────────┬─────────────┘  │
 │       └────────────┴─────────────┴────────────────────┘                 │
 │              ai_service (LLM) + external_api                               │
@@ -40,7 +40,8 @@
 | 前端 | React 19、Vite 8、TypeScript、Ant Design 5、TanStack Query 5、Zustand |
 | 后端 | FastAPI、SQLAlchemy 2、Pydantic 2、PyJWT、passlib |
 | 数据库 | SQLite（默认 `database.sqlite`） |
-| LLM | MiniMax API（`ai_service/client.py` 统一封装） |
+| LLM | MiniMax API（问答生成）；Ollama（Embedding + 视觉，知识库专用） |
+| 向量库 | ChromaDB（知识库 RAG，`data/knowledge_base/chroma/`） |
 
 ---
 
@@ -56,6 +57,7 @@ testai_community/
 │   │   ├── auth/                 # JWT、用户、ticket
 │   │   ├── skill_hub/            # Skill / Branch / Version
 │   │   ├── translate/            # 上传、队列、worker、workflow
+│   │   ├── knowledge_base/       # 知识库：文档上传、RAG 问答
 │   │   ├── external_api/         # X-API-Key 外部调用
 │   ├── config/prompts/           # Translate 用 Prompt 模板
 │   ├── scripts/seed_db.py        # 演示数据种子
@@ -67,6 +69,7 @@ testai_community/
         ├── auth/                 # 登录
         ├── skill_hub/pages/      # Skill 业务页
         ├── translate/            # 翻译页与组件
+        ├── knowledge_base/       # 知识库列表与详情
         ├── changelog/            # Changelog 页
         └── shared/               # API、布局、类型、hooks
 ```
@@ -144,7 +147,26 @@ QUEUED → RUNNING → COMPLETED
 **ai_service**（`app/ai_service/`）：
 
 - **client.py**：`chat()`，经 ModelRegistry → Provider
+- **document/**：多格式文档解析、VL 图片描述、分块（供 knowledge_base Worker 调用）
+- **rag/**：Ollama Embedding、ChromaDB 存储/检索、MiniMax RAG 问答
 - **news/**：Tavily 搜索（`days=1`、链接白名单）+ `chat` 总结 + 校验，生成 AI 早报 Markdown（`python -m app.ai_service.news`）
+
+### 4.5 知识库（knowledge_base）
+
+**分层：**
+
+| 模块 | 职责 |
+|------|------|
+| `router.py` | HTTP 路由 |
+| `service.py` | CRUD、权限、上传校验、RAG 对话 |
+| `worker.py` | 文档异步处理调度（queued → processing → ready/failed） |
+| `bootstrap.py` | 建表、schema 补丁、Worker 启停 |
+
+**数据流：** 上传 → raw 磁盘 → Worker 调用 `ai_service/document` 解析分块 → Ollama Embedding → ChromaDB → 问答时 `ai_service/rag` 检索 + MiniMax 生成。
+
+**权限：** 全站共享读写（上传/对话）；知识库改删限创建者与 Admin；文档删除限上传者与 Admin。
+
+详见 [knowledge_base.md](./knowledge_base.md)、[dev/modules/knowledge_base.md](./dev/modules/knowledge_base.md)。
 
 ---
 
@@ -159,6 +181,7 @@ QUEUED → RUNNING → COMPLETED
 | `/api/v1/external` | 外部 API（工具链 / CI） |
 | `/api/translate` | AI 翻译 |
 | `/api/changelog` | platform.changelog（更新日志） |
+| `/api/knowledge-base` | 知识库 |
 | `/api/health` | 健康检查 |
 
 ### 5.2 Translate 主要接口

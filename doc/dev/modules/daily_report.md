@@ -77,12 +77,26 @@ flowchart TB
 |------|------|------|------|
 | POST | `/api/work-daily/audit` | JWT | 审核日报（**不落库**；可反复调用） |
 | POST | `/api/work-daily` | JWT | 提交日报（每次新建记录，同天可多次） |
-| GET | `/api/work-daily` | JWT | 列表（`?report_date=`、`?user_id=` 仅 Admin、`?limit=`） |
+| GET | `/api/work-daily` | JWT | 分页列表（`?page=`、`?page_size=` 默认 10，`?report_date=`、`?user_id=` 仅 Admin） |
 | GET | `/api/work-daily/{report_id}` | JWT | 详情（原始文本 + 审核快照） |
 | GET | `/api/work-daily/export?report_date=` | JWT Admin | 按日期批量导出全员 JSON |
 | GET | `/api/work-daily/download?start_date=&end_date=&user_id=` | JWT | 下载原始 txt zip（每人每天一个文件；Admin 可选用户） |
 
 > **已废弃**：v1 前缀 `/api/daily-reports`（同日期覆盖 + 强制结构化），请勿再使用。
+
+**列表响应（分页）**
+
+```json
+{
+  "items": [ { "id": "...", "summary_preview": "...", ... } ],
+  "total": 42,
+  "page": 1,
+  "page_size": 10
+}
+```
+
+- `page` 从 1 开始；`page_size` 默认 10，最大 100
+- 按 `created_at` 倒序
 
 ### 2.1 请求体
 

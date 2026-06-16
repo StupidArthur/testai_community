@@ -25,6 +25,7 @@ from app.daily_report.models import DailyReport
 from app.daily_report.schemas import (
     WorkDailyAuditResponse,
     WorkDailyListOut,
+    WorkDailyListPage,
     WorkDailyOut,
     WorkDailySubmitRequest,
 )
@@ -158,8 +159,9 @@ def list_reports(
     *,
     report_date: date | None = None,
     user_id: int | None = None,
-    limit: int = 50,
-) -> list[WorkDailyListOut]:
+    page: int = 1,
+    page_size: int = 10,
+) -> WorkDailyListPage:
     q = db.query(DailyReport)
     if user.role == UserRole.Admin:
         if user_id is not None:
@@ -170,8 +172,19 @@ def list_reports(
     if report_date is not None:
         q = q.filter(DailyReport.report_date == report_date)
 
-    rows = q.order_by(DailyReport.created_at.desc()).limit(limit).all()
-    return [_row_to_list(db, r) for r in rows]
+    total = q.count()
+    rows = (
+        q.order_by(DailyReport.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return WorkDailyListPage(
+        items=[_row_to_list(db, r) for r in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 def get_report(db: Session, user: User, report_id: str) -> WorkDailyOut:

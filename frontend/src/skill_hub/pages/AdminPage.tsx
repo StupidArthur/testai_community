@@ -10,15 +10,12 @@ import {
   message,
   Typography,
   Tag,
-  Space,
 } from 'antd'
-import { UserAddOutlined, SettingOutlined, KeyOutlined, DeleteOutlined, TranslationOutlined, TagsOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons'
+import { UserAddOutlined, SettingOutlined, KeyOutlined, DeleteOutlined, TranslationOutlined } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { authApi, skillsApi } from '../../shared/api/client'
+import { authApi } from '../../shared/api/client'
 import { listJobs, deleteJobRecord } from '../../shared/api/translate-jobs'
-import type { User, SkillCategory, SkillRef } from '../../shared/api/client'
-import SkillRefPicker from '../components/SkillRefPicker'
-import SkillRefSummary from '../components/SkillRefSummary'
+import type { User } from '../../shared/api/client'
 import type { JobView } from '../../shared/api/translate-jobs'
 import { useCurrentUser } from '../../shared/hooks/useAuth'
 
@@ -33,13 +30,8 @@ export default function AdminPage() {
   const [deleteJobModalOpen, setDeleteJobModalOpen] = useState(false)
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
   const [selectedJob, setSelectedJob] = useState<JobView | null>(null)
-  const [categoryModalOpen, setCategoryModalOpen] = useState(false)
-  const [editCategory, setEditCategory] = useState<SkillCategory | null>(null)
   const [registerForm] = Form.useForm()
   const [resetForm] = Form.useForm()
-  const [categoryForm] = Form.useForm()
-  const [skillRefPickerOpen, setSkillRefPickerOpen] = useState(false)
-  const [selectedSkillRef, setSelectedSkillRef] = useState<SkillRef | null>(null)
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
@@ -101,39 +93,6 @@ export default function AdminPage() {
     },
     onError: (err: any) => {
       message.error(err.response?.data?.detail || '删除失败')
-    },
-  })
-
-  const { data: skillCategories = [] } = useQuery({
-    queryKey: ['skill-categories-manage'],
-    queryFn: () => skillsApi.listCategoriesManage().then((r) => r.data),
-  })
-
-  const saveCategoryMutation = useMutation({
-    mutationFn: async (values: { id?: string; label: string; sort_order?: number; enabled?: boolean }) => {
-      if (editCategory) {
-        return skillsApi.updateCategory(editCategory.id, {
-          label: values.label,
-          sort_order: values.sort_order,
-          enabled: values.enabled,
-        })
-      }
-      return skillsApi.createCategory({
-        id: values.id!,
-        label: values.label,
-        sort_order: values.sort_order,
-      })
-    },
-    onSuccess: () => {
-      message.success(editCategory ? '分类已更新' : '分类已创建')
-      setCategoryModalOpen(false)
-      setEditCategory(null)
-      categoryForm.resetFields()
-      queryClient.invalidateQueries({ queryKey: ['skill-categories-manage'] })
-      queryClient.invalidateQueries({ queryKey: ['skill-categories'] })
-    },
-    onError: (err: any) => {
-      message.error(err.response?.data?.detail || '保存失败')
     },
   })
 
@@ -217,34 +176,6 @@ export default function AdminPage() {
       </div>
 
       <Card
-        title={<Text strong>SkillRef 引用选择器（调试）</Text>}
-        style={{ border: '1px solid var(--color-border)', marginBottom: 24 }}
-        extra={
-          <Button type="primary" onClick={() => setSkillRefPickerOpen(true)}>
-            选择 Skill 引用
-          </Button>
-        }
-      >
-        {selectedSkillRef ? (
-          <>
-            <SkillRefSummary ref={selectedSkillRef} showResolvePreview />
-            <pre style={{ marginTop: 12, fontSize: 12, background: 'var(--color-bg)', padding: 12, borderRadius: 6 }}>
-              {JSON.stringify(selectedSkillRef, null, 2)}
-            </pre>
-          </>
-        ) : (
-          <Text type="secondary">尚未选择；业务模块（translate / external_api）可嵌入同一 Picker。</Text>
-        )}
-      </Card>
-
-      <SkillRefPicker
-        open={skillRefPickerOpen}
-        onClose={() => setSkillRefPickerOpen(false)}
-        value={selectedSkillRef}
-        onChange={setSelectedSkillRef}
-      />
-
-      <Card
         title={<Text strong style={{ color: 'var(--color-text)' }}>用户列表（共 {users.length} 人）</Text>}
         style={{ border: '1px solid var(--color-border)' }}
       >
@@ -254,72 +185,6 @@ export default function AdminPage() {
           rowKey="id"
           pagination={false}
           locale={{ emptyText: '暂无用户' }}
-        />
-      </Card>
-
-      <Card
-        title={
-          <Text strong style={{ color: 'var(--color-text)' }}>
-            <TagsOutlined style={{ marginRight: 8 }} />
-            Skill 分类（共 {skillCategories.length} 项）
-          </Text>
-        }
-        extra={
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => {
-              setEditCategory(null)
-              categoryForm.resetFields()
-              categoryForm.setFieldsValue({ sort_order: 50, enabled: true })
-              setCategoryModalOpen(true)
-            }}
-          >
-            新建分类
-          </Button>
-        }
-        style={{ border: '1px solid var(--color-border)', marginTop: 24 }}
-      >
-        <Table
-          dataSource={skillCategories}
-          rowKey="id"
-          pagination={false}
-          locale={{ emptyText: '暂无分类' }}
-          columns={[
-            { title: 'ID', dataIndex: 'id', key: 'id', width: 160 },
-            { title: '名称', dataIndex: 'label', key: 'label' },
-            { title: '排序', dataIndex: 'sort_order', key: 'sort_order', width: 80 },
-            {
-              title: '状态',
-              dataIndex: 'enabled',
-              key: 'enabled',
-              width: 90,
-              render: (v: boolean) => (v ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>),
-            },
-            {
-              title: '操作',
-              key: 'actions',
-              width: 100,
-              render: (_: unknown, record: SkillCategory) => (
-                <Button
-                  type="link"
-                  icon={<EditOutlined />}
-                  onClick={() => {
-                    setEditCategory(record)
-                    categoryForm.setFieldsValue({
-                      id: record.id,
-                      label: record.label,
-                      sort_order: record.sort_order ?? 50,
-                      enabled: record.enabled !== false,
-                    })
-                    setCategoryModalOpen(true)
-                  }}
-                >
-                  编辑
-                </Button>
-              ),
-            },
-          ]}
         />
       </Card>
 
@@ -387,54 +252,6 @@ export default function AdminPage() {
           locale={{ emptyText: '暂无翻译记录' }}
         />
       </Card>
-
-      <Modal
-        title={editCategory ? `编辑分类 - ${editCategory.id}` : '新建 Skill 分类'}
-        open={categoryModalOpen}
-        onCancel={() => {
-          setCategoryModalOpen(false)
-          setEditCategory(null)
-          categoryForm.resetFields()
-        }}
-        footer={null}
-        destroyOnClose
-      >
-        <Form
-          form={categoryForm}
-          layout="vertical"
-          onFinish={(values) => saveCategoryMutation.mutate(values)}
-        >
-          {!editCategory && (
-            <Form.Item
-              name="id"
-              label="分类 ID"
-              rules={[{ required: true, message: '请输入 id' }]}
-              extra="小写字母开头，仅含 a-z、0-9、_"
-            >
-              <Input placeholder="如 api_testing" />
-            </Form.Item>
-          )}
-          <Form.Item name="label" label="展示名称" rules={[{ required: true }]}>
-            <Input placeholder="如 API 测试" />
-          </Form.Item>
-          <Form.Item name="sort_order" label="排序（越小越靠前）" initialValue={50}>
-            <Input type="number" />
-          </Form.Item>
-          {editCategory && (
-            <Form.Item name="enabled" label="状态" initialValue={true}>
-              <Select>
-                <Select.Option value={true}>启用</Select.Option>
-                <Select.Option value={false}>停用</Select.Option>
-              </Select>
-            </Form.Item>
-          )}
-          <Form.Item>
-            <Button type="primary" htmlType="submit" block loading={saveCategoryMutation.isPending}>
-              保存
-            </Button>
-          </Form.Item>
-        </Form>
-      </Modal>
 
       <Modal
         title="添加用户"

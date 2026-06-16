@@ -86,6 +86,9 @@ erDiagram
 | `translate_jobs` | **translate** | 翻译任务元数据（**无 FK**，`username` 为冗余字符串） |
 | `llm_tasks` | **external_api** | 外部异步 LLM 执行任务 |
 | `service_accounts` | **external_api** | 外部 API Key 账户 |
+| `knowledge_bases` | **knowledge_base** | 知识库根实体 |
+| `knowledge_documents` | **knowledge_base** | 上传文档及处理状态 |
+| `knowledge_chat_messages` | **knowledge_base** | RAG 对话历史 |
 
 ---
 
@@ -180,6 +183,41 @@ API 响应仍暴露九维字段，由 `skill_version_to_out()` 从 `payload` 解
 
 ---
 
+### 2.6 knowledge_bases / knowledge_documents / knowledge_chat_messages（knowledge_base）
+
+**knowledge_bases**
+
+| 字段 | 说明 |
+|------|------|
+| id | UUID hex PK |
+| name / description | 名称与描述 |
+| user_id | FK → users.id，创建者 |
+
+**knowledge_documents**
+
+| 字段 | 说明 |
+|------|------|
+| kb_id | FK → knowledge_bases.id |
+| user_id | FK → users.id，上传者 |
+| filename / original_path / file_size | 文件信息 |
+| status | queued / processing / ready / failed |
+| error | 失败原因，可空 |
+| chunk_count / asset_count | 分块数 / 图片资产数 |
+
+**knowledge_chat_messages**
+
+| 字段 | 说明 |
+|------|------|
+| kb_id | FK → knowledge_bases.id |
+| user_id | FK → users.id，提问用户 |
+| role | user / assistant |
+| content | 消息正文 |
+| citations_json | 引用 JSON 数组字符串 |
+
+**模块关系**：`users.id` 被 knowledge_bases / knowledge_documents / knowledge_chat_messages 外键引用；向量数据存 ChromaDB，不在 SQL 中。
+
+---
+
 ## 3. 磁盘文件（非 SQL）
 
 | 路径 | 模块 | 内容 | 配置 |
@@ -187,6 +225,8 @@ API 响应仍暴露九维字段，由 `skill_version_to_out()` 从 `payload` 解
 | `backend/app/uploads/` | translate | 解压后的录制包、`translate/phase*` 中间产物 | `TRANSLATE_UPLOAD_DIR` |
 | `backend/app/results/` | translate | `{job_id}.zip` 最终结果 | `TRANSLATE_RESULT_DIR` |
 | `backend/config/prompts/` | translate | Prompt 模板 md（随代码部署） | — |
+| `data/knowledge_base/{kb_id}/raw/` | knowledge_base | 原始上传文件 | `KNOWLEDGE_BASE_DATA_DIR` |
+| `data/knowledge_base/chroma/` | knowledge_base | ChromaDB 向量持久化 | `KNOWLEDGE_BASE_CHROMA_DIR` |
 
 ```mermaid
 flowchart LR
@@ -211,14 +251,15 @@ flowchart LR
 | platform.changelog | users, changelog_entries | changelog_entries |
 | translate | translate_jobs | translate_jobs |
 | external_api | skills, skill_versions, llm_tasks, service_accounts | llm_tasks |
+| knowledge_base | users, knowledge_bases, knowledge_documents, knowledge_chat_messages | knowledge_bases, knowledge_documents, knowledge_chat_messages |
 
-translate **不**写 skill / platform.changelog 表；skill_hub **不**写 translate_jobs。
+translate **不**写 skill / platform.changelog 表；skill_hub **不**写 translate_jobs；knowledge_base **不**写其他 App 的表。
 
 ---
 
 ## 5. 建表时机
 
-`platform.factory` lifespan 内执行 `Base.metadata.create_all()`；translate 另对 `translate_jobs` 做 `name`/`username` 列增量补丁（`translate/bootstrap.py`）。
+`platform.factory` lifespan 内执行 `Base.metadata.create_all()`；translate 另对 `translate_jobs` 做 `name`/`username` 列增量补丁（`translate/bootstrap.py`）；knowledge_base 在 `knowledge_base/bootstrap.py` 中确保三张表存在并执行 schema 补丁（如 `knowledge_documents.user_id`）。
 
 ---
 

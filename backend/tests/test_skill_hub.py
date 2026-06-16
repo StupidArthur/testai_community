@@ -126,6 +126,29 @@ class TestSkillHubBranches:
         assert "master" in types
         assert "standard" in types
 
+    def test_creator_can_fork_own_standard_branch(self, client, eng_headers):
+        """Skill 创建者可从自己的 standard 分支 Fork 到 personal（复制最新版本）。"""
+        r = client.post(
+            "/api/skills",
+            json=_skill_create_payload(display_name="创建者 Fork"),
+            headers=eng_headers,
+        )
+        assert r.status_code == 200
+        skill_id = r.json()["id"]
+
+        branches = client.get(f"/api/skills/{skill_id}/branches", headers=eng_headers).json()
+        standard = next(b for b in branches if b["branch_type"] == "standard")
+        assert standard["username"] == "eng_test"
+
+        r_fork = client.post(
+            f"/api/skills/{skill_id}/branches/{standard['id']}/fork",
+            headers=eng_headers,
+        )
+        assert r_fork.status_code == 200
+        body = r_fork.json()
+        assert body["branch"]["branch_type"] == "personal"
+        assert body["version"]["source_version_id"] is not None
+
     def test_create_personal_branch_idempotent(self, client, auth_headers, eng_headers, skill_id):
         r1 = client.post(f"/api/skills/{skill_id}/branches", headers=eng_headers)
         assert r1.status_code == 200

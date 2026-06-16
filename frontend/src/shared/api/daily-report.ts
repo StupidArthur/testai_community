@@ -3,13 +3,16 @@ import type {
   WorkDailyAudit,
   WorkDailyAuditRequest,
   WorkDailyListItem,
+  WorkDailyListPage,
   WorkDailyReport,
   WorkDailySubmitRequest,
 } from '../types/models'
 
+export const PAGE_SIZE = 10
+
 export const workDailyApi = {
-  list: (params?: { report_date?: string; user_id?: number; limit?: number }) =>
-    apiClient.get<WorkDailyListItem[]>('/work-daily', { params }),
+  list: (params?: { report_date?: string; user_id?: number; page?: number; page_size?: number }) =>
+    apiClient.get<WorkDailyListPage>('/work-daily', { params }),
 
   get: (reportId: string) => apiClient.get<WorkDailyReport>(`/work-daily/${reportId}`),
 
