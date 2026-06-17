@@ -160,7 +160,6 @@ export default function KnowledgeBaseListPage() {
           form={form}
           layout="vertical"
           onFinish={(values) => createMutation.mutate(values)}
-          onSubmit={(e) => e.preventDefault()}
         >
           <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
             <Input placeholder="例如：测试规范库" maxLength={120} />
