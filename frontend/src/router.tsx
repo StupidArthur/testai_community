@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { createBrowserRouter, Navigate } from 'react-router-dom'
+import { createBrowserRouter, Navigate, useParams } from 'react-router-dom'
 import { Spin } from 'antd'
 import Login from './auth/Login'
 import Dashboard from './skill_hub/pages/Dashboard'
@@ -15,8 +15,9 @@ import ChangelogPage from './changelog/ChangelogPage'
 import DailyReportPage from './daily_report/pages/DailyReportPage'
 import ToolHubPage from './tool_hub/pages/ToolHubPage'
 import ToolDetailPage from './tool_hub/pages/ToolDetailPage'
-import KnowledgeBaseListPage from './knowledge_base/pages/KnowledgeBaseListPage'
-import KnowledgeBaseDetailPage from './knowledge_base/pages/KnowledgeBaseDetailPage'
+import KnowledgeHubPage from './knowledge_base/pages/KnowledgeHubPage'
+import CleanJobReviewPage from './data_cleaning/pages/CleanJobReviewPage'
+import AnchorDictPage from './data_cleaning/pages/AnchorDictPage'
 import { refreshCurrentUser, isAdmin } from './shared/hooks/useAuth'
 
 function decodeJWTPayload(token: string): Record<string, unknown> | null {
@@ -84,6 +85,11 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+function RedirectLegacyCleanJob() {
+  const { jobId } = useParams<{ jobId: string }>()
+  return <Navigate to={`/knowledge-base/clean/${jobId}`} replace />
+}
+
 export const router = createBrowserRouter([
   {
     path: '/login',
@@ -146,12 +152,32 @@ export const router = createBrowserRouter([
         element: <ToolDetailPage />,
       },
       {
+        path: 'data-cleaning',
+        element: <Navigate to="/knowledge-base?tab=clean" replace />,
+      },
+      {
+        path: 'data-cleaning/anchors',
+        element: <Navigate to="/knowledge-base/anchors" replace />,
+      },
+      {
+        path: 'data-cleaning/:jobId',
+        element: <RedirectLegacyCleanJob />,
+      },
+      {
         path: 'knowledge-base',
-        element: <KnowledgeBaseListPage />,
+        element: <KnowledgeHubPage />,
+      },
+      {
+        path: 'knowledge-base/anchors',
+        element: <AdminRoute><AnchorDictPage /></AdminRoute>,
+      },
+      {
+        path: 'knowledge-base/clean/:jobId',
+        element: <CleanJobReviewPage />,
       },
       {
         path: 'knowledge-base/:kbId',
-        element: <KnowledgeBaseDetailPage />,
+        element: <Navigate to="/knowledge-base" replace />,
       },
     ],
   },

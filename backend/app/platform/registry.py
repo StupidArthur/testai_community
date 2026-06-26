@@ -37,6 +37,10 @@ from app.knowledge_base import bootstrap as knowledge_base_bootstrap
 from app.knowledge_base.models import KnowledgeBase, KnowledgeChatMessage, KnowledgeDocument
 from app.knowledge_base.router import router as knowledge_base_router
 
+from app.data_cleaning import bootstrap as data_cleaning_bootstrap
+from app.data_cleaning.models import AnchorNode, CleanJob, KnowledgeUnit, ParagraphUnit
+from app.data_cleaning.router import router as data_cleaning_router
+
 from app.platform.app_module import AppModule
 
 
@@ -82,6 +86,14 @@ APPS: tuple[AppModule, ...] = (
         router=tool_hub_router,
         models=(Tool, ToolVersion),
         startup_sync=tool_hub_bootstrap.ensure_tool_hub_startup,
+    ),
+    AppModule(
+        name="data_cleaning",
+        router=data_cleaning_router,
+        models=(AnchorNode, CleanJob, ParagraphUnit, KnowledgeUnit),
+        startup_sync=data_cleaning_bootstrap.ensure_data_cleaning_startup,
+        startup_async=data_cleaning_bootstrap.on_startup,
+        shutdown_async=data_cleaning_bootstrap.on_shutdown,
     ),
     AppModule(
         name="knowledge_base",

@@ -158,6 +158,13 @@ class TestSkillHubBranches:
         assert r2.status_code == 200
         assert r2.json()["id"] == branch_id
 
+        versions = client.get(
+            f"/api/skills/{skill_id}/branches/{branch_id}/versions",
+            headers=eng_headers,
+        ).json()
+        assert len(versions) >= 1
+        assert versions[0]["source_version_id"] is not None
+
     def test_get_nonexistent_skill(self, client, auth_headers):
         r = client.get(
             "/api/skills/00000000000000000000000000000000",

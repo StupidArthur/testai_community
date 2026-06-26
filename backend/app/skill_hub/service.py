@@ -6,6 +6,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.ai_service.client import chat
@@ -14,7 +15,8 @@ from app.skill_hub.llm_prompts import build_commit_diff_messages
 from app.skill_hub.models import Skill, Branch, SkillVersion
 from app.skill_hub.platform_skills import assert_platform_branch_writable
 from app.skill_hub.skill_ref import SkillRef, ResolvedSkill, ResolveMode
-from app.skill_hub.utils import payload_to_dimensions
+from app.skill_hub.utils import payload_to_dimensions, normalize_langgpt_payload, extract_markdown_codeblock
+from app.skill_hub.platform_skills import LANGGPT_META_SKILL_NAME
 
 # version_locator 中 id 前缀长度
 VERSION_LOCATOR_ID_PREFIX_LEN = 8
@@ -22,9 +24,50 @@ VERSION_LOCATOR_ID_PREFIX_LEN = 8
 # Skill 调试：用户输入最大长度
 MAX_SKILL_DEBUG_INPUT_LENGTH = 16000
 
+# 发布调用默认分支：master HEAD，无版本时回退 standard
+PUBLISH_BRANCH_TYPE = "master"
+FALLBACK_BRANCH_TYPE = "standard"
+
 
 def get_skill_by_name(db: Session, name: str) -> Skill | None:
     return db.query(Skill).filter(Skill.name == name).first()
+
+
+def build_publish_skill_ref(skill_name: str) -> SkillRef:
+    """发布版 SkillRef：master 分支 HEAD。"""
+    return SkillRef(
+        resolve_mode=ResolveMode.branch_head,
+        skill_name=skill_name,
+        branch_type=PUBLISH_BRANCH_TYPE,
+    )
+
+
+def resolve_skill_publish_version(db: Session, skill_name: str) -> ResolvedSkill:
+    """
+    按 Skill name 解析发布版 Markdown：master 最新版本；
+    master 尚无版本时回退 standard HEAD（与 external_api / 调试默认行为一致）。
+    """
+    skill = get_skill_by_name(db, skill_name)
+    if not skill:
+        raise HTTPException(status_code=404, detail=f"Skill 不存在：{skill_name}")
+
+    ref = build_publish_skill_ref(skill_name)
+    try:
+        return resolve_skill_ref(db, ref)
+    except HTTPException as exc:
+        if (
+            exc.status_code == 404
+            and ref.resolve_mode == ResolveMode.branch_head
+            and ref.branch_type == PUBLISH_BRANCH_TYPE
+            and ref.branch_id is None
+        ):
+            fallback = SkillRef(
+                resolve_mode=ResolveMode.branch_head,
+                skill_name=skill_name,
+                branch_type=FALLBACK_BRANCH_TYPE,
+            )
+            return resolve_skill_ref(db, fallback)
+        raise
 
 
 def get_primary_admin_user(db: Session) -> User | None:
@@ -118,6 +161,55 @@ def get_latest_version_num(db: Session, branch_id: int) -> int:
         .first()
     )
     return row[0] if row else -1
+
+
+def ensure_personal_branch_seeded(
+    db: Session,
+    branch: Branch,
+    user: User,
+) -> SkillVersion | None:
+    """
+    个人分支尚无版本时，从 standard HEAD 复制首版，避免空分支无法编辑。
+
+    仅分支主人或 Admin 可触发；若 standard 无版本则跳过。
+    """
+    if branch.branch_type != "personal":
+        return None
+    if get_latest_version_num(db, branch.id) >= 0:
+        return None
+    if branch.user_id != user.id and user.role != UserRole.Admin:
+        return None
+
+    standard = (
+        db.query(Branch)
+        .filter(Branch.skill_id == branch.skill_id, Branch.branch_type == "standard")
+        .first()
+    )
+    if not standard:
+        return None
+    src = get_branch_head_version(db, standard.id)
+    if not src:
+        return None
+
+    new_num, new_rev = allocate_version(db, branch.skill_id, branch.id)
+    new_v = SkillVersion(
+        skill_id=branch.skill_id,
+        branch_id=branch.id,
+        version_num=new_num,
+        revision=new_rev,
+        source_version_id=src.id,
+        commit_message="initialized from standard",
+        payload=src.payload,
+        ai_commit_summary="🟢 从 Standard 模板初始化个人分支。",
+    )
+    db.add(new_v)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return get_branch_head_version(db, branch.id)
+    db.refresh(new_v)
+    return new_v
 
 
 def _branch_label(branch: Branch, owner_username: str) -> str:
@@ -339,6 +431,67 @@ async def run_skill_debug(
         ) from exc
 
     return resolved, output
+
+
+def _validate_skill_invoke_input(user_input: str) -> str:
+    """校验 Skill 调用用户输入。"""
+    text = (user_input or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="用户输入不能为空")
+    if len(text) > MAX_SKILL_DEBUG_INPUT_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"输入过长，最多 {MAX_SKILL_DEBUG_INPUT_LENGTH} 字符",
+        )
+    return text
+
+
+async def run_skill_by_name(
+    db: Session,
+    skill_name: str,
+    user_input: str,
+) -> tuple[ResolvedSkill, str]:
+    """
+    按 Skill name 调用发布版：system=payload（master 最新，无则 standard）→ LLM。
+    """
+    text = _validate_skill_invoke_input(user_input)
+    resolved = resolve_skill_publish_version(db, skill_name)
+    messages = [
+        {"role": "system", "content": resolved.payload},
+        {"role": "user", "content": text},
+    ]
+    try:
+        output = await chat(messages, temperature=0.7, think=False)
+    except Exception as exc:
+        import logging
+        logging.getLogger("app.skill_hub").warning("skill invoke LLM failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="LLM 调用失败，请检查 MINIMAX_API_KEY 或稍后重试",
+        ) from exc
+    return resolved, output
+
+
+async def structure_plain_text_to_nine_dims(
+    db: Session,
+    plain_text: str,
+) -> tuple[dict[str, str], str]:
+    """
+    调用 LangGPT Meta-Skill，将纯文本结构化为九维字段。
+
+    Returns:
+        (fields, raw_markdown) — fields 为九维 dict，raw_markdown 为解析后的 LangGPT 正文。
+    """
+    text = _validate_skill_invoke_input(plain_text)
+    _, llm_output = await run_skill_by_name(db, LANGGPT_META_SKILL_NAME, text)
+    markdown = normalize_langgpt_payload(extract_markdown_codeblock(llm_output))
+    fields = payload_to_dimensions(markdown)
+    if not (fields.get("role") or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="结构化失败：模型输出无法解析为九维 Skill，请补充信息后重试",
+        )
+    return fields, markdown
 
 
 def version_to_langgpt_payload(v: SkillVersion) -> str:

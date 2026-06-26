@@ -134,12 +134,23 @@ def _parse_tags_row(raw: str | None) -> list[str]:
 
 def get_skill_standard_owner_id(db: Session, skill_id: str) -> int | None:
     """standard 分支 user_id = Skill 创建者（维护 tags 的人）。"""
+    owner_id, _ = get_skill_standard_owner(db, skill_id)
+    return owner_id
+
+
+def get_skill_standard_owner(db: Session, skill_id: str) -> tuple[int | None, str | None]:
+    """返回 Skill 创建者（standard 分支主人）的 user_id 与 username。"""
+    from app.auth.models import User
+
     row = (
-        db.query(Branch.user_id)
+        db.query(Branch.user_id, User.username)
+        .join(User, User.id == Branch.user_id)
         .filter(Branch.skill_id == skill_id, Branch.branch_type == "standard")
         .first()
     )
-    return row[0] if row else None
+    if not row:
+        return None, None
+    return row[0], row[1]
 
 
 def validate_tags_list(tags: list[str] | None) -> list[str]:

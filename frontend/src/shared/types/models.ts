@@ -39,6 +39,9 @@ export interface Skill {
   category_label: string
   tags: string[]
   platform_locked?: boolean
+  platform_merge_allowed?: boolean
+  standard_owner_id?: number | null
+  standard_owner_username?: string
   created_at: string
 }
 
@@ -127,6 +130,19 @@ export interface ResolvedSkill {
 export interface MergeRequest {
   source_version_id: string
   commit_message?: string
+}
+
+export interface StructureFromTextResponse {
+  role: string
+  profile: string
+  background: string
+  goals: string
+  constraints: string
+  core_skills: string
+  workflows: string
+  output_format: string
+  initialization: string
+  raw_markdown: string
 }
 
 export interface SkillDebugRunRequest {

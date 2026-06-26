@@ -8,6 +8,7 @@ from sqlalchemy.engine import Engine
 
 from app.platform.database import Base
 
+from .default_kb import ensure_default_knowledge_base
 from .models import KnowledgeBase, KnowledgeChatMessage, KnowledgeDocument
 from .worker import start_background_tasks, stop_background_tasks
 
@@ -23,6 +24,7 @@ def ensure_knowledge_base_startup(engine: Engine) -> None:
         ],
     )
     migrate_schema(engine)
+    ensure_default_knowledge_base(engine)
 
 
 def migrate_schema(db_engine: Engine) -> None:

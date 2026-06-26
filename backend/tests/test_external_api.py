@@ -105,6 +105,20 @@ class TestExternalApiTasks:
         assert r2.json()["task_id"] == task_id
         assert r2.json()["status"] in ("pending", "processing", "completed", "failed")
 
+    @patch("app.skill_hub.service.chat", new_callable=AsyncMock)
+    def test_invoke_sync(self, mock_chat, client, external_api_headers, skill_name):
+        mock_chat.return_value = "external invoke result"
+        r = client.post(
+            f"/api/v1/external/skills/{skill_name}/invoke",
+            json={"user_input": "hello"},
+            headers=external_api_headers,
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["name"] == skill_name
+        assert body["output"] == "external invoke result"
+        assert body["payload"]
+
     def test_get_nonexistent_task(self, client, external_api_headers):
         r = client.get(
             "/api/v1/external/tasks/nonexistent-task-id",

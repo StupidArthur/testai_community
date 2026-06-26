@@ -196,6 +196,7 @@ export default function BranchSandbox() {
   const [evaluationError, setEvaluationError] = useState<string | null>(null)
   const [commitMessage, setCommitMessage] = useState('')
   const [savingAfterReview, setSavingAfterReview] = useState(false)
+  const [structuring, setStructuring] = useState(false)
 
   const currentUser = useCurrentUser()
   const currentUserId = currentUser?.id ?? null
@@ -206,8 +207,12 @@ export default function BranchSandbox() {
   const isPlatformLocked = skill?.platform_locked === true
   const canEditBranch = isPlatformLocked
     ? isAdmin && isStandard
-    : !isMaster || isAdmin
-  const canMerge = isAdmin && !isMaster && isLatestVersion && !isPlatformLocked
+    : isMaster
+      ? isAdmin
+      : isOwner || isAdmin
+  const isEmptyBranch = versions.length === 0
+  const isEditable = canEditBranch && (isLatestVersion || isEmptyBranch)
+  const canMerge = isAdmin && !isMaster && isLatestVersion && (!isPlatformLocked || skill?.platform_merge_allowed)
 
   useEffect(() => {
     if (selectedVersion) {
@@ -242,6 +247,38 @@ export default function BranchSandbox() {
   }
 
   const updateField = (k: NineDimsKey, v: string) => setForm((f) => ({ ...f, [k]: v }))
+
+  const handleStructure = async () => {
+    const text = rawText.trim()
+    if (!text) {
+      message.warning('请先在纯文本框中输入待结构化的内容')
+      return
+    }
+    setStructuring(true)
+    try {
+      const res = await skillsApi.structureFromText({ plain_text: text })
+      const d = res.data
+      const nextForm = {
+        role: d.role || '',
+        profile: d.profile || '',
+        background: d.background || '',
+        goals: d.goals || '',
+        constraints: d.constraints || '',
+        core_skills: d.core_skills || '',
+        workflows: d.workflows || '',
+        output_format: d.output_format || '',
+        initialization: d.initialization || '',
+      }
+      setForm(nextForm)
+      setRawText(compileToRaw(nextForm))
+      setEditMode('structured')
+      message.success('已结构化，结果已填入「结构化」视图')
+    } catch (err: any) {
+      message.error(err.response?.data?.detail || '结构化失败，请稍后重试')
+    } finally {
+      setStructuring(false)
+    }
+  }
 
   const evaluateMutation = useMutation({
     mutationFn: (data: typeof EMPTY_9D) =>
@@ -310,7 +347,7 @@ export default function BranchSandbox() {
   })
 
   const handleCommit = () => {
-    if (!isLatestVersion || !canEditBranch) return
+    if (!isEditable) return
     let draft = form
     if (editMode === 'raw') {
       const { form: parsed, warnings } = parseToFormData(rawText)
@@ -386,7 +423,7 @@ export default function BranchSandbox() {
   }
 
   const renderEditor = () => {
-    if (!selectedVersion) {
+    if (!selectedVersion && !(isEmptyBranch && canEditBranch)) {
       return (
         <div style={{ textAlign: 'center', padding: 60, color: 'var(--color-text-secondary)' }}>
           <HistoryOutlined style={{ fontSize: 36, marginBottom: 12 }} />
@@ -394,12 +431,17 @@ export default function BranchSandbox() {
         </div>
       )
     }
-    const disabled = !isLatestVersion || !canEditBranch
+    const disabled = !isEditable
     return (
       <>
-        {disabled && !isLatestVersion && (
+        {disabled && !isLatestVersion && selectedVersion && (
           <Alert type="warning" showIcon style={{ marginBottom: 20 }}
             message={<span>⚠️ 当前正在查看历史版本 v{selectedVersion.version_num}，<Text strong>只读模式</Text>。如要修改请切到最新版本（HEAD）。</span>}
+          />
+        )}
+        {disabled && isEmptyBranch && canEditBranch && (
+          <Alert type="info" showIcon style={{ marginBottom: 20 }}
+            message={<span>个人分支正在从 Standard 模板加载；若仍为空，可直接编辑后提交首版。</span>}
           />
         )}
         {disabled && isLatestVersion && isMaster && !isAdmin && (
@@ -425,9 +467,22 @@ export default function BranchSandbox() {
           ))
         ) : (
           <div>
-            <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
-              🧊 纯文本模式：使用 <code style={{ color: 'var(--color-primary)' }}>### Role</code> 等标题切分 9 个维度。
-            </Text>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                🧊 纯文本模式：粘贴零散需求或草案，可一键转为九维结构化。
+              </Text>
+              {!disabled && (
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<ApartmentOutlined />}
+                  loading={structuring}
+                  onClick={handleStructure}
+                >
+                  结构化
+                </Button>
+              )}
+            </div>
             <Input.TextArea
               value={rawText}
               onChange={(e) => setRawText(e.target.value)}
@@ -566,13 +621,20 @@ export default function BranchSandbox() {
                 九维工作台
               </Text>
               {selectedVersion && <Tag color="cyan" style={{ margin: 0 }}>v{selectedVersion.version_num}</Tag>}
-              {!isLatestVersion ? <Tag color="orange" style={{ margin: 0 }}><EyeOutlined /> HISTORY · 只读</Tag>
-                : isPlatformLocked && !canEditBranch ? <Tag color="default" style={{ margin: 0 }}><EyeOutlined /> 平台内置 · 只读</Tag>
-                : !canEditBranch ? <Tag color="default" style={{ margin: 0 }}><EyeOutlined /> MASTER · 只读</Tag>
-                : <Tag color="green" style={{ margin: 0 }}><EditOutlined /> EDIT · 可编辑</Tag>}
+              {!isEditable && !isEmptyBranch && !isLatestVersion ? (
+                <Tag color="orange" style={{ margin: 0 }}><EyeOutlined /> HISTORY · 只读</Tag>
+              ) : isPlatformLocked && !canEditBranch ? (
+                <Tag color="default" style={{ margin: 0 }}><EyeOutlined /> 平台内置 · 只读</Tag>
+              ) : !canEditBranch ? (
+                <Tag color="default" style={{ margin: 0 }}><EyeOutlined /> MASTER · 只读</Tag>
+              ) : isEmptyBranch ? (
+                <Tag color="blue" style={{ margin: 0 }}><EditOutlined /> NEW · 可编辑</Tag>
+              ) : (
+                <Tag color="green" style={{ margin: 0 }}><EditOutlined /> EDIT · 可编辑</Tag>
+              )}
             </Space>
             <Space>
-              {isLatestVersion && (
+              {isEditable && (
                 <Radio.Group value={editMode} onChange={(e) => handleModeChange(e.target.value)} optionType="button" size="small">
                   <Radio.Button value="structured"><ExperimentOutlined /> 结构化</Radio.Button>
                   <Radio.Button value="raw"><CodeOutlined /> 纯文本</Radio.Button>
@@ -585,7 +647,7 @@ export default function BranchSandbox() {
           <div style={{ flex: 1, overflowY: 'auto', padding: '20px 28px 60px' }}>
             {versionsLoading ? <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div> : renderEditor()}
           </div>
-          {isLatestVersion && selectedVersion && canEditBranch && (
+          {isEditable && (
             <div style={{
               position: 'sticky', bottom: 0, padding: '14px 28px',
               background: 'linear-gradient(to top, var(--color-bg-secondary) 70%, transparent)',

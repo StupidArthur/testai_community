@@ -88,20 +88,31 @@ def delete_kb_collection(kb_id: str) -> None:
         log.warning("删除知识库向量 collection 失败 kb=%s: %s", kb_id, exc)
 
 
+def kb_vector_chunk_count(kb_id: str) -> int:
+    """知识库 Chroma 中可检索 chunk 数量（含数据清洗批准的 KU）。"""
+    try:
+        return int(get_kb_collection(kb_id).count())
+    except Exception as exc:
+        log.warning("统计知识库向量失败 kb=%s: %s", kb_id, exc)
+        return 0
+
+
 def query_kb(
     kb_id: str,
     query_embedding: list[float],
     *,
     top_k: int = 6,
+    active_only: bool = True,
 ) -> list[dict[str, Any]]:
     """
     向量检索，返回 [{id, text, metadata, distance}, ...]
+    active_only=True 时优先仅返回 ku_status=active 或未标 ku 的历史 chunk。
     """
     collection = get_kb_collection(kb_id)
     count = collection.count()
     if count == 0:
         return []
-    n = min(top_k, count)
+    n = min(top_k * 3 if active_only else top_k, count)
     result = collection.query(
         query_embeddings=[query_embedding],
         n_results=n,
@@ -113,12 +124,19 @@ def query_kb(
     dists = (result.get("distances") or [[]])[0]
     hits: list[dict[str, Any]] = []
     for i, chunk_id in enumerate(ids):
+        meta = metas[i] if i < len(metas) else {}
+        if active_only:
+            ku_status = (meta or {}).get("ku_status")
+            if ku_status is not None and ku_status != "active":
+                continue
         hits.append(
             {
                 "id": chunk_id,
                 "text": docs[i] if i < len(docs) else "",
-                "metadata": metas[i] if i < len(metas) else {},
+                "metadata": meta,
                 "distance": dists[i] if i < len(dists) else None,
             }
         )
+        if len(hits) >= top_k:
+            break
     return hits

@@ -1,9 +1,31 @@
-import { useState, useMemo } from 'react'
-import { Card, Row, Col, Button, Modal, Input, message, Typography, Tag, Space, Empty, Select } from 'antd'
-import { PlusOutlined, ThunderboltOutlined, CodeOutlined, BookOutlined, FilterOutlined } from '@ant-design/icons'
+import { useState, useMemo, type ReactNode } from 'react'
+import {
+  Row,
+  Col,
+  Button,
+  Modal,
+  Input,
+  message,
+  Typography,
+  Tag,
+  Space,
+  Empty,
+  Select,
+  Divider,
+} from 'antd'
+import {
+  PlusOutlined,
+  ThunderboltOutlined,
+  FilterOutlined,
+  LockOutlined,
+  UserOutlined,
+  TeamOutlined,
+} from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { skillsApi } from '../../shared/api/client'
+import { useCurrentUser } from '../../shared/hooks/useAuth'
+import SkillCard, { type SkillCardVariant } from '../components/SkillCard'
 import type { Skill, SkillCategory } from '../../shared/api/client'
 
 const { Title, Text } = Typography
@@ -16,9 +38,20 @@ const EMPTY_FORM = {
   tags: [] as string[],
 }
 
+type SkillGroup = {
+  key: SkillCardVariant
+  title: string
+  icon: ReactNode
+  hint: string
+  items: Skill[]
+}
+
 export default function Dashboard() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const currentUser = useCurrentUser()
+  const currentUserId = currentUser?.id ?? null
+
   const [modalOpen, setModalOpen] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const [filterCategory, setFilterCategory] = useState<string | undefined>(undefined)
@@ -65,6 +98,49 @@ export default function Dashboard() {
     [categories],
   )
 
+  const skillGroups = useMemo((): SkillGroup[] => {
+    const platform: Skill[] = []
+    const mine: Skill[] = []
+    const community: Skill[] = []
+
+    for (const s of skills) {
+      if (s.platform_locked) {
+        platform.push(s)
+      } else if (currentUserId !== null && s.standard_owner_id === currentUserId) {
+        mine.push(s)
+      } else {
+        community.push(s)
+      }
+    }
+
+    return [
+      {
+        key: 'mine',
+        title: '我创建的',
+        icon: <UserOutlined />,
+        hint: '你拥有 standard 模板维护权；可在个人分支编辑，由 Admin 合并到 master。',
+        items: mine,
+      },
+      {
+        key: 'community',
+        title: '其他人创建的',
+        icon: <TeamOutlined />,
+        hint: '可浏览、创建个人分支，并从 standard Fork 到自己的分支后编辑。',
+        items: community,
+      },
+      {
+        key: 'platform',
+        title: '平台内置',
+        icon: <LockOutlined />,
+        hint: '系统托管能力；仅 Admin 可编辑 standard，不可 Fork 或创建个人分支。',
+        items: platform,
+      },
+    ]
+  }, [skills, currentUserId])
+
+  const visibleGroups = skillGroups.filter((g) => g.items.length > 0)
+  const totalCount = skills.length
+
   const handleCreate = async () => {
     if (!form.name.trim() || !form.display_name.trim()) {
       message.warning('请填写 name 和 display_name')
@@ -77,13 +153,43 @@ export default function Dashboard() {
     createMutation.mutate(form)
   }
 
+  const renderSection = (group: SkillGroup) => (
+    <section key={group.key} style={{ marginBottom: 32 }}>
+      <div style={{ marginBottom: 16 }}>
+        <Space align="center" size={10} wrap>
+          <Title level={4} style={{ margin: 0, color: 'var(--color-text)' }}>
+            {group.icon}
+            <span style={{ marginLeft: 8 }}>{group.title}</span>
+          </Title>
+          <Tag style={{ margin: 0 }}>{group.items.length}</Tag>
+        </Space>
+        <Text type="secondary" style={{ display: 'block', marginTop: 6, fontSize: 13 }}>
+          {group.hint}
+        </Text>
+      </div>
+      <Row gutter={[16, 16]} align="stretch">
+        {group.items.map((s) => (
+          <Col xs={24} sm={12} lg={8} xl={6} key={s.id} style={{ display: 'flex' }}>
+            <div style={{ width: '100%' }}>
+              <SkillCard
+                skill={s}
+                variant={group.key}
+                onClick={() => navigate(`/skill/${s.id}`)}
+              />
+            </div>
+          </Col>
+        ))}
+      </Row>
+    </section>
+  )
+
   return (
-    <div style={{ padding: 24 }}>
+    <div style={{ maxWidth: 1400, margin: '0 auto' }}>
       <div
         style={{
           display: 'flex',
           justifyContent: 'space-between',
-          alignItems: 'center',
+          alignItems: 'flex-start',
           marginBottom: 24,
           flexWrap: 'wrap',
           gap: 12,
@@ -94,7 +200,10 @@ export default function Dashboard() {
             <ThunderboltOutlined style={{ color: 'var(--color-primary)', marginRight: 8 }} />
             Skill 仓库
           </Title>
-          <Text type="secondary">TestAI Community 资产中心 · 按分类浏览与创建</Text>
+          <Text type="secondary">
+            TestAI Community 资产中心 · 共 {totalCount} 个 Skill
+            {filterCategory ? `（已筛选分类）` : ''}
+          </Text>
         </div>
         <Space wrap>
           <Select
@@ -112,47 +221,17 @@ export default function Dashboard() {
         </Space>
       </div>
 
-      {isLoading ? null : skills.length === 0 ? (
+      {isLoading ? null : totalCount === 0 ? (
         <Empty description={filterCategory ? '该分类下暂无 Skill' : '暂无 Skill 仓库'} />
       ) : (
-        <Row gutter={[16, 16]}>
-          {skills.map((s: Skill) => (
-            <Col xs={24} sm={12} md={8} key={s.id}>
-              <Card
-                hoverable
-                style={{ border: '1px solid var(--color-border)' }}
-                onClick={() => navigate(`/skill/${s.id}`)}
-              >
-                <Space size="middle" align="start">
-                  <BookOutlined style={{ fontSize: 32, color: 'var(--color-primary)' }} />
-                  <div>
-                    <Title level={5} style={{ color: 'var(--color-text)', margin: 0 }}>
-                      <CodeOutlined style={{ marginRight: 6 }} />
-                      {s.display_name}
-                    </Title>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {s.name}
-                    </Text>
-                    <br />
-                    {s.definition && (
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        {s.definition.length > 60 ? s.definition.slice(0, 60) + '…' : s.definition}
-                      </Text>
-                    )}
-                  </div>
-                </Space>
-                <div style={{ marginTop: 12 }}>
-                  <Space size={[4, 4]} wrap>
-                    <Tag color="blue">{s.category_label || s.category}</Tag>
-                    {(s.tags || []).map((t) => (
-                      <Tag key={t}>{t}</Tag>
-                    ))}
-                  </Space>
-                </div>
-              </Card>
-            </Col>
+        <>
+          {visibleGroups.map((group, idx) => (
+            <div key={group.key}>
+              {idx > 0 && <Divider style={{ margin: '8px 0 28px' }} />}
+              {renderSection(group)}
+            </div>
           ))}
-        </Row>
+        </>
       )}
 
       <Modal

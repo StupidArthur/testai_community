@@ -38,6 +38,14 @@ const STATUS_MAP: Record<string, { color: string; label: string }> = {
   processing: { color: 'processing', label: '处理中' },
   ready: { color: 'success', label: '可用' },
   failed: { color: 'error', label: '失败' },
+  archived: { color: 'default', label: '清洗归档' },
+}
+
+/** 仅直接上传、正在向量化的文档会触发自动刷新 */
+function hasDirectUploadPending(docs: KnowledgeDocument[]): boolean {
+  return docs.some(
+    (d) => d.status !== 'archived' && (d.status === 'queued' || d.status === 'processing'),
+  )
 }
 
 function formatSize(bytes: number): string {
@@ -54,14 +62,13 @@ export default function KnowledgeBaseDetailPage() {
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([])
   const chatEndRef = useRef<HTMLDivElement>(null)
 
-  const { data: detail, isLoading, refetch } = useQuery({
+  const { data: detail, isPending, isFetching, refetch } = useQuery({
     queryKey: ['knowledge-base', kbId],
     queryFn: () => knowledgeBaseApi.getBase(kbId!).then((r) => r.data),
     enabled: !!kbId,
     refetchInterval: (query) => {
       const docs = query.state.data?.documents || []
-      const pending = docs.some((d) => d.status === 'queued' || d.status === 'processing')
-      return pending ? 3000 : false
+      return hasDirectUploadPending(docs) ? 3000 : false
     },
   })
 
@@ -180,7 +187,7 @@ export default function KnowledgeBaseDetailPage() {
     )
   }
 
-  if (isLoading || !detail) {
+  if (isPending && !detail) {
     return (
       <div style={{ padding: 48, textAlign: 'center' }}>
         <Spin />
@@ -188,7 +195,15 @@ export default function KnowledgeBaseDetailPage() {
     )
   }
 
-  const hasReady = detail.ready_document_count > 0
+  if (!detail) {
+    return null
+  }
+
+  const hasReady =
+    detail.ready_document_count > 0 || (detail.vector_chunk_count ?? 0) > 0
+  const hasArchivedClean = (detail.archived_document_count ?? 0) > 0
+  const hasArchivedOnly =
+    !hasReady && hasArchivedClean && detail.document_count === 0
 
   return (
     <div style={{ padding: 24, height: 'calc(100vh - 64px)', display: 'flex', flexDirection: 'column' }}>
@@ -223,8 +238,16 @@ export default function KnowledgeBaseDetailPage() {
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
-          message="请先上传文档并等待处理完成"
-          description="支持 md、txt、doc、docx、pdf、pptx、xlsx。含图片/流程图的文档将使用本地 Qwen2.5-VL 识别后入库。"
+          message={
+            hasArchivedOnly
+              ? '知识库尚无可检索内容'
+              : '请先上传文档并等待处理完成'
+          }
+          description={
+            hasArchivedOnly
+              ? '当前仅有数据清洗归档的原始文件，未写入向量库。请打开「数据清洗」完成审核并「批准入库」，或在下方直接上传文档并等待状态变为「可用」。'
+              : '支持 md、txt、doc、docx、pdf、pptx、xlsx。含图片/流程图的文档将使用本地 Qwen2.5-VL 识别后入库。'
+          }
         />
       )}
 
@@ -264,6 +287,7 @@ export default function KnowledgeBaseDetailPage() {
               locale={{ emptyText: '暂无文档，请上传' }}
               renderItem={renderDoc}
               style={{ padding: '0 16px' }}
+              loading={isFetching && hasDirectUploadPending(detail.documents)}
             />
           </Card>
         </Col>
@@ -326,7 +350,7 @@ export default function KnowledgeBaseDetailPage() {
               <Input.TextArea
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
-                placeholder={hasReady ? '输入问题…' : '等待文档处理完成后可提问'}
+                placeholder={hasReady ? '输入问题…' : '暂无可检索内容，请先批准清洗入库或直接上传文档'}
                 autoSize={{ minRows: 1, maxRows: 4 }}
                 disabled={!hasReady || chatMutation.isPending}
                 onPressEnter={(e) => {

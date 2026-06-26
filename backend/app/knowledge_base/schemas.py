@@ -33,6 +33,8 @@ class KnowledgeBaseOut(BaseModel):
     username: str = ""
     document_count: int = 0
     ready_document_count: int = 0
+    archived_document_count: int = 0
+    vector_chunk_count: int = 0
     created_at: datetime
     updated_at: datetime
     can_manage: bool = False

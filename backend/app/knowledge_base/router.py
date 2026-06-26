@@ -26,6 +26,7 @@ from .service import (
     create_knowledge_base,
     delete_document,
     delete_knowledge_base,
+    get_default_knowledge_base,
     get_knowledge_base_detail,
     list_chat_messages,
     list_knowledge_bases,
@@ -51,6 +52,14 @@ def api_create_base(
     current_user: User = Depends(get_current_user),
 ) -> KnowledgeBaseOut:
     return create_knowledge_base(db, current_user, data)
+
+
+@router.get("/bases/default", response_model=KnowledgeBaseOut)
+def api_get_default_base(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> KnowledgeBaseOut:
+    return get_default_knowledge_base(db, current_user)
 
 
 @router.get("/bases/{kb_id}", response_model=KnowledgeBaseDetailOut)

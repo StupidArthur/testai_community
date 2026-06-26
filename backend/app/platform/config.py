@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import warnings
 from pathlib import Path
@@ -113,6 +114,54 @@ KB_MAX_CONCURRENT_JOBS = _int_env("KB_MAX_CONCURRENT_JOBS", 2)
 KB_CHUNK_SIZE = _int_env("KB_CHUNK_SIZE", 800)
 KB_CHUNK_OVERLAP = _int_env("KB_CHUNK_OVERLAP", 120)
 KB_RAG_TOP_K = _int_env("KB_RAG_TOP_K", 6)
+
+# ==================== LibreOffice（.doc 转换） ====================
+
+LIBREOFFICE_PROFILE_DIR = _resolve_data_path(
+    "LIBREOFFICE_PROFILE_DIR",
+    PROJECT_ROOT / "data" / "libreoffice_profile",
+)
+LIBREOFFICE_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _resolve_libreoffice_soffice_path() -> str:
+    """
+    解析 soffice 可执行文件路径。
+
+    优先级：环境变量 > 项目自带 tools/LibreOffice > PATH > Windows 默认安装目录。
+    A/B 两套环境各自使用本目录 PROJECT_ROOT 下的 tools，互不干扰。
+    """
+    raw = os.getenv("LIBREOFFICE_SOFFICE_PATH", "").strip()
+    if raw and Path(raw).is_file():
+        return raw
+
+    bundled_dir = PROJECT_ROOT / "tools" / "LibreOffice" / "program"
+    bundled_candidates: list[Path] = []
+    if os.name == "nt":
+        bundled_candidates.append(bundled_dir / "soffice.com")
+    bundled_candidates.append(bundled_dir / "soffice.exe")
+
+    for candidate in bundled_candidates:
+        if candidate.is_file():
+            return str(candidate)
+
+    found = shutil.which("soffice")
+    if found:
+        return found
+
+    for candidate in (
+        r"C:\Program Files\LibreOffice\program\soffice.com",
+        r"C:\Program Files\LibreOffice\program\soffice.exe",
+        r"C:\Program Files (x86)\LibreOffice\program\soffice.com",
+        r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+    ):
+        if Path(candidate).is_file():
+            return candidate
+    return ""
+
+
+# 启动时解析一次；空字符串表示未找到
+LIBREOFFICE_SOFFICE_PATH = _resolve_libreoffice_soffice_path()
 
 # ==================== 认证 / 数据库 ====================
 

@@ -50,7 +50,8 @@ flowchart TB
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
-| GET | `/skills/{skill_name}` | X-API-Key | 取 **master 最新版** Prompt payload |
+| GET | `/skills/{skill_name}` | X-API-Key | 取 **master 最新版** Markdown（无则 standard） |
+| POST | `/skills/{skill_name}/invoke` | X-API-Key | **同步调用**发布版 Skill，直接返回 LLM 输出 |
 | POST | `/skills/{skill_name}/execute-async` | X-API-Key | 异步执行 LLM，202 + task_id |
 | GET | `/tasks/{task_id}` | X-API-Key | 查询异步任务状态/结果 |
 
@@ -72,9 +73,9 @@ X-API-Key: <service account token>
 
 ### 3.2 外部系统
 
-1. `GET /api/v1/external/skills/{name}` — 拉取 Skill  
-2. `POST .../execute-async` + `{ "user_input": "..." }`  
-3. 轮询 `GET /api/v1/external/tasks/{task_id}`  
+1. `GET /api/v1/external/skills/{name}` — 拉取发布版 Markdown  
+2. `POST .../invoke` + `{ "user_input": "..." }` — 同步调用（推荐简单集成）  
+3. `POST .../execute-async` + 轮询 `GET /api/v1/external/tasks/{task_id}` — 长任务异步  
 
 ### 3.3 后端内部依赖
 

@@ -36,3 +36,7 @@ MAX_DOCS_PER_KB = KB_MAX_DOCS_PER_KB
 MAX_CONCURRENT_JOBS = KB_MAX_CONCURRENT_JOBS
 
 RAW_SUBDIR = "raw"
+
+# 全站唯一知识库（启动时自动创建；若已有库则复用最早创建的）
+DEFAULT_KB_NAME = "平台知识库"
+DEFAULT_KB_DESCRIPTION = "经数据清洗审核后入库，供全员 RAG 问答检索"

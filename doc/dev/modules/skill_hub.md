@@ -82,12 +82,16 @@ flowchart LR
 | PATCH | `/skills/{skill_id}` | JWT | 更新 tags（创建者/Admin）或 category（Admin） |
 | GET | `/skills/{skill_id}` | JWT | Skill 详情 |
 | GET | `/skills/{skill_id}/branches` | JWT | 分支列表（含 user 信息） |
-| POST | `/skills/{skill_id}/branches` | JWT | 当前用户创建 personal 分支（幂等） |
-| GET | `/skills/{skill_id}/branches/{branch_id}/versions` | JWT | 版本列表 |
+| POST | `/skills/{skill_id}/branches` | JWT | 当前用户创建 personal 分支（幂等）；**若尚无版本，自动从 standard HEAD 复制首版** |
+| GET | `/skills/{skill_id}/branches/{branch_id}/versions` | JWT | 版本列表；打开空 personal 时同样触发自动初始化 |
 | POST | `/skills/{skill_id}/branches/{branch_id}/versions` | JWT | 提交新版本；master 仅 Admin |
 | POST | `/skills/{skill_id}/merge` | JWT Admin | 合并到 master |
 | POST | `/skills/{skill_id}/branches/{branch_id}/fork` | JWT | 从任意 standard 等源分支 Fork 到当前用户 personal（**含 Skill 创建者 Fork 自己的 standard**；平台内置 Skill 禁止） |
 | POST | `/skills/{skill_id}/branches/{branch_id}/evaluate-draft` | JWT | Commit 前 LLM 评估 |
+| POST | `/skills/resolve` | JWT | SkillRef → ResolvedSkill |
+| POST | `/skills/structure-from-text` | JWT | **纯文本 → 九维结构化**（调用 `LangGPT_Standard_v3` Meta-Skill） |
+| GET | `/skills/by-name/{skill_name}` | JWT | **按 name 获取发布版 Markdown**（master 最新；无则 standard） |
+| POST | `/skills/by-name/{skill_name}/invoke` | JWT | **按 name 同步调用**（master 最新 payload 为 system） |
 | POST | `/skills/{skill_id}/debug/run` | JWT | **Skill 沙箱调试**（同步 LLM，不写库） |
 
 ---
@@ -175,6 +179,8 @@ flowchart LR
 | `master` | **仅 Admin**（含 Merge；创建者不可直接 Commit） |
 | `standard` | 创建者（分支主人）或 Admin |
 | `personal` | 分支主人或 Admin |
+
+创建 personal 分支或首次打开空 personal 时，后端会从 `standard` 最新版本自动复制 `v0`，避免空分支无法编辑。
 
 创建 Skill 时：`standard.user_id` = 创建者；`master.user_id` = 平台 Admin。
 

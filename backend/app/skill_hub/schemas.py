@@ -75,6 +75,9 @@ class SkillOut(BaseModel):
     category_label: str = ""
     tags: list[str] = Field(default_factory=list)
     platform_locked: bool = False
+    platform_merge_allowed: bool = False
+    standard_owner_id: int | None = None
+    standard_owner_username: str = ""
     created_at: datetime
     updated_at: datetime | None = None
 
@@ -82,8 +85,11 @@ class SkillOut(BaseModel):
 
 
 def skill_to_out(skill, db) -> SkillOut:
-    """ORM → API：补全 category_label 与 tags 列表。"""
-    from app.skill_hub.platform_skills import is_platform_locked_skill
+    """ORM → API：补全 category_label、tags、创建者与平台锁定标记。"""
+    from app.skill_hub.platform_skills import is_platform_locked_skill, is_platform_merge_allowed
+    from app.skill_hub.category_service import get_skill_standard_owner
+
+    owner_id, owner_username = get_skill_standard_owner(db, skill.id)
 
     return SkillOut(
         id=skill.id,
@@ -94,6 +100,9 @@ def skill_to_out(skill, db) -> SkillOut:
         category_label=get_category_label(db, skill.category),
         tags=parse_tags_json(skill.tags),
         platform_locked=is_platform_locked_skill(skill),
+        platform_merge_allowed=is_platform_merge_allowed(skill),
+        standard_owner_id=owner_id,
+        standard_owner_username=owner_username or "",
         created_at=skill.created_at,
         updated_at=skill.updated_at,
     )
@@ -248,6 +257,37 @@ class SkillDebugRunResponse(BaseModel):
     branch_type: str
     version_locator: str
     payload: str
+
+
+class SkillInvokeRequest(BaseModel):
+    """按 name 调用 Skill：用户输入。"""
+
+    user_input: str = Field(..., min_length=1, description="发送给 Skill 的用户消息")
+
+
+class SkillInvokeResponse(SkillDebugRunResponse):
+    """按 name 调用 Skill 的响应（与调试运行结构一致）。"""
+
+
+class StructureFromTextRequest(BaseModel):
+    """纯文本 → 九维结构化请求。"""
+
+    plain_text: str = Field(..., min_length=1, description="待结构化的纯文本或草案")
+
+
+class StructureFromTextResponse(BaseModel):
+    """九维结构化结果。"""
+
+    role: str = ""
+    profile: str = ""
+    background: str = ""
+    goals: str = ""
+    constraints: str = ""
+    core_skills: str = ""
+    workflows: str = ""
+    output_format: str = ""
+    initialization: str = ""
+    raw_markdown: str = ""
 
 
 def skill_version_to_out(v: SkillVersion, db=None) -> SkillVersionOut:

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.platform.database import get_db
 from app.external_api.service import verify_api_key, process_llm_task_bg, resolve_for_external, default_skill_ref
 from app.external_api.models import LLMTask, TaskStatus, ServiceAccount
-from app.skill_hub.service import get_skill_by_name, resolve_skill_ref
+from app.skill_hub.service import get_skill_by_name, resolve_skill_ref, resolve_skill_publish_version, run_skill_by_name
 from app.skill_hub.skill_ref import SkillRef, ResolveMode
 
 router = APIRouter(prefix="/api/v1/external", tags=["external_api"])
@@ -64,25 +64,27 @@ def get_external_skill(
         skill_name, version_id, branch_id, branch_type, owner_user_id, resolve_mode
     )
     if ref is None:
-        ref = default_skill_ref(skill_name)
-
-    try:
-        resolved = resolve_skill_ref(db, ref)
-    except HTTPException as exc:
-        if (
-            exc.status_code == 404
-            and ref.resolve_mode == ResolveMode.branch_head
-            and (ref.branch_type == "master" or ref.branch_type is None)
-            and ref.branch_id is None
-        ):
-            ref = SkillRef(
-                resolve_mode=ResolveMode.branch_head,
-                skill_name=skill_name,
-                branch_type="standard",
-            )
+        resolved = resolve_skill_publish_version(db, skill_name)
+    else:
+        try:
             resolved = resolve_skill_ref(db, ref)
-        else:
-            raise
+        except HTTPException as exc:
+            if (
+                exc.status_code == 404
+                and ref.resolve_mode == ResolveMode.branch_head
+                and (ref.branch_type == "master" or ref.branch_type is None)
+                and ref.branch_id is None
+            ):
+                resolved = resolve_skill_ref(
+                    db,
+                    SkillRef(
+                        resolve_mode=ResolveMode.branch_head,
+                        skill_name=skill_name,
+                        branch_type="standard",
+                    ),
+                )
+            else:
+                raise
     payload = resolved.payload
     icio = _to_icio(payload)
     fields = resolved.fields
@@ -142,6 +144,57 @@ def execute_skill_async(
         "task_id": task.id,
         "status": task.status.value,
         "resolved_version_id": task.resolved_version_id,
+    }
+
+
+@router.post("/skills/{skill_name}/invoke")
+async def invoke_skill_external(
+    skill_name: str,
+    data: ExecuteRequest,
+    db: Session = Depends(get_db),
+    _sa: ServiceAccount = Depends(verify_api_key),
+):
+    """
+    按 Skill name 同步调用发布版（master 最新；无则 standard）。
+    与 execute-async 不同，本接口直接返回 LLM 输出。
+    """
+    skill = get_skill_by_name(db, skill_name)
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill不存在或未发布")
+
+    if data.skill_ref is not None:
+        system_prompt, resolved_vid, _ = resolve_for_external(db, skill_name, data.skill_ref)
+        resolved = resolve_skill_ref(
+            db,
+            SkillRef(resolve_mode=ResolveMode.pinned, version_id=resolved_vid, skill_name=skill_name),
+        )
+        from app.ai_service.client import chat
+        output = await chat(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": data.user_input},
+            ],
+            temperature=0.7,
+        )
+        return {
+            "name": skill.name,
+            "output": output,
+            "version_id": resolved.version_id,
+            "version": resolved.version_num,
+            "revision": resolved.revision,
+            "version_locator": resolved.version_locator,
+            "payload": resolved.payload,
+        }
+
+    resolved, output = await run_skill_by_name(db, skill_name, data.user_input)
+    return {
+        "name": skill.name,
+        "output": output,
+        "version_id": resolved.version_id,
+        "version": resolved.version_num,
+        "revision": resolved.revision,
+        "version_locator": resolved.version_locator,
+        "payload": resolved.payload,
     }
 
 

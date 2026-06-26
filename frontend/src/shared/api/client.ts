@@ -1,5 +1,5 @@
 import axios, { AxiosError } from 'axios'
-import type { User, Skill, SkillCategory, Branch, SkillVersion, EvaluateDraftResponse, ForkResponse, SkillRef, ResolvedSkill, SkillDebugRunRequest, SkillDebugRunResponse } from '../types/models'
+import type { User, Skill, SkillCategory, Branch, SkillVersion, EvaluateDraftResponse, ForkResponse, SkillRef, ResolvedSkill, SkillDebugRunRequest, SkillDebugRunResponse, StructureFromTextResponse } from '../types/models'
 
 export const apiClient = axios.create({
   baseURL: '/api',
@@ -104,6 +104,16 @@ export const skillsApi = {
     apiClient.post(`/skills/${skillId}/merge`, data),
   resolve: (ref: SkillRef) =>
     apiClient.post<ResolvedSkill>('/skills/resolve', ref),
+  getByName: (skillName: string) =>
+    apiClient.get<ResolvedSkill>(`/skills/by-name/${encodeURIComponent(skillName)}`),
+  invokeByName: (skillName: string, data: { user_input: string }) =>
+    apiClient.post<SkillDebugRunResponse>(
+      `/skills/by-name/${encodeURIComponent(skillName)}/invoke`,
+      data,
+      { timeout: 120000 },
+    ),
+  structureFromText: (data: { plain_text: string }) =>
+    apiClient.post<StructureFromTextResponse>('/skills/structure-from-text', data, { timeout: 120000 }),
   debugRun: (skillId: string, data: SkillDebugRunRequest) =>
     apiClient.post<SkillDebugRunResponse>(`/skills/${skillId}/debug/run`, data, { timeout: 120000 }),
 }

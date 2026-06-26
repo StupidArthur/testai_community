@@ -17,9 +17,9 @@ from app.external_api.models import (
 )
 from app.skill_hub.service import (
     get_skill_by_name,
-    get_master_latest_version,
     version_to_langgpt_payload,
     resolve_skill_ref,
+    resolve_skill_publish_version,
 )
 from app.skill_hub.skill_ref import SkillRef, ResolveMode
 from app.ai_service.client import chat
@@ -53,11 +53,29 @@ def resolve_for_external(db: Session, skill_name: str, skill_ref: SkillRef | Non
     """
     解析 Skill 引用，返回 (system_prompt, resolved_version_id, skill_ref_json)。
 
-    master 无版本时回退到 standard HEAD（与旧版 get_master_latest 空 payload 行为兼容）。
+    默认（master HEAD）走 resolve_skill_publish_version；master 无版本时回退 standard。
     """
     ref = skill_ref or default_skill_ref(skill_name)
     if ref.skill_name is None:
         ref = ref.model_copy(update={"skill_name": skill_name})
+
+    if (
+        ref.resolve_mode == ResolveMode.branch_head
+        and ref.branch_id is None
+        and ref.branch_type in (None, "master")
+        and ref.owner_user_id is None
+        and ref.version_id is None
+    ):
+        resolved = resolve_skill_publish_version(db, skill_name)
+        publish_ref = default_skill_ref(skill_name)
+        if resolved.branch_type == "standard":
+            publish_ref = SkillRef(
+                resolve_mode=ResolveMode.branch_head,
+                skill_name=skill_name,
+                branch_type="standard",
+            )
+        return resolved.payload, resolved.version_id, publish_ref.model_dump_json()
+
     try:
         resolved = resolve_skill_ref(db, ref)
     except HTTPException as exc:

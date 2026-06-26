@@ -9,7 +9,7 @@ import re
 import tempfile
 from pathlib import Path
 
-from .office_convert import convert_with_libreoffice
+from .office_convert import convert_with_libreoffice, libreoffice_unavailable_message
 from .schemas import DocumentBlock, DocumentBlockType
 
 log = logging.getLogger(__name__)
@@ -107,10 +107,7 @@ def _read_doc(path: Path) -> tuple[str, list[Path]]:
     tmp_dir = Path(tempfile.mkdtemp(prefix="kb_doc_convert_"))
     converted = convert_with_libreoffice(path, tmp_dir, "docx")
     if converted is None:
-        raise ValueError(
-            "无法解析 .doc 文件。请安装 LibreOffice，或将文件另存为 .docx。"
-            "也可设置环境变量 LIBREOFFICE_SOFFICE_PATH 指向 soffice.exe。"
-        )
+        raise ValueError(libreoffice_unavailable_message())
     return _read_docx(converted)
 
 

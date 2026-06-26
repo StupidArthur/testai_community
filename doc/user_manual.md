@@ -14,11 +14,12 @@ TestAI Community 是一个**统一的测试资产与 AI 工具平台**，主要�
 | **Skill 管理** | 维护 AI Agent 的 Prompt 资产：按「九维结构」编辑、版本管理、分支协作、合并发布 |
 | **日报管理** | 纯文本提交每日工作总结，由 Skill 自动结构化并存库 |
 | **工具集** | 下载客户端工具（如功能录制）、进入平台集成工具（如 AI 翻译） |
+| **数据清洗** | 长文档入库前质检：提炼精华、冲突检测、人工审核后写入知识库 |
 | **知识库** | 上传文档、基于 RAG 的智能问答（全站共享） |
 
 此外还有 **更新日志**（查看平台版本说明）和 **用户管理**（仅管理员）。
 
-登录后，首页 Portal 提供 **Skill 管理** 与 **工具集** 两个入口卡片；顶栏可切换各模块。工具集使用说明见 **[tool_hub.md](./tool_hub.md)**；知识库使用说明见 **[knowledge_base.md](./knowledge_base.md)**。
+登录后，首页 Portal 提供 **Skill 管理**、**工具集**、**数据清洗**、**知识库** 等入口卡片；顶栏可切换各模块。工具集见 **[tool_hub.md](./tool_hub.md)**；数据清洗见 **[data_cleaning.md](./data_cleaning.md)**；知识库见 **[knowledge_base.md](./knowledge_base.md)**。
 
 ---
 
@@ -380,7 +381,9 @@ cd G:\deploy\testai_community
 .\restart_dev.ps1
 ```
 
-脚本会：① 释放 `.env` 中配置的后端/前端端口 ② 在新窗口启动 `python run.py` 与 `npm run dev`。
+脚本会：① 检查并启动 Ollama、补拉模型 ② 释放 `.env` 中配置的后端/前端端口 ③ 在新窗口启动 `python run.py` 与 `npm run dev`。
+
+单独只检查 Ollama：`scripts\ensure_ollama.bat`（知识库向量入库前可手动跑一次）。
 
 **一体化部署（先构建前端）：**
 

@@ -19,6 +19,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.ai_service.rag import answer_with_rag, delete_document_chunks, delete_kb_collection
+from app.ai_service.rag.store import kb_vector_chunk_count
 from app.auth.models import User, UserRole
 from app.platform.config import KNOWLEDGE_BASE_DATA_DIR
 
@@ -29,6 +30,7 @@ from .config import (
     MAX_UPLOAD_BYTES,
     RAW_SUBDIR,
 )
+from .default_kb import get_or_create_default_kb
 from .models import KnowledgeBase, KnowledgeChatMessage, KnowledgeDocument
 from .schemas import (
     ChatMessageOut,
@@ -99,16 +101,22 @@ def _kb_to_out(
     username: str = "",
     documents: list[KnowledgeDocument] | None = None,
     current_user: User | None = None,
+    count_vectors: bool = False,
 ) -> KnowledgeBaseOut:
     docs = documents if documents is not None else list(kb.documents or [])
+    direct_docs = [d for d in docs if d.status != "archived"]
+    archived_count = sum(1 for d in docs if d.status == "archived")
+    vec_count = kb_vector_chunk_count(kb.id) if count_vectors else 0
     return KnowledgeBaseOut(
         id=kb.id,
         name=kb.name,
         description=kb.description or "",
         user_id=kb.user_id,
         username=username,
-        document_count=len(docs),
-        ready_document_count=sum(1 for d in docs if d.status == "ready"),
+        document_count=len(direct_docs),
+        ready_document_count=sum(1 for d in direct_docs if d.status == "ready"),
+        archived_document_count=archived_count,
+        vector_chunk_count=vec_count,
         created_at=kb.created_at,
         updated_at=kb.updated_at,
         can_manage=_can_manage_kb(kb, current_user) if current_user else False,
@@ -134,8 +142,22 @@ def list_knowledge_bases(db: Session, user: User) -> list[KnowledgeBaseOut]:
     return result
 
 
+def get_default_knowledge_base(db: Session, user: User) -> KnowledgeBaseOut:
+    """获取全站唯一默认知识库。"""
+    kb = get_or_create_default_kb(db)
+    owner = db.query(User).filter(User.id == kb.user_id).first()
+    return _kb_to_out(
+        kb,
+        username=owner.username if owner else "",
+        current_user=user,
+        count_vectors=True,
+    )
+
+
 def create_knowledge_base(db: Session, user: User, data: KnowledgeBaseCreate) -> KnowledgeBaseOut:
-    """创建知识库。"""
+    """创建知识库（单库模式：已存在则拒绝）。"""
+    if db.query(KnowledgeBase).count() > 0:
+        raise HTTPException(status_code=400, detail="平台仅支持一个知识库，请使用默认知识库")
     kb_id = uuid.uuid4().hex
     kb = KnowledgeBase(
         id=kb_id,
@@ -166,7 +188,13 @@ def get_knowledge_base_detail(db: Session, user: User, kb_id: str) -> KnowledgeB
         for u in db.query(User).filter(User.id.in_(uploader_ids)).all()
     } if uploader_ids else {}
 
-    base = _kb_to_out(kb, username=owner.username if owner else "", documents=docs, current_user=user)
+    base = _kb_to_out(
+        kb,
+        username=owner.username if owner else "",
+        documents=docs,
+        current_user=user,
+        count_vectors=True,
+    )
     return KnowledgeBaseDetailOut(
         **base.model_dump(),
         documents=[
@@ -301,8 +329,12 @@ async def chat_with_knowledge_base(db: Session, user: User, kb_id: str, question
         .filter(KnowledgeDocument.kb_id == kb_id, KnowledgeDocument.status == "ready")
         .count()
     )
-    if ready_count == 0:
-        raise HTTPException(status_code=400, detail="知识库尚无可用文档，请等待文档处理完成")
+    vector_count = kb_vector_chunk_count(kb_id)
+    if ready_count == 0 and vector_count == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="知识库尚无可检索内容：请在知识库直接上传文档并等待「可用」，或完成数据清洗后「批准入库」",
+        )
 
     user_msg = KnowledgeChatMessage(
         id=uuid.uuid4().hex,

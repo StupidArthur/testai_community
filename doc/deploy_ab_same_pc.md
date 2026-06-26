@@ -79,6 +79,8 @@ python run.py
 
 浏览器访问：**http://localhost:48011**
 
+**旧版 `.doc` 上传**：B 目录同步代码后，若本机尚未校验过 LibreOffice，在 B 项目根执行一次 `scripts/ensure_libreoffice.ps1`（VC++ 为整机共享，通常 A 已执行过则 B 无需重复）。
+
 ---
 
 ## 3. 日常发布：A 代码覆盖 B

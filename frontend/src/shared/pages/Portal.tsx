@@ -95,7 +95,7 @@ export default function Portal() {
           </div>
         </Card>
 
-        {/* 知识库卡片 */}
+        {/* 知识库：清洗入库 + RAG 问答 */}
         <Card
           hoverable
           style={{
@@ -112,9 +112,9 @@ export default function Portal() {
               知识库
             </Title>
             <Text type="secondary" style={{ textAlign: 'center' }}>
-              上传 md/docx/pdf 文档<br />
-              本地向量化 + RAG 问答<br />
-              图片流程图智能识别
+              文档清洗审核入库<br />
+              锚点对齐与冲突检测<br />
+              RAG 智能问答
             </Text>
             <Text
               style={{

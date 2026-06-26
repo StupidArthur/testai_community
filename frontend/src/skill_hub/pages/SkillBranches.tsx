@@ -19,7 +19,6 @@ import {
   UserOutlined,
   PlusOutlined,
   HomeOutlined,
-  BranchesOutlined,
   DatabaseOutlined,
   BugOutlined,
 } from '@ant-design/icons'
@@ -52,9 +51,10 @@ export default function SkillBranches() {
 
   const createBranchMutation = useMutation({
     mutationFn: () => skillsApi.createBranch(skillId!),
-    onSuccess: () => {
-      message.success('个人分支创建成功')
+    onSuccess: (res) => {
+      message.success('个人分支已就绪，已从 Standard 复制模板')
       queryClient.invalidateQueries({ queryKey: ['branches', skillId] })
+      navigate(`/skill/${skillId}/branch/${res.data.id}`)
     },
     onError: (err: any) => {
       message.error(err.response?.data?.detail || '创建失败')
@@ -138,21 +138,44 @@ export default function SkillBranches() {
     }
 
     return (
-      <Col xs={24} sm={12} md={8} lg={6} key={b.id}>
+      <Col xs={24} sm={12} md={8} lg={6} key={b.id} style={{ display: 'flex' }}>
         <Card
           hoverable
           onClick={() => navigate(`/skill/${skillId}/branch/${b.id}`)}
-          style={{ border: `1px solid ${borderColor}`, background: bg }}
+          style={{
+            width: '100%',
+            border: `1px solid ${borderColor}`,
+            background: bg,
+          }}
+          styles={{
+            body: {
+              height: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              padding: 16,
+            },
+          }}
         >
-          <Space size="middle" align="start">
-            <Avatar size={48} icon={AvatarIcon} style={{ backgroundColor: avatarBg, color: '#fff' }} />
-            <div>
-              <Title level={5} style={{ color: 'var(--color-text)', margin: 0 }}>
+          <Space size="middle" align="center" style={{ width: '100%' }}>
+            <Avatar
+              size={48}
+              icon={AvatarIcon}
+              style={{ backgroundColor: avatarBg, color: '#fff', flexShrink: 0 }}
+            />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <Title
+                level={5}
+                style={{
+                  color: 'var(--color-text)',
+                  margin: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
                 {b.username}
               </Title>
-              <Space size={4} style={{ marginTop: 4 }}>
-                {tagNode}
-              </Space>
+              <div style={{ marginTop: 6 }}>{tagNode}</div>
             </div>
           </Space>
         </Card>
@@ -161,7 +184,7 @@ export default function SkillBranches() {
   }
 
   return (
-    <div style={{ padding: 24 }}>
+    <div>
       <div
         style={{
           display: 'flex',
@@ -192,8 +215,7 @@ export default function SkillBranches() {
             ]}
           />
           <Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
-            <BranchesOutlined /> {skill?.name}（id: {skillId?.slice(0, 8)}…）
-            {skill?.definition && <span> · {skill.definition}</span>}
+            {skill?.definition?.trim() || skill?.name || ''}
           </Text>
         </div>
 
@@ -243,7 +265,7 @@ export default function SkillBranches() {
           该 Skill 暂无 Branch
         </div>
       ) : (
-        <Row gutter={[16, 16]}>{sortedBranches.map(renderCard)}</Row>
+        <Row gutter={[16, 16]} align="stretch">{sortedBranches.map(renderCard)}</Row>
       )}
     </div>
   )

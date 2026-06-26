@@ -5,6 +5,7 @@ SECTION_MAP = {
     "## Goals": "goals",
     "## Constraints": "constraints",
     "## Core Skills": "core_skills",
+    "## Skills": "core_skills",
     "## Workflows": "workflows",
     "## Output Format": "output_format",
     "## Initialization": "initialization",
@@ -109,3 +110,25 @@ def fields_to_langgpt(
     if initialization:
         parts.append(f"\n## Initialization\n{initialization}")
     return "\n".join(parts)
+
+
+def normalize_langgpt_payload(payload: str) -> str:
+    """统一 LangGPT 章节标题（如 ## Skills → ## Core Skills）。"""
+    if not payload:
+        return payload
+    text = payload.replace("## Skills\n", "## Core Skills\n")
+    text = text.replace("## Skills ", "## Core Skills ")
+    return text
+
+
+def extract_markdown_codeblock(text: str) -> str:
+    """从 LLM 输出中提取 markdown 代码块正文；无代码块则返回原文。"""
+    import re
+
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    m = re.search(r"```(?:markdown|md)?\s*\n([\s\S]*?)```", raw, re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    return raw

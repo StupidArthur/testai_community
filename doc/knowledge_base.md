@@ -127,12 +127,25 @@ OLLAMA_EMBED_MODEL=bge-m3
 | `KNOWLEDGE_BASE_DATA_DIR` | `data/knowledge_base/` | 原始文件目录 |
 | `KNOWLEDGE_BASE_CHROMA_DIR` | `.../chroma/` | ChromaDB 向量库目录 |
 
-### 4.3 旧版 `.doc` 文件（可选）
+### 4.3 旧版 `.doc` 文件
 
-需安装 **LibreOffice**，或在 `.env` 中指定：
+项目已自带 **LibreOffice**（`tools/LibreOffice/`），**一般无需配置**。后端会自动：
+
+1. 使用本目录下的 `tools/LibreOffice/program/soffice.com`
+2. 将用户配置写入 `data/libreoffice_profile/`（A/B 环境各自独立）
+
+**首次在本机使用 .doc** 时，若转换失败，在项目根执行一次：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/ensure_libreoffice.ps1
+```
+
+该脚本会安装 VC++ 运行库并校验 LibreOffice（整机只需一次）。
+
+若使用系统安装的 LibreOffice，可在 `.env` 中指定（A/B 各自 `.env` 独立）：
 
 ```env
-LIBREOFFICE_SOFFICE_PATH=C:/Program Files/LibreOffice/program/soffice.exe
+LIBREOFFICE_SOFFICE_PATH=C:/Program Files/LibreOffice/program/soffice.com
 ```
 
 也可将 `.doc` 另存为 `.docx` 后上传。

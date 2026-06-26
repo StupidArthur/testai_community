@@ -93,7 +93,19 @@ TestAI Community 将原 **Skill Hub（技能管理）** 与 **Recorder Translate
 
 详见 [tool_hub.md](./tool_hub.md)。
 
-### 3.7 知识库（Knowledge Base）
+### 3.7 数据清洗（Data Cleaning）
+
+| ID | 需求 | 优先级 |
+|----|------|--------|
+| DC-01 | 上传长文档创建清洗任务；选择目标知识库、文档类型、产品/版本/环境 | P1 |
+| DC-02 | 自动切分、LLM 提炼精华、锚点匹配、库内冲突检测 | P1 |
+| DC-03 | 人工审核段落；批准后才写入知识库（Knowledge Unit + Chroma） | P1 |
+| DC-04 | 冲突段落须选择 supersede/coexist/skip；superseded KU 不参与 RAG | P1 |
+| DC-05 | Admin 维护锚点词典；启动种子基础功能树 | P2 |
+
+详见 [data_cleaning.md](./data_cleaning.md)。
+
+### 3.8 知识库（Knowledge Base）
 
 | ID | 需求 | 优先级 |
 |----|------|--------|
@@ -107,13 +119,13 @@ TestAI Community 将原 **Skill Hub（技能管理）** 与 **Recorder Translate
 
 详见 [knowledge_base.md](./knowledge_base.md)（用户手册）与 [dev/modules/knowledge_base.md](./dev/modules/knowledge_base.md)（技术架构）。
 
-### 3.8 门户与导航
+### 3.9 门户与导航
 
 | ID | 需求 | 优先级 |
 |----|------|--------|
 | NAV-01 | 首页双卡片导航（Skill 管理 / 工具集） | P0 |
 | NAV-02 | 统一顶栏：模块切换、改密、退出、主题切换 | P1 |
-| NAV-03 | 顶栏「知识库」入口 | P1 |
+| NAV-03 | 顶栏「数据清洗」「知识库」入口（数据清洗在知识库之前） | P1 |
 
 ---
 

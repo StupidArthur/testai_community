@@ -80,6 +80,9 @@ feature_recorder/.cache/
 # ====== Vendor clone (可选) ======
 vendor/
 
+# ====== 本地工具（LibreOffice 等，体积过大不入库） ======
+tools/
+
 # ====== Misc ======
 *.tmp
 *.bak

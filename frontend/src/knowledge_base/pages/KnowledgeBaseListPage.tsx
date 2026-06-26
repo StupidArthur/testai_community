@@ -103,7 +103,15 @@ export default function KnowledgeBaseListPage() {
               {kb.name}
             </Title>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              创建者：{kb.username || '—'} · {kb.ready_document_count}/{kb.document_count} 文档可用
+              创建者：{kb.username || '—'}
+              {' · '}
+              {kb.ready_document_count}/{kb.document_count} 直接上传可用
+              {(kb.archived_document_count ?? 0) > 0 && (
+                <> · {kb.archived_document_count} 份清洗待批准</>
+              )}
+              {(kb.vector_chunk_count ?? 0) > 0 && (
+                <> · {kb.vector_chunk_count} 条可检索</>
+              )}
             </Text>
             {kb.description && (
               <Paragraph type="secondary" ellipsis={{ rows: 2 }} style={{ marginTop: 8, marginBottom: 0 }}>

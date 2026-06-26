@@ -41,6 +41,10 @@ from app.skill_hub.schemas import (
     ResolvedSkillOut,
     SkillDebugRunRequest,
     SkillDebugRunResponse,
+    SkillInvokeRequest,
+    SkillInvokeResponse,
+    StructureFromTextRequest,
+    StructureFromTextResponse,
     skill_version_to_out,
     skill_to_out,
     skill_category_to_out,
@@ -61,6 +65,7 @@ from app.skill_hub.category_service import (
 from app.skill_hub.platform_skills import (
     assert_can_fork_platform_skill,
     assert_no_branch_creation_for_platform_skill,
+    assert_platform_merge_allowed,
 )
 from app.skill_hub.service import (
     get_skill_by_name,
@@ -70,7 +75,11 @@ from app.skill_hub.service import (
     get_primary_admin_user,
     assert_can_write_branch,
     resolve_skill_ref,
+    resolve_skill_publish_version,
     run_skill_debug,
+    run_skill_by_name,
+    structure_plain_text_to_nine_dims,
+    ensure_personal_branch_seeded,
 )
 from app.skill_hub.skill_ref import SkillRef
 from app.skill_hub.utils import dimensions_to_payload
@@ -194,6 +203,69 @@ def resolve_skill(
 ):
     """解析 SkillRef → ResolvedSkill（pin / branch_head）。"""
     return resolve_skill_ref(db, ref)
+
+
+@router.post("/structure-from-text", response_model=StructureFromTextResponse)
+async def structure_from_text(
+    data: StructureFromTextRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    调用平台 Meta-Skill（LangGPT_Standard_v3），将纯文本结构化为九维 Skill 字段。
+    供沙箱「纯文本」模式一键结构化，结果填入「结构化」Tab。
+    """
+    fields, raw_md = await structure_plain_text_to_nine_dims(db, data.plain_text)
+    return StructureFromTextResponse(
+        role=fields.get("role", ""),
+        profile=fields.get("profile", ""),
+        background=fields.get("background", ""),
+        goals=fields.get("goals", ""),
+        constraints=fields.get("constraints", ""),
+        core_skills=fields.get("core_skills", ""),
+        workflows=fields.get("workflows", ""),
+        output_format=fields.get("output_format", ""),
+        initialization=fields.get("initialization", ""),
+        raw_markdown=raw_md,
+    )
+
+
+@router.get("/by-name/{skill_name}", response_model=ResolvedSkillOut)
+def get_skill_by_name_endpoint(
+    skill_name: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    按 Skill name 获取发布版 Markdown（master 最新；master 无版本时回退 standard）。
+    平台内模块与调试均可通过此接口按 name 读取 payload。
+    """
+    return resolve_skill_publish_version(db, skill_name)
+
+
+@router.post("/by-name/{skill_name}/invoke", response_model=SkillInvokeResponse)
+async def invoke_skill_by_name(
+    skill_name: str,
+    data: SkillInvokeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    按 Skill name 调用发布版：以 master 最新 payload 为 system prompt 执行用户输入。
+    """
+    resolved, output = await run_skill_by_name(db, skill_name, data.user_input)
+    return SkillInvokeResponse(
+        output=output,
+        skill_id=resolved.skill_id,
+        skill_name=resolved.skill_name,
+        version_id=resolved.version_id,
+        version_num=resolved.version_num,
+        revision=resolved.revision,
+        branch_id=resolved.branch_id,
+        branch_type=resolved.branch_type,
+        version_locator=resolved.version_locator,
+        payload=resolved.payload,
+    )
 
 
 # ============================================================
@@ -429,6 +501,8 @@ def create_my_branch(
         db.commit()
         db.refresh(b)
 
+    ensure_personal_branch_seeded(db, b, current_user)
+
     return BranchWithUser(
         id=b.id,
         skill_id=b.skill_id,
@@ -449,6 +523,16 @@ def list_branch_versions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    branch = (
+        db.query(Branch)
+        .filter(Branch.skill_id == skill_id, Branch.id == branch_id)
+        .first()
+    )
+    if not branch:
+        raise HTTPException(status_code=404, detail="Branch 不存在")
+
+    ensure_personal_branch_seeded(db, branch, current_user)
+
     return [
         skill_version_to_out(v, db)
         for v in (
@@ -548,9 +632,9 @@ def merge_to_master(
     if not skill:
         raise HTTPException(status_code=404, detail="Skill 不存在")
 
-    from app.skill_hub.platform_skills import is_platform_locked_skill
+    from app.skill_hub.platform_skills import is_platform_locked_skill, assert_platform_merge_allowed
     if is_platform_locked_skill(skill):
-        raise HTTPException(status_code=403, detail="平台内置 Skill 不允许合并到主干")
+        assert_platform_merge_allowed(db, skill_id)
 
     master_branch = (
         db.query(Branch)

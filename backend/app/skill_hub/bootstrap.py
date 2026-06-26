@@ -1,8 +1,9 @@
-"""skill_hub 启动初始化：默认 Skill 分类目录、revision 回填。"""
+"""skill_hub 启动初始化：默认 Skill 分类目录、revision 回填、平台 Meta-Skill。"""
 from __future__ import annotations
 
 from app.platform.database import SessionLocal
 from app.skill_hub.categories import DEFAULT_SKILL_CATEGORIES
+from app.skill_hub.langgpt_meta_bootstrap import ensure_langgpt_meta_skill
 from app.skill_hub.models import SkillCategory, SkillVersion
 
 
@@ -61,12 +62,7 @@ def ensure_version_revisions(_engine=None) -> None:
 
 
 def ensure_skill_hub_startup(_engine=None) -> None:
-    """分类目录 + revision 回填（启动幂等）。"""
+    """分类目录 + revision 回填 + LangGPT Meta-Skill（启动幂等）。"""
     ensure_default_categories(_engine)
     ensure_version_revisions(_engine)
-
-
-def ensure_skill_hub_startup(_engine=None) -> None:
-    """分类目录 + revision 回填（启动幂等）。"""
-    ensure_default_categories(_engine)
-    ensure_version_revisions(_engine)
+    ensure_langgpt_meta_skill(_engine)

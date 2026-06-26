@@ -10,9 +10,18 @@ from app.auth.models import User, UserRole
 from app.skill_hub.models import Branch, Skill
 
 WORK_DAILY_SKILL_NAME = "Test_Engineer_Daily_Report_Parse"
-PLATFORM_LOCKED_SKILL_NAMES: frozenset[str] = frozenset({WORK_DAILY_SKILL_NAME})
+LANGGPT_META_SKILL_NAME = "LangGPT_Standard_v3"
 
-_FORBIDDEN_MSG = "平台内置 Skill「测试工程师日报解析」：仅 Admin 可编辑 standard 分支；禁止创建分支、Fork、合并到 master"
+PLATFORM_LOCKED_SKILL_NAMES: frozenset[str] = frozenset({
+    WORK_DAILY_SKILL_NAME,
+    LANGGPT_META_SKILL_NAME,
+})
+
+# 平台内置 Skill 中允许 Admin merge 到 master 的白名单
+PLATFORM_MERGE_ALLOWED_LOCKED: frozenset[str] = frozenset({LANGGPT_META_SKILL_NAME})
+
+_FORBIDDEN_MSG = "平台内置 Skill：仅 Admin 可编辑 standard 分支；禁止创建个人分支与 Fork"
+_FORBIDDEN_MERGE_MSG = "该平台内置 Skill 不允许合并到 master"
 
 
 def is_platform_locked_skill(skill: Skill | str | None) -> bool:
@@ -20,6 +29,19 @@ def is_platform_locked_skill(skill: Skill | str | None) -> bool:
         return False
     name = skill if isinstance(skill, str) else skill.name
     return name in PLATFORM_LOCKED_SKILL_NAMES
+
+
+def is_platform_merge_allowed(skill: Skill | str | None) -> bool:
+    if skill is None:
+        return False
+    name = skill if isinstance(skill, str) else skill.name
+    return name in PLATFORM_MERGE_ALLOWED_LOCKED
+
+
+def assert_platform_merge_allowed(db: Session, skill_id: str) -> None:
+    skill = _get_skill(db, skill_id)
+    if skill and is_platform_locked_skill(skill) and not is_platform_merge_allowed(skill):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=_FORBIDDEN_MERGE_MSG)
 
 
 def _get_skill(db: Session, skill_id: str) -> Skill | None:

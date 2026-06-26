@@ -149,7 +149,7 @@ export default function AppLayout() {
           <NavButton
             icon={<BookOutlined />}
             label="知识库"
-            active={isActive('/knowledge-base')}
+            active={location.pathname.startsWith('/knowledge-base')}
             onClick={() => navigate('/knowledge-base')}
           />
           <NavButton
@@ -209,7 +209,17 @@ export default function AppLayout() {
           </Dropdown>
         </div>
       </Header>
-      <Content style={{ background: 'var(--color-bg-secondary)', padding: '24px', marginTop: 64, height: 'calc(100% - 64px)', overflow: 'hidden' }}>
+      <Content
+        style={{
+          background: 'var(--color-bg-secondary)',
+          padding: 24,
+          marginTop: 64,
+          height: 'calc(100vh - 64px)',
+          overflowX: 'hidden',
+          overflowY: 'auto',
+          boxSizing: 'border-box',
+        }}
+      >
         <Outlet />
       </Content>
 

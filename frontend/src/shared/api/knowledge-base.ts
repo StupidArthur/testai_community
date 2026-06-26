@@ -8,6 +8,8 @@ export interface KnowledgeBase {
   username: string
   document_count: number
   ready_document_count: number
+  archived_document_count?: number
+  vector_chunk_count?: number
   can_manage: boolean
   created_at: string
   updated_at: string
@@ -57,6 +59,8 @@ export interface ChatResponse {
 
 export const knowledgeBaseApi = {
   listBases: () => apiClient.get<KnowledgeBase[]>('/knowledge-base/bases'),
+
+  getDefaultBase: () => apiClient.get<KnowledgeBase>('/knowledge-base/bases/default'),
 
   createBase: (data: { name: string; description?: string }) =>
     apiClient.post<KnowledgeBase>('/knowledge-base/bases', data),
