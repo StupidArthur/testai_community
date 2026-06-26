@@ -146,6 +146,7 @@ export default function ToolHubPage() {
           setCreateOpen(false)
           createForm.resetFields()
           setArtifactFile(null)
+          createMutation.reset()
         }}
         footer={null}
         width={640}
@@ -172,14 +173,26 @@ export default function ToolHubPage() {
             })
           }}
         >
-          <Form.Item name="display_name" label="工具名称" rules={[{ required: true }]}>
+          <Form.Item
+            name="display_name"
+            label="工具名称"
+            rules={[
+              { required: true, message: '请输入工具名称' },
+              { max: 128, message: '最多 128 个字符' },
+            ]}
+          >
             <Input placeholder="展示名称" />
           </Form.Item>
           <Form.Item
             name="slug"
             label="工具标识"
-            rules={[{ required: true, message: '请输入唯一标识' }]}
-            extra="小写字母开头，仅含 a-z、0-9、_"
+            rules={[
+              { required: true, message: '请输入唯一标识' },
+              { min: 2, message: '至少 2 个字符' },
+              { max: 64, message: '最多 64 个字符' },
+              { pattern: /^[a-z][a-z0-9_]{1,63}$/, message: '小写字母开头，仅含 a-z、0-9、_' },
+            ]}
+            extra="小写字母开头，仅含 a-z、0-9、_，2-64 个字符"
           >
             <Input placeholder="如 my_client_tool" />
           </Form.Item>
@@ -202,7 +215,11 @@ export default function ToolHubPage() {
               <Input prefix={<LinkOutlined />} placeholder="/translate" />
             </Form.Item>
           )}
-          <Form.Item name="version_label" label="初始版本号">
+          <Form.Item
+            name="version_label"
+            label="初始版本号"
+            rules={[{ required: true, message: '请输入版本号' }, { max: 32, message: '最多 32 个字符' }]}
+          >
             <Input placeholder="1.0.0" />
           </Form.Item>
           {createKind === 'client' && (

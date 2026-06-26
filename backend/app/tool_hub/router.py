@@ -3,13 +3,22 @@ tool_hub HTTP 路由。
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
 from app.auth.service import get_current_user
 from app.platform.database import get_db
+
+
+def _meta_validation_error(err: ValidationError) -> HTTPException:
+    """把 Pydantic 校验错误转成 400，避免手动构造 schema 时冒成 500。"""
+    first = err.errors()[0]
+    loc = ".".join(str(p) for p in first.get("loc", []) if p != "input")
+    detail = first.get("msg", "参数校验失败")
+    return HTTPException(status_code=400, detail=f"{loc}: {detail}" if loc else detail)
 
 from .schemas import ToolCardOut, ToolDetailOut, ToolKind, ToolUpdateRequest
 from .service import (
@@ -58,15 +67,18 @@ async def api_create_tool(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ToolDetailOut:
-    meta = ToolCreateFormMeta(
-        slug=slug,
-        display_name=display_name,
-        tool_kind=tool_kind,
-        tool_type=tool_type,
-        link_url=link_url,
-        version_label=version_label,
-        manual_md=manual_md,
-    )
+    try:
+        meta = ToolCreateFormMeta(
+            slug=slug,
+            display_name=display_name,
+            tool_kind=tool_kind,
+            tool_type=tool_type,
+            link_url=link_url,
+            version_label=version_label,
+            manual_md=manual_md,
+        )
+    except ValidationError as e:
+        raise _meta_validation_error(e) from e
     return create_tool(db, current_user, meta, artifact)
 
 
@@ -80,11 +92,14 @@ async def api_add_version(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ToolDetailOut:
-    meta = ToolVersionCreateMeta(
-        version_label=version_label,
-        changelog_md=changelog_md,
-        manual_md=manual_md,
-    )
+    try:
+        meta = ToolVersionCreateMeta(
+            version_label=version_label,
+            changelog_md=changelog_md,
+            manual_md=manual_md,
+        )
+    except ValidationError as e:
+        raise _meta_validation_error(e) from e
     return add_tool_version(db, current_user, tool_id, meta, artifact)
 
 

@@ -226,6 +226,7 @@ export default function ToolDetailPage() {
           setVersionOpen(false)
           versionForm.resetFields()
           setArtifactFile(null)
+          versionMutation.reset()
         }}
         footer={null}
         destroyOnHidden
@@ -241,7 +242,14 @@ export default function ToolDetailPage() {
             versionMutation.mutate(values)
           }}
         >
-          <Form.Item name="version_label" label="版本号" rules={[{ required: true }]}>
+          <Form.Item
+            name="version_label"
+            label="版本号"
+            rules={[
+              { required: true, message: '请输入版本号' },
+              { max: 32, message: '最多 32 个字符' },
+            ]}
+          >
             <Input placeholder="2.0.0" />
           </Form.Item>
           {tool.tool_kind === 'client' && (
@@ -277,7 +285,10 @@ export default function ToolDetailPage() {
       <Modal
         title="编辑工具"
         open={editOpen}
-        onCancel={() => setEditOpen(false)}
+        onCancel={() => {
+          setEditOpen(false)
+          updateMutation.reset()
+        }}
         footer={null}
         destroyOnHidden
       >
@@ -286,7 +297,14 @@ export default function ToolDetailPage() {
           layout="vertical"
           onFinish={(values) => updateMutation.mutate(values)}
         >
-          <Form.Item name="display_name" label="工具名称" rules={[{ required: true }]}>
+          <Form.Item
+            name="display_name"
+            label="工具名称"
+            rules={[
+              { required: true, message: '请输入工具名称' },
+              { max: 128, message: '最多 128 个字符' },
+            ]}
+          >
             <Input />
           </Form.Item>
           {tool.tool_kind === 'platform' && (
