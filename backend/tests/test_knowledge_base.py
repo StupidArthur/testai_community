@@ -13,33 +13,31 @@ def kb_headers(auth_headers):
     return auth_headers
 
 
-def test_create_and_list_knowledge_base(client, kb_headers, eng_headers):
-    r = client.post(
+def test_default_kb_and_list(client, kb_headers, eng_headers, default_kb_id):
+    """单库模式：默认库存在，禁止再创建第二个。"""
+    r = client.get("/api/knowledge-base/bases/default", headers=kb_headers)
+    assert r.status_code == 200
+    assert r.json()["id"] == default_kb_id
+
+    r2 = client.post(
         "/api/knowledge-base/bases",
         json={"name": "测试库", "description": "pytest"},
         headers=kb_headers,
     )
-    assert r.status_code == 201
-    kb_id = r.json()["id"]
+    assert r2.status_code == 400
+    assert "一个知识库" in r2.json()["detail"]
 
-    # 工程师也能看到全站知识库
-    r2 = client.get("/api/knowledge-base/bases", headers=eng_headers)
-    assert r2.status_code == 200
-    ids = [b["id"] for b in r2.json()]
-    assert kb_id in ids
-
-    r3 = client.get(f"/api/knowledge-base/bases/{kb_id}", headers=eng_headers)
+    r3 = client.get("/api/knowledge-base/bases", headers=eng_headers)
     assert r3.status_code == 200
-    assert r3.json()["name"] == "测试库"
+    ids = [b["id"] for b in r3.json()]
+    assert default_kb_id in ids
+
+    r4 = client.get(f"/api/knowledge-base/bases/{default_kb_id}", headers=eng_headers)
+    assert r4.status_code == 200
 
 
-def test_upload_markdown_document(client, kb_headers, tmp_path):
-    r = client.post(
-        "/api/knowledge-base/bases",
-        json={"name": "上传测试"},
-        headers=kb_headers,
-    )
-    kb_id = r.json()["id"]
+def test_upload_markdown_document(client, kb_headers, default_kb_id):
+    kb_id = default_kb_id
     md_content = "# 标题\n\n这是知识库测试文档内容。\n\n## 第二节\n\n更多文字用于分块。"
 
     with patch(
@@ -87,13 +85,8 @@ def test_upload_markdown_document(client, kb_headers, tmp_path):
     assert any(d["id"] == doc_id and d["status"] == "ready" for d in docs)
 
 
-def test_document_delete_permission(client, kb_headers, eng_headers):
-    r = client.post(
-        "/api/knowledge-base/bases",
-        json={"name": "权限测试"},
-        headers=kb_headers,
-    )
-    kb_id = r.json()["id"]
+def test_document_delete_permission(client, kb_headers, eng_headers, default_kb_id):
+    kb_id = default_kb_id
 
     from app.platform.database import SessionLocal
     from app.knowledge_base.models import KnowledgeDocument
@@ -116,7 +109,6 @@ def test_document_delete_permission(client, kb_headers, eng_headers):
     finally:
         db.close()
 
-    # 工程师不能删 admin 上传的文档
     with patch("app.knowledge_base.service.delete_document_chunks"):
         r_del = client.delete(
             f"/api/knowledge-base/bases/{kb_id}/documents/doc_perm_test",
@@ -124,7 +116,6 @@ def test_document_delete_permission(client, kb_headers, eng_headers):
         )
     assert r_del.status_code == 403
 
-    # admin 可以删
     with patch("app.knowledge_base.service.delete_document_chunks"):
         r_del2 = client.delete(
             f"/api/knowledge-base/bases/{kb_id}/documents/doc_perm_test",
@@ -133,13 +124,8 @@ def test_document_delete_permission(client, kb_headers, eng_headers):
     assert r_del2.status_code == 204
 
 
-def test_chat_rag(client, kb_headers):
-    r = client.post(
-        "/api/knowledge-base/bases",
-        json={"name": "对话测试"},
-        headers=kb_headers,
-    )
-    kb_id = r.json()["id"]
+def test_chat_rag(client, kb_headers, default_kb_id):
+    kb_id = default_kb_id
 
     from app.platform.database import SessionLocal
     from app.knowledge_base.models import KnowledgeDocument
@@ -166,7 +152,10 @@ def test_chat_rag(client, kb_headers):
     with patch(
         "app.knowledge_base.service.answer_with_rag",
         new_callable=AsyncMock,
-    ) as mock_rag:
+    ) as mock_rag, patch(
+        "app.knowledge_base.service.kb_vector_chunk_count",
+        return_value=1,
+    ):
         mock_rag.return_value = {
             "answer": "这是基于资料的测试回答。",
             "citations": [{"filename": "fake.md", "snippet": "测试", "page": None}],

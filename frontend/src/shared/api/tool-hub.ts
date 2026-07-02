@@ -135,7 +135,7 @@ export const toolHubApi = {
     )
   },
 
-  update: (toolId: string, data: Partial<{ display_name: string; link_url: string; tool_type: string; enabled: boolean }>) =>
+  update: (toolId: string, data: Partial<{ display_name: string; link_url: string; tool_type: string; enabled: boolean; manual_md: string }>) =>
     apiClient.put<ToolDetail>(`/tool-hub/tools/${toolId}`, data),
 
   delete: (toolId: string) => apiClient.delete(`/tool-hub/tools/${toolId}`),

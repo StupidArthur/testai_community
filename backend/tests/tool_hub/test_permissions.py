@@ -16,6 +16,18 @@ class TestToolHubPermissions:
     assert r.json()["display_name"] == "新名称"
     assert r.json()["tool_type"] == "custom"
 
+  def test_owner_can_update_manual_md(self, client, eng_headers):
+    tool = create_platform_tool(client, eng_headers)
+    new_manual = "# 更新后的说明\n\n编辑文档测试内容。"
+    r = client.put(
+      f"/api/tool-hub/tools/{tool['id']}",
+      json={"manual_md": new_manual},
+      headers=eng_headers,
+    )
+    assert r.status_code == 200
+    assert new_manual in r.json()["combined_markdown"]
+    assert r.json()["versions"][0]["manual_md"] == new_manual
+
   def test_owner_can_delist(self, client, eng_headers):
     tool = create_platform_tool(client, eng_headers)
     r = client.put(

@@ -216,7 +216,16 @@ export default function CleanJobReviewPage() {
         {(job.status === 'uploaded' || job.status === 'processing') && (
           <Alert type="info" message="后台处理中，请稍候…" style={{ marginTop: 12 }} showIcon />
         )}
-        {job.status === 'pending_review' && (
+        {job.status === 'pending_review' && job.paragraph_count === 0 && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginTop: 12 }}
+            message="未生成可审核段落"
+            description="文档内容过短或格式无法切分，请补充内容后重新上传。"
+          />
+        )}
+        {job.status === 'pending_review' && job.paragraph_count > 0 && (
           <div style={{ marginTop: 16 }}>
             {conflictCount > 0 && (
               <Alert

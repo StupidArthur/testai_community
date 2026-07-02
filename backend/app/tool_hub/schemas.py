@@ -67,6 +67,7 @@ class ToolUpdateRequest(BaseModel):
     link_url: str | None = None
     tool_type: str | None = None
     enabled: bool | None = None
+    manual_md: str | None = None
 
 
 class ToolCreateFormMeta(BaseModel):

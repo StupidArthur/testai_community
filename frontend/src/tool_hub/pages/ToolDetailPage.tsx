@@ -185,10 +185,12 @@ export default function ToolDetailPage() {
           {tool.can_edit && (
             <>
               <Button icon={<EditOutlined />} onClick={() => {
+                const latestManual = tool.versions[0]?.manual_md ?? ''
                 editForm.setFieldsValue({
                   display_name: tool.display_name,
                   link_url: tool.link_url,
                   tool_type: tool.tool_type,
+                  manual_md: latestManual,
                 })
                 setEditOpen(true)
               }}>
@@ -296,6 +298,7 @@ export default function ToolDetailPage() {
           updateMutation.reset()
         }}
         footer={null}
+        width={720}
         destroyOnHidden
       >
         <Form
@@ -320,6 +323,14 @@ export default function ToolDetailPage() {
           )}
           <Form.Item name="tool_type" label="tool_type">
             <Input />
+          </Form.Item>
+          <Form.Item
+            name="manual_md"
+            label="使用说明（Markdown）"
+            rules={[{ required: true, message: '请填写使用说明' }]}
+            extra="修改后将更新当前最新版本的使用说明，无需发布新版本"
+          >
+            <TextArea rows={12} placeholder="# 工具说明&#10;&#10;## 安装&#10;..." />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" block loading={updateMutation.isPending}>

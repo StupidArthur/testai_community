@@ -6,31 +6,17 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
-import pytest
-
 from app.ai_service.document.schemas import DocumentProcessResult
 
 
-@pytest.fixture()
-def kb_id(client, auth_headers):
-    r = client.post(
-        "/api/knowledge-base/bases",
-        json={"name": "集成测试库", "description": "e2e"},
-        headers=auth_headers,
-    )
-    assert r.status_code == 201, r.text
-    return r.json()["id"]
-
-
 def test_full_knowledge_base_flow(client, auth_headers, eng_headers, kb_id):
-    """创建 → 列表 → 上传 → 处理 → 对话 → 删文档 → 删库。"""
+    """默认库 → 列表 → 上传 → 处理 → 对话 → 删文档。"""
     r_list = client.get("/api/knowledge-base/bases", headers=eng_headers)
     assert r_list.status_code == 200
     assert any(b["id"] == kb_id for b in r_list.json())
 
     r_detail = client.get(f"/api/knowledge-base/bases/{kb_id}", headers=auth_headers)
     assert r_detail.status_code == 200
-    assert r_detail.json()["name"] == "集成测试库"
 
     md = "# 集成测试\n\nRAG 问答验证用段落内容。" * 20
 
@@ -72,7 +58,10 @@ def test_full_knowledge_base_flow(client, auth_headers, eng_headers, kb_id):
     with patch(
         "app.knowledge_base.service.answer_with_rag",
         new_callable=AsyncMock,
-    ) as mock_rag:
+    ) as mock_rag, patch(
+        "app.knowledge_base.service.kb_vector_chunk_count",
+        return_value=1,
+    ):
         mock_rag.return_value = {
             "answer": "集成测试回答",
             "citations": [{"filename": "flow.md", "snippet": "验证", "page": None}],
@@ -96,7 +85,3 @@ def test_full_knowledge_base_flow(client, auth_headers, eng_headers, kb_id):
             headers=eng_headers,
         )
     assert r_del_doc.status_code == 204
-
-    with patch("app.knowledge_base.service.delete_kb_collection"):
-        r_del_kb = client.delete(f"/api/knowledge-base/bases/{kb_id}", headers=auth_headers)
-    assert r_del_kb.status_code == 204

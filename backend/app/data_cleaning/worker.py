@@ -16,6 +16,7 @@ from app.data_cleaning.anchor import match_anchors_for_text, pick_anchor_ids
 from app.data_cleaning.config import (
     JOB_PROCESS_TIMEOUT_SEC,
     MAX_CONCURRENT_CLEAN_JOBS,
+    MIN_PARAGRAPH_CHARS,
     PARAGRAPH_CONCURRENCY,
     QUEUE_TICK_SEC,
     STALE_PROCESSING_SEC,
@@ -163,8 +164,19 @@ async def _process_job(job_id: str) -> None:
             log.warning("clean job %s load warnings: %s", job.id, load_warnings)
         plain = text or ""
         slices = split_plain_text_to_sections(plain)
-        if not slices and plain.strip():
-            log.warning("clean job %s: parsed %s chars but no sections after split", job.id, len(plain))
+        if not slices:
+            msg = (
+                "文档切分后无有效段落（内容过短或不足 "
+                f"{MIN_PARAGRAPH_CHARS} 字符）。请补充内容后重新上传。"
+            )
+            if plain.strip():
+                log.warning("clean job %s: parsed %s chars but no sections", job.id, len(plain))
+            job.status = "failed"
+            job.error = msg
+            job.paragraph_count = 0
+            job.updated_at = datetime.utcnow()
+            db.commit()
+            return
 
         register_clean_source_document(
             db,

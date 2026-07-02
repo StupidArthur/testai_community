@@ -77,5 +77,19 @@ def eng_headers(eng_token):
     return {"Authorization": f"Bearer {eng_token}"}
 
 
+@pytest.fixture()
+def default_kb_id(client, auth_headers):
+    """全站默认知识库 ID（单库模式）。"""
+    r = client.get("/api/knowledge-base/bases/default", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+@pytest.fixture()
+def kb_id(default_kb_id):
+    """兼容旧测试名：指向默认知识库。"""
+    return default_kb_id
+
+
 def _ensure_admin_user():
     ensure_default_admin()

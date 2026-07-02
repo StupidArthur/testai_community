@@ -38,7 +38,7 @@
 | GET | `/api/tool-hub/tools/{id}` | 详情（含合并 Markdown） |
 | POST | `/api/tool-hub/tools` | 创建（multipart） |
 | POST | `/api/tool-hub/tools/{id}/versions` | 新版本（multipart） |
-| PUT | `/api/tool-hub/tools/{id}` | 编辑元数据 / 上下架 |
+| PUT | `/api/tool-hub/tools/{id}` | 编辑元数据（含最新版本 `manual_md`）/ 上下架 |
 | DELETE | `/api/tool-hub/tools/{id}` | 删除（仅 Admin） |
 | GET | `/api/tool-hub/tools/{id}/download` | 下载客户端工具最新制品 |
 
@@ -76,7 +76,7 @@
 | 路径 | 页面 |
 |------|------|
 | `/tool-hub` | 工具集首页（卡片） |
-| `/tool-hub/:toolId` | 工具详情（统一样式：标题 + 下载/跳转 + Markdown 滚动区） |
+| `/tool-hub/:toolId` | 工具详情（统一样式：标题 + 下载/跳转 + Markdown 滚动区；所有者「编辑」可改标题、链接、类型及使用说明 Markdown） |
 
 平台集成工具页（如 `/translate`）**不在顶栏与首页单独展示**，仅从工具集进入；页内提供 **返回工具集** 按钮（`ReturnToToolHubButton`）。
 

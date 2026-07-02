@@ -307,6 +307,15 @@ def update_tool(
     if data.enabled is not None:
         tool.enabled = data.enabled
 
+    if data.manual_md is not None:
+        latest = _latest_version_row(tool)
+        if not latest:
+            raise HTTPException(status_code=400, detail="工具尚无版本，无法编辑使用说明")
+        manual = data.manual_md.strip()
+        if not manual:
+            raise HTTPException(status_code=400, detail="使用说明不能为空")
+        latest.manual_md = manual
+
     if tool.tool_kind == "platform" and not tool.link_url:
         raise HTTPException(status_code=400, detail="平台集成工具须保留跳转链接")
 

@@ -41,6 +41,11 @@ class TestSplitter:
         raw = '步骤1\n\n<json>\n{"tool": "AAS", "ability": "查询"}\n</json>'
         assert is_thinking_chain_paragraph(raw)
 
+    def test_tiny_doc_no_sections(self):
+        """极短文档切分后为空。"""
+        slices = split_plain_text_to_sections("hi")
+        assert slices == []
+
 
 class TestUtils:
     def test_extract_json_object(self):
@@ -50,15 +55,9 @@ class TestUtils:
 
 
 @pytest.mark.asyncio
-async def test_create_clean_job(client, auth_headers):
+async def test_create_clean_job(client, auth_headers, default_kb_id):
     """创建清洗任务并入队。"""
-    kb = client.post(
-        "/api/knowledge-base/bases",
-        json={"name": "清洗测试库", "description": ""},
-        headers=auth_headers,
-    )
-    assert kb.status_code == 201
-    kb_id = kb.json()["id"]
+    kb_id = default_kb_id
 
     content = ("## 功能A\n\n" + "这是功能A的详细规则说明。" * 25 + "\n\n").encode("utf-8")
     files = {"file": ("test.md", io.BytesIO(content), "text/markdown")}
@@ -86,7 +85,7 @@ def test_list_anchors(client, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_approve_clean_job(client, auth_headers):
+async def test_approve_clean_job(client, auth_headers, default_kb_id):
     """批准入库：段落写入 Knowledge Unit。"""
     import uuid
 
@@ -94,12 +93,7 @@ async def test_approve_clean_job(client, auth_headers):
     from app.data_cleaning.utils import dumps_json
     from app.platform.database import SessionLocal
 
-    kb = client.post(
-        "/api/knowledge-base/bases",
-        json={"name": "批准测试库", "description": ""},
-        headers=auth_headers,
-    )
-    kb_id = kb.json()["id"]
+    kb_id = default_kb_id
     job_id = uuid.uuid4().hex
 
     db = SessionLocal()

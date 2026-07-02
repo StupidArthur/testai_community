@@ -64,8 +64,8 @@ export default function CleanJobListPage({
   })
 
   const { data: jobs = [], isLoading } = useQuery({
-    queryKey: ['clean-jobs'],
-    queryFn: () => dataCleaningApi.listJobs().then((r) => r.data),
+    queryKey: ['clean-jobs', fixedKbId ?? 'all'],
+    queryFn: () => dataCleaningApi.listJobs(fixedKbId).then((r) => r.data),
     refetchInterval: (q) => {
       const list = q.state.data as { status: string }[] | undefined
       if (list?.some((j) => j.status === 'uploaded' || j.status === 'processing')) return 3000
@@ -78,7 +78,8 @@ export default function CleanJobListPage({
       if (!file) throw new Error('请选择文件')
       const fd = new FormData()
       fd.append('file', file)
-      if (!embedded && values.kb_id) fd.append('kb_id', values.kb_id)
+      const targetKbId = embedded ? fixedKbId : values.kb_id
+      if (targetKbId) fd.append('kb_id', targetKbId)
       fd.append('doc_type', values.doc_type)
       fd.append('product', values.product || '')
       fd.append('version', values.version || '')
