@@ -72,8 +72,15 @@ function multipartPost<T>(url: string, fields: Record<string, string>, fileField
         reject(new Error('未认证'))
       } else {
         try {
-          const detail = JSON.parse(xhr.responseText)?.detail
-          reject(new Error(detail || `请求失败: ${xhr.status}`))
+          const body = JSON.parse(xhr.responseText)
+          const detail = body?.detail
+          const msg =
+            typeof detail === 'string'
+              ? detail
+              : Array.isArray(detail)
+                ? detail.map((d: { msg?: string }) => d.msg).filter(Boolean).join('；') || `请求失败: ${xhr.status}`
+                : `请求失败: ${xhr.status}`
+          reject(new Error(msg))
         } catch {
           reject(new Error(`请求失败: ${xhr.status}`))
         }

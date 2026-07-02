@@ -210,7 +210,7 @@ def create_tool(
     if meta.tool_kind == "platform" and not (meta.link_url or "").strip():
         raise HTTPException(status_code=400, detail="平台集成工具须填写跳转链接")
     if meta.tool_kind == "client" and artifact is None:
-        raise HTTPException(status_code=400, detail="客户端工具须上传可执行文件")
+        raise HTTPException(status_code=400, detail="客户端工具须上传可执行文件，请先选择 exe / zip / msi")
 
     tool = Tool(
         slug=slug,
@@ -258,7 +258,7 @@ def add_tool_version(
         raise HTTPException(status_code=403, detail="无权更新此工具")
 
     if tool.tool_kind == "client" and artifact is None:
-        raise HTTPException(status_code=400, detail="客户端工具新版本须上传文件")
+        raise HTTPException(status_code=400, detail="客户端工具新版本须上传文件，请先选择 exe / zip / msi")
 
     artifact_filename = None
     artifact_stored = None

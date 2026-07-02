@@ -134,3 +134,18 @@ a:hover {
   background: none;
   padding: 0;
 }
+
+/* 工具详情：说明区域纵向滚动 */
+.tool-markdown-panel {
+  scrollbar-gutter: stable;
+}
+.tool-markdown-panel::-webkit-scrollbar {
+  width: 8px;
+}
+.tool-markdown-panel::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-text-secondary) 35%, transparent);
+  border-radius: 4px;
+}
+.tool-markdown-panel::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--color-text-secondary) 55%, transparent);
+}

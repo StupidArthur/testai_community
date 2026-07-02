@@ -10,11 +10,13 @@ export interface ToolMarkdownPanelProps {
 export default function ToolMarkdownPanel({ markdown }: ToolMarkdownPanelProps) {
   return (
     <div
-      className="changelog-content"
+      className="changelog-content tool-markdown-panel"
       style={{
         flex: 1,
         minHeight: 0,
+        maxHeight: '100%',
         overflowY: 'auto',
+        overflowX: 'hidden',
         padding: '16px 20px',
         border: '1px solid var(--color-border)',
         borderRadius: 8,

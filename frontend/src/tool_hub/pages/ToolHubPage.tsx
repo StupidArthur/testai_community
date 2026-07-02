@@ -27,6 +27,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { toolHubApi, type ToolCard, type ToolKind } from '../../shared/api/tool-hub'
+import { artifactRequiredRules, artifactUploadFieldProps, extractUploadFile } from '../utils/uploadForm'
 
 const { Title, Text } = Typography
 const { TextArea } = Input
@@ -50,7 +51,6 @@ export default function ToolHubPage() {
   const [kindFilter, setKindFilter] = useState<ToolKind | 'all'>('all')
   const [createOpen, setCreateOpen] = useState(false)
   const [createForm] = Form.useForm()
-  const [artifactFile, setArtifactFile] = useState<File | null>(null)
   const createKind = Form.useWatch('tool_kind', createForm) as ToolKind | undefined
 
   const { data: tools = [], isLoading } = useQuery({
@@ -67,7 +67,6 @@ export default function ToolHubPage() {
       message.success('工具已发布')
       setCreateOpen(false)
       createForm.resetFields()
-      setArtifactFile(null)
       queryClient.invalidateQueries({ queryKey: ['tool-hub'] })
     },
     onError: (err: Error) => message.error(err.message || '发布失败'),
@@ -145,7 +144,6 @@ export default function ToolHubPage() {
         onCancel={() => {
           setCreateOpen(false)
           createForm.resetFields()
-          setArtifactFile(null)
           createMutation.reset()
         }}
         footer={null}
@@ -155,12 +153,8 @@ export default function ToolHubPage() {
         <Form
           form={createForm}
           layout="vertical"
-          initialValues={{ tool_kind: 'client', tool_type: 'default', version_label: '1.0.0' }}
+          initialValues={{ tool_kind: 'client', tool_type: 'default', version_label: '1.0.0', artifact: [] }}
           onFinish={(values) => {
-            if (values.tool_kind === 'client' && !artifactFile) {
-              message.error('客户端工具须上传可执行文件')
-              return
-            }
             createMutation.mutate({
               slug: values.slug,
               display_name: values.display_name,
@@ -169,8 +163,11 @@ export default function ToolHubPage() {
               link_url: values.link_url,
               version_label: values.version_label,
               manual_md: values.manual_md,
-              artifact: artifactFile,
+              artifact: extractUploadFile(values.artifact),
             })
+          }}
+          onFinishFailed={() => {
+            message.warning('请完善表单信息，客户端工具须选择上传文件')
           }}
         >
           <Form.Item
@@ -197,7 +194,11 @@ export default function ToolHubPage() {
             <Input placeholder="如 my_client_tool" />
           </Form.Item>
           <Form.Item name="tool_kind" label="工具类型" rules={[{ required: true }]}>
-            <Radio.Group>
+            <Radio.Group
+              onChange={() => {
+                createForm.setFieldsValue({ artifact: [] })
+              }}
+            >
               <Radio value="client">客户端工具（可下载 exe）</Radio>
               <Radio value="platform">平台集成工具</Radio>
             </Radio.Group>
@@ -223,16 +224,15 @@ export default function ToolHubPage() {
             <Input placeholder="1.0.0" />
           </Form.Item>
           {createKind === 'client' && (
-            <Form.Item label="工具文件" required>
-              <Upload
-                maxCount={1}
-                beforeUpload={(file) => {
-                  setArtifactFile(file)
-                  return false
-                }}
-                onRemove={() => setArtifactFile(null)}
-                accept=".exe,.zip,.msi"
-              >
+            <Form.Item
+              name="artifact"
+              label="工具文件"
+              required
+              rules={artifactRequiredRules}
+              extra="客户端工具必须上传 exe / zip / msi 文件"
+              {...artifactUploadFieldProps}
+            >
+              <Upload maxCount={1} beforeUpload={() => false} accept=".exe,.zip,.msi">
                 <Button icon={<CloudDownloadOutlined />}>选择 exe / zip / msi</Button>
               </Upload>
             </Form.Item>

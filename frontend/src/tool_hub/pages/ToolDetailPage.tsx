@@ -28,6 +28,7 @@ import {
   toolHubApi,
 } from '../../shared/api/tool-hub'
 import ToolMarkdownPanel from '../components/ToolMarkdownPanel'
+import { artifactRequiredRules, artifactUploadFieldProps, extractUploadFile } from '../utils/uploadForm'
 
 const { Title, Text } = Typography
 const { TextArea } = Input
@@ -40,7 +41,6 @@ export default function ToolDetailPage() {
   const [editOpen, setEditOpen] = useState(false)
   const [versionForm] = Form.useForm()
   const [editForm] = Form.useForm()
-  const [artifactFile, setArtifactFile] = useState<File | null>(null)
 
   const { data: tool, isLoading } = useQuery({
     queryKey: ['tool-hub', toolId],
@@ -49,16 +49,16 @@ export default function ToolDetailPage() {
   })
 
   const versionMutation = useMutation({
-    mutationFn: (values: { version_label: string; changelog_md: string }) =>
+    mutationFn: (values: { version_label: string; changelog_md: string; artifact?: { originFileObj?: File }[] }) =>
       toolHubApi.addVersion(toolId, {
-        ...values,
-        artifact: artifactFile,
+        version_label: values.version_label,
+        changelog_md: values.changelog_md,
+        artifact: extractUploadFile(values.artifact),
       }),
     onSuccess: () => {
       message.success('新版本已发布')
       setVersionOpen(false)
       versionForm.resetFields()
-      setArtifactFile(null)
       queryClient.invalidateQueries({ queryKey: ['tool-hub'] })
     },
     onError: (err: Error) => message.error(err.message || '发布失败'),
@@ -117,13 +117,14 @@ export default function ToolDetailPage() {
       style={{
         maxWidth: 960,
         margin: '0 auto',
-        height: '100%',
+        height: 'calc(100vh - 64px - 48px)',
         display: 'flex',
         flexDirection: 'column',
         minHeight: 0,
+        overflow: 'hidden',
       }}
     >
-      <Button type="link" onClick={() => navigate('/tool-hub')} style={{ paddingLeft: 0, alignSelf: 'flex-start' }}>
+      <Button type="link" onClick={() => navigate('/tool-hub')} style={{ paddingLeft: 0, alignSelf: 'flex-start', flexShrink: 0 }}>
         ← 返回工具集
       </Button>
 
@@ -131,7 +132,7 @@ export default function ToolDetailPage() {
         <Alert
           type="info"
           showIcon
-          style={{ marginBottom: 12 }}
+          style={{ marginBottom: 12, flexShrink: 0 }}
           message="录制完成后，将 output/run_* 目录打成 zip，在「AI 翻译」中上传生成用例。"
           action={
             <Button size="small" type="primary" onClick={() => navigate('/translate')}>
@@ -144,7 +145,7 @@ export default function ToolDetailPage() {
         <Alert
           type="info"
           showIcon
-          style={{ marginBottom: 12 }}
+          style={{ marginBottom: 12, flexShrink: 0 }}
           message="请先在工具集下载「功能录制」客户端，录制并打包 zip 后再回到本页上传。"
           action={
             <Button size="small" onClick={() => navigate('/tool-hub')}>
@@ -162,6 +163,7 @@ export default function ToolDetailPage() {
           marginBottom: 16,
           flexWrap: 'wrap',
           gap: 12,
+          flexShrink: 0,
         }}
       >
         <div>
@@ -225,7 +227,6 @@ export default function ToolDetailPage() {
         onCancel={() => {
           setVersionOpen(false)
           versionForm.resetFields()
-          setArtifactFile(null)
           versionMutation.reset()
         }}
         footer={null}
@@ -234,12 +235,12 @@ export default function ToolDetailPage() {
         <Form
           form={versionForm}
           layout="vertical"
-          onFinish={(values) => {
-            if (tool.tool_kind === 'client' && !artifactFile) {
-              message.error('客户端工具须上传新版本文件')
-              return
+          initialValues={{ artifact: [] }}
+          onFinish={(values) => versionMutation.mutate(values)}
+          onFinishFailed={() => {
+            if (tool.tool_kind === 'client') {
+              message.warning('请完善表单信息，客户端工具须选择新版本文件')
             }
-            versionMutation.mutate(values)
           }}
         >
           <Form.Item
@@ -253,16 +254,15 @@ export default function ToolDetailPage() {
             <Input placeholder="2.0.0" />
           </Form.Item>
           {tool.tool_kind === 'client' && (
-            <Form.Item label="新版本文件" required>
-              <Upload
-                maxCount={1}
-                beforeUpload={(file) => {
-                  setArtifactFile(file)
-                  return false
-                }}
-                onRemove={() => setArtifactFile(null)}
-                accept=".exe,.zip,.msi"
-              >
+            <Form.Item
+              name="artifact"
+              label="新版本文件"
+              required
+              rules={artifactRequiredRules}
+              extra="客户端工具发布新版本必须上传 exe / zip / msi 文件"
+              {...artifactUploadFieldProps}
+            >
+              <Upload maxCount={1} beforeUpload={() => false} accept=".exe,.zip,.msi">
                 <Button icon={<CloudDownloadOutlined />}>选择文件</Button>
               </Upload>
             </Form.Item>
