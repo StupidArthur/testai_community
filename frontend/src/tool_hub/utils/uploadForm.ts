@@ -1,7 +1,10 @@
 import type { UploadFile } from 'antd/es/upload/interface'
 
+/** Upload 表单项 fileList 类型（Form 字段 artifact） */
+export type ArtifactFileList = UploadFile[]
+
 /** 从 Ant Design Upload fileList 取出原始 File */
-export function extractUploadFile(fileList?: UploadFile[]): File | undefined {
+export function extractUploadFile(fileList?: ArtifactFileList): File | undefined {
   const item = fileList?.[0]
   return item?.originFileObj as File | undefined
 }

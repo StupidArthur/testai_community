@@ -28,10 +28,16 @@ import {
   toolHubApi,
 } from '../../shared/api/tool-hub'
 import ToolMarkdownPanel from '../components/ToolMarkdownPanel'
-import { artifactRequiredRules, artifactUploadFieldProps, extractUploadFile } from '../utils/uploadForm'
+import { artifactRequiredRules, artifactUploadFieldProps, extractUploadFile, type ArtifactFileList } from '../utils/uploadForm'
 
 const { Title, Text } = Typography
 const { TextArea } = Input
+
+interface VersionFormValues {
+  version_label: string
+  changelog_md: string
+  artifact?: ArtifactFileList
+}
 
 export default function ToolDetailPage() {
   const { toolId = '' } = useParams()
@@ -39,7 +45,7 @@ export default function ToolDetailPage() {
   const queryClient = useQueryClient()
   const [versionOpen, setVersionOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
-  const [versionForm] = Form.useForm()
+  const [versionForm] = Form.useForm<VersionFormValues>()
   const [editForm] = Form.useForm()
 
   const { data: tool, isLoading } = useQuery({
@@ -49,7 +55,7 @@ export default function ToolDetailPage() {
   })
 
   const versionMutation = useMutation({
-    mutationFn: (values: { version_label: string; changelog_md: string; artifact?: { originFileObj?: File }[] }) =>
+    mutationFn: (values: VersionFormValues) =>
       toolHubApi.addVersion(toolId, {
         version_label: values.version_label,
         changelog_md: values.changelog_md,
