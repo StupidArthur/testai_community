@@ -46,9 +46,11 @@ export const authApi = {
   login: (data: { username: string; password: string }) =>
     apiClient.post<{ access_token: string; user: User }>('/auth/login', data),
   currentUser: () => apiClient.get<User>('/auth/current-user'),
-  addUser: (data: { username: string; password?: string; role?: string }) =>
+  addUser: (data: { username: string; password?: string; role?: string; real_name?: string }) =>
     apiClient.post('/auth/add-user', data),
   userList: () => apiClient.get<User[]>('/auth/user-list'),
+  updateUser: (userId: number, data: { real_name: string }) =>
+    apiClient.patch<User>(`/auth/${userId}`, data),
   resetPassword: (userId: number, data: { new_password: string }) =>
     apiClient.post(`/auth/${userId}/reset-password`, data),
   changePassword: (data: { old_password: string; new_password: string }) =>

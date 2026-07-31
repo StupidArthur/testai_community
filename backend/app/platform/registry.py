@@ -41,6 +41,22 @@ from app.data_cleaning import bootstrap as data_cleaning_bootstrap
 from app.data_cleaning.models import AnchorNode, CleanJob, KnowledgeUnit, ParagraphUnit
 from app.data_cleaning.router import router as data_cleaning_router
 
+from app.test_manage import bootstrap as test_manage_bootstrap
+from app.test_manage.models import (
+    TmAction,
+    TmActionCorrection,
+    TmDailyUpdate,
+    TmDomain,
+    TmProject,
+    TmPushRun,
+    TmPushSnapshot,
+    TmTask,
+    TmTaskTester,
+    TmTaskUpdateLog,
+)
+from app.test_manage.router import router as test_manage_router
+from app.test_manage import push_scheduler as test_manage_push_scheduler
+
 from app.platform.app_module import AppModule
 
 
@@ -102,5 +118,24 @@ APPS: tuple[AppModule, ...] = (
         startup_sync=knowledge_base_bootstrap.ensure_knowledge_base_startup,
         startup_async=knowledge_base_bootstrap.on_startup,
         shutdown_async=knowledge_base_bootstrap.on_shutdown,
+    ),
+    AppModule(
+        name="test_manage",
+        router=test_manage_router,
+        models=(
+            TmProject,
+            TmDomain,
+            TmTask,
+            TmTaskTester,
+            TmTaskUpdateLog,
+            TmAction,
+            TmActionCorrection,
+            TmDailyUpdate,
+            TmPushSnapshot,
+            TmPushRun,
+        ),
+        startup_sync=test_manage_bootstrap.ensure_test_manage_startup,
+        startup_async=test_manage_push_scheduler.start_scheduler,
+        shutdown_async=test_manage_push_scheduler.stop_scheduler,
     ),
 )

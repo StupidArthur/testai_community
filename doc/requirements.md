@@ -74,13 +74,30 @@ TestAI Community 将原 **Skill Hub（技能管理）** 与 **Recorder Translate
 | CL-01 | 所有登录用户可查看 Changelog | P1 |
 | CL-02 | Admin 创建/编辑/删除 Changelog 条目 | P1 |
 
-### 3.5 日报管理（Daily Report）
+### 3.5 工作日报（Daily Report）— 入口暂停
 
 | ID | 需求 | 优先级 |
 |----|------|--------|
-| DR-01 | 顶栏「日报管理」入口，纯文本上传日报 | P1 |
-| DR-02 | Skill `Daily_Report_Structurer` 结构化并校验 | P1 |
+| DR-01 | 顶栏「工作日报」入口 | P1（**2026-07-22 起导航隐藏**；API/页面保留） |
+| DR-02 | Skill 结构化并校验 | P1 |
 | DR-03 | 结构化结果存 SQLite；工程师看自己、Admin 看全部 | P1 |
+
+> 进度填报改以「测试任务管理」日更为准；与日报打通后续再议。详见 [test_manage.md](./test_manage.md)、[test_manage_product_guide.md](./test_manage_product_guide.md)。
+
+### 3.5b 测试任务管理（Test Manage）
+
+| ID | 需求 | 优先级 |
+|----|------|--------|
+| TM-01 | Project → Domain → Task → Action（周三 18:00 周界；**切周日日更/日报仍属上一汇报周**）；大屏「已完成」**仅 Task.status=done/cancelled** | P0 ✅ |
+| TM-02 | Task 需求/负责人/人员；可更新+日志；Action 草稿可改（含负责人），**发布后字段全锁（本周负责人不可改派）**；Admin/Manager 或 Task lead **当前周内随时**可建 Action | P0 ✅ |
+| TM-03 | 日更仅 Action 负责人或 Admin/Manager；**说明去空白后非空（无最少字数）、进度不倒退、仅当天、19:50锁定**；切周日写上一汇报周；更正时间线；看板 Action 卡片风险≤3行 | P0 ✅ |
+| TM-06 | 企微群日报/周报：**日报每天发送**（短进展+风险，无风险也发）；Admin/Manager 可手动；定时默认 **20:00**/周三 17:30；日更截止 **19:50**；**推荐 Windows 计划任务**（`WECOM_PUSH_ENABLED=false` 防重复） | P1 ✅ |
+| TM-04 | 测试管理员 Manager（manager/123456） | P0 ✅ |
+| TM-05 | Action 负责人仅可选 Task lead+测试人员；测试内容≤1000；**环境≤300**；需求≤5000 | P0 ✅ |
+| TM-07 | Action 状态机：draft→published；published→done；**done 终态不可重开**；**不支持取消**；完成不可日更；**标记完成须最新日更进度=100%** | P0 ✅ |
+
+产品使用（谁填什么、日更/周报）：[test_manage_product_guide.md](./test_manage_product_guide.md)  
+技术说明：[test_manage.md](./test_manage.md)。
 
 ### 3.6 工具集（Tool Hub）
 
@@ -123,9 +140,9 @@ TestAI Community 将原 **Skill Hub（技能管理）** 与 **Recorder Translate
 
 | ID | 需求 | 优先级 |
 |----|------|--------|
-| NAV-01 | 首页双卡片导航（Skill 管理 / 工具集） | P0 |
+| NAV-01 | 首页以「项目管理」为大篇幅主入口；Skill / 工具集 / 知识库为次要入口 | P0 |
 | NAV-02 | 统一顶栏：模块切换、改密、退出、主题切换 | P1 |
-| NAV-03 | 顶栏「数据清洗」「知识库」入口（数据清洗在知识库之前） | P1 |
+| NAV-03 | 顶栏「项目管理」置于第一位；另有「知识库」等入口 | P0 |
 
 ---
 

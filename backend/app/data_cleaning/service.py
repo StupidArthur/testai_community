@@ -112,16 +112,29 @@ async def create_clean_job(
     dest = raw_dir / filename
 
     written = 0
-    with dest.open("wb") as fh:
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            written += len(chunk)
-            if written > MAX_UPLOAD_BYTES:
-                dest.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail="文件超过大小限制")
-            fh.write(chunk)
+    oversized = False
+    try:
+        with dest.open("wb") as fh:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > MAX_UPLOAD_BYTES:
+                    oversized = True
+                    break
+                fh.write(chunk)
+    finally:
+        if oversized:
+            # Windows：必须先关闭文件句柄再 unlink，否则会 PermissionError
+            dest.unlink(missing_ok=True)
+
+    if oversized:
+        limit_mb = MAX_UPLOAD_BYTES // (1024 * 1024)
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件超过大小限制（上限 {limit_mb}MB，当前约 {written // (1024 * 1024)}MB）",
+        )
 
     job = CleanJob(
         id=job_id,

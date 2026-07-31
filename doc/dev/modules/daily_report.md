@@ -417,5 +417,3 @@ cd frontend && npm run dev
 | Skill 未创建 | 无 Admin 时 bootstrap 跳过 | 确保库中有 Admin 后重启 |
 
 ---
-
-*designed by @yuzechao*

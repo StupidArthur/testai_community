@@ -1,0 +1,105 @@
+/* 知识库 Hub：标题 + Tab 固定，仅 Tab 内容区滚动 */
+
+.knowledge-hub-page {
+  height: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.knowledge-hub-page__header {
+  flex-shrink: 0;
+  margin-bottom: 16px;
+}
+
+.knowledge-hub-page__footer {
+  flex-shrink: 0;
+  text-align: right;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.knowledge-hub-page__tabs {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.knowledge-hub-page__tabs.ant-tabs {
+  display: flex;
+  flex-direction: column;
+}
+
+.knowledge-hub-page__tabs > .ant-tabs-nav {
+  flex-shrink: 0;
+  margin-bottom: 0;
+}
+
+.knowledge-hub-page__tabs > .ant-tabs-content-holder {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.knowledge-hub-page__tabs .ant-tabs-content {
+  height: 100%;
+}
+
+.knowledge-hub-page__tabs .ant-tabs-tabpane {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 问答 Tab：消息区滚动，输入框贴底 */
+.knowledge-hub-chat {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: 16px;
+  box-sizing: border-box;
+}
+
+.knowledge-hub-chat__alert {
+  flex-shrink: 0;
+  margin-bottom: 12px;
+}
+
+.knowledge-hub-chat__card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.knowledge-hub-chat__card .ant-card-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.knowledge-hub-chat__messages {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin-bottom: 16px;
+  padding-right: 8px;
+}
+
+.knowledge-hub-chat__input {
+  flex-shrink: 0;
+}
+
+/* 清洗 Tab：列表区域滚动 */
+.knowledge-hub-clean {
+  height: 100%;
+  overflow: auto;
+  padding-top: 16px;
+  box-sizing: border-box;
+}

@@ -26,12 +26,14 @@ export default function AdminPage() {
   const currentUser = useCurrentUser() ?? ({} as User)
   const [registerModalOpen, setRegisterModalOpen] = useState(false)
   const [resetModalOpen, setResetModalOpen] = useState(false)
+  const [editNameModalOpen, setEditNameModalOpen] = useState(false)
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
   const [deleteJobModalOpen, setDeleteJobModalOpen] = useState(false)
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
   const [selectedJob, setSelectedJob] = useState<JobView | null>(null)
   const [registerForm] = Form.useForm()
   const [resetForm] = Form.useForm()
+  const [editNameForm] = Form.useForm()
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
@@ -39,7 +41,7 @@ export default function AdminPage() {
   })
 
   const registerMutation = useMutation({
-    mutationFn: (data: { username: string; password?: string; role?: string }) =>
+    mutationFn: (data: { username: string; password?: string; role?: string; real_name?: string }) =>
       authApi.addUser(data),
     onSuccess: (_, values) => {
       message.success(`用户 ${values.username} 添加成功`)
@@ -49,6 +51,21 @@ export default function AdminPage() {
     },
     onError: (err: any) => {
       message.error(err.response?.data?.detail || '注册失败')
+    },
+  })
+
+  const updateNameMutation = useMutation({
+    mutationFn: ({ userId, realName }: { userId: number; realName: string }) =>
+      authApi.updateUser(userId, { real_name: realName }),
+    onSuccess: () => {
+      message.success('真实姓名已更新')
+      setEditNameModalOpen(false)
+      editNameForm.resetFields()
+      setSelectedUser(null)
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+    },
+    onError: (err: any) => {
+      message.error(err.response?.data?.detail || '更新失败')
     },
   })
 
@@ -109,17 +126,36 @@ export default function AdminPage() {
       key: 'username',
     },
     {
+      title: '真实姓名',
+      dataIndex: 'real_name',
+      key: 'real_name',
+      render: (v: string) => v?.trim() || <Text type="secondary">未填写</Text>,
+    },
+    {
       title: '角色',
       dataIndex: 'role',
       key: 'role',
-      render: (role: string) => <Tag color={role === 'Admin' ? 'gold' : 'green'}>{role}</Tag>,
+      render: (role: string) => (
+        <Tag color={role === 'Admin' ? 'gold' : role === 'Manager' ? 'blue' : 'green'}>{role}</Tag>
+      ),
     },
     {
       title: '操作',
       key: 'actions',
-      width: 180,
+      width: 260,
       render: (_: any, record: User) => (
-        <div style={{ display: 'flex', gap: 4 }}>
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          <Button
+            type="link"
+            onClick={() => {
+              setSelectedUser(record)
+              editNameForm.setFieldsValue({ real_name: record.real_name || '' })
+              setEditNameModalOpen(true)
+            }}
+            style={{ color: 'var(--color-primary)' }}
+          >
+            改姓名
+          </Button>
           <Button
             type="link"
             icon={<KeyOutlined />}
@@ -170,6 +206,7 @@ export default function AdminPage() {
           type="primary"
           icon={<UserAddOutlined />}
           onClick={() => setRegisterModalOpen(true)}
+          data-testid="admin-btn-add-user"
         >
           添加用户
         </Button>
@@ -270,11 +307,23 @@ export default function AdminPage() {
             label="用户名"
             rules={[{ required: true, message: '请输入用户名' }]}
           >
-            <Input placeholder="请输入用户名" size="large" />
+            <Input
+              placeholder="请输入用户名（登录用）"
+              size="large"
+              data-testid="admin-input-username"
+            />
+          </Form.Item>
+          <Form.Item name="real_name" label="真实姓名">
+            <Input
+              placeholder="如：黄婧"
+              size="large"
+              data-testid="admin-input-realname"
+            />
           </Form.Item>
           <Form.Item name="role" label="角色" initialValue="Engineer">
-            <Select size="large">
+            <Select size="large" data-testid="admin-select-role">
               <Select.Option value="Engineer">Engineer</Select.Option>
+              <Select.Option value="Manager">Manager（测试管理员）</Select.Option>
               <Select.Option value="Admin">Admin</Select.Option>
             </Select>
           </Form.Item>
@@ -285,8 +334,49 @@ export default function AdminPage() {
               block
               size="large"
               loading={registerMutation.isPending}
+              data-testid="admin-submit-user"
             >
               添加
+            </Button>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={`修改真实姓名 - ${selectedUser?.username || ''}`}
+        open={editNameModalOpen}
+        onCancel={() => {
+          setEditNameModalOpen(false)
+          editNameForm.resetFields()
+          setSelectedUser(null)
+        }}
+        footer={null}
+        destroyOnClose
+      >
+        <Form
+          form={editNameForm}
+          layout="vertical"
+          onFinish={(values) => {
+            if (selectedUser) {
+              updateNameMutation.mutate({
+                userId: selectedUser.id,
+                realName: values.real_name || '',
+              })
+            }
+          }}
+        >
+          <Form.Item name="real_name" label="真实姓名" rules={[{ required: true, message: '请输入真实姓名' }]}>
+            <Input placeholder="如：黄婧" size="large" />
+          </Form.Item>
+          <Form.Item>
+            <Button
+              type="primary"
+              htmlType="submit"
+              block
+              size="large"
+              loading={updateNameMutation.isPending}
+            >
+              保存
             </Button>
           </Form.Item>
         </Form>

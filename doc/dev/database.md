@@ -262,5 +262,3 @@ translate **不**写 skill / platform.changelog 表；skill_hub **不**写 trans
 `platform.factory` lifespan 内执行 `Base.metadata.create_all()`；translate 另对 `translate_jobs` 做 `name`/`username` 列增量补丁（`translate/bootstrap.py`）；knowledge_base 在 `knowledge_base/bootstrap.py` 中确保三张表存在并执行 schema 补丁（如 `knowledge_documents.user_id`）。
 
 ---
-
-*designed by @yuzechao*

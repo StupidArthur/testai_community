@@ -251,10 +251,6 @@ export default function ToolHubPage() {
           </Form.Item>
         </Form>
       </Modal>
-
-      <Text type="secondary" style={{ marginTop: 24, textAlign: 'center', fontSize: 12 }}>
-        designed by @yuzechao
-      </Text>
     </div>
   )
 }

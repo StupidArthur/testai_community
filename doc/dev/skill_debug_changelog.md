@@ -43,5 +43,3 @@
 - 需配置 `MINIMAX_API_KEY`
 - LLM 调用约 5–30 秒，前端超时 120s
 - master 无版本时自动回退 standard（与 external API 一致）
-
-*designed by @yuzechao*

@@ -22,6 +22,11 @@ os.environ["TOOL_HUB_ARTIFACT_DIR"] = str((TEST_DATA_DIR / "tool_artifacts").res
 os.environ["KNOWLEDGE_BASE_DATA_DIR"] = str((TEST_DATA_DIR / "knowledge_base").resolve())
 os.environ["KNOWLEDGE_BASE_CHROMA_DIR"] = str((TEST_DATA_DIR / "knowledge_base" / "chroma").resolve())
 os.environ.setdefault("ENV", "dev")
+# 测试禁用企微定时推送，避免后台轮询干扰
+os.environ["WECOM_PUSH_ENABLED"] = "false"
+os.environ["WECOM_WEBHOOK_URL"] = ""
+# 测试默认关闭日更 19:50 锁定（专项用例可 monkeypatch 再打开）
+os.environ["TM_DAILY_EDIT_LOCK_DISABLED"] = "1"
 
 sys.path.insert(0, str(BACKEND_DIR))
 

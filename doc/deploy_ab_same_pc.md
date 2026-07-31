@@ -181,5 +181,3 @@ pytest 自动使用：
 - [.env.example](../.env.example)
 
 ---
-
-*designed by @yuzechao*

@@ -323,10 +323,6 @@ export default function SkillDebugPage() {
           </div>
         </div>
       )}
-
-      <Text type="secondary" style={{ textAlign: 'right', fontSize: 11, marginTop: 8 }}>
-        designed by @yuzechao
-      </Text>
     </div>
   )
 }

@@ -3,7 +3,8 @@
 export interface User {
   id: number
   username: string
-  role: 'Admin' | 'Engineer'
+  real_name?: string
+  role: 'Admin' | 'Engineer' | 'Manager'
 }
 
 export interface LoginRequest {
@@ -21,6 +22,7 @@ export interface RegisterRequest {
   username: string
   password: string
   role?: string
+  real_name?: string
 }
 
 export interface SkillCategory {

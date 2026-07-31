@@ -450,5 +450,3 @@ python -m pytest tests/test_report.py -v
 - [new_app.skill.md](./new_app.skill.md) — 本手册的 LangGPT 九维 Skill 版（可导入 Skill Hub）
 
 ---
-
-*designed by @yuzechao*

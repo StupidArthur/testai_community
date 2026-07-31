@@ -51,12 +51,22 @@ export default function Login() {
           <Text type="secondary">TestAI Community 智能平台</Text>
         </div>
 
-        <Form onFinish={onFinish} layout="vertical">
+        <Form onFinish={onFinish} layout="vertical" data-testid="login-form">
           <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>
-            <Input prefix={<UserOutlined />} placeholder="用户名" size="large" />
+            <Input
+              prefix={<UserOutlined />}
+              placeholder="用户名"
+              size="large"
+              data-testid="login-username"
+            />
           </Form.Item>
           <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]}>
-            <Input.Password prefix={<LockOutlined />} placeholder="密码" size="large" />
+            <Input.Password
+              prefix={<LockOutlined />}
+              placeholder="密码"
+              size="large"
+              data-testid="login-password"
+            />
           </Form.Item>
           <Form.Item>
             <Button
@@ -65,6 +75,7 @@ export default function Login() {
               block
               size="large"
               loading={loading}
+              data-testid="login-submit"
             >
               登录
             </Button>

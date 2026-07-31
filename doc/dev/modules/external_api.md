@@ -137,5 +137,3 @@ X-API-Key: <service account token>
 详见 [database.md](../database.md)。
 
 ---
-
-*designed by @yuzechao*

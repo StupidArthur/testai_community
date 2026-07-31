@@ -666,13 +666,6 @@ export default function DailyReportPage() {
           </Space>
         ) : null}
       </Modal>
-
-      <Text
-        type="secondary"
-        style={{ position: 'absolute', right: 0, bottom: -28, fontSize: 11 }}
-      >
-        designed by @yuzechao
-      </Text>
     </div>
   )
 }

@@ -18,20 +18,20 @@
     "changed": {},
     "added": {},
     "removed": {
-      "//*[@id='password']": {
-        "value": ""
-      },
       "//*[@id='username']": {
         "value": "testuser"
       },
       "//*[@id='agree']": {
         "value": "on",
         "checked": false
+      },
+      "//*[@id='password']": {
+        "value": ""
       }
     },
     "hasChanges": true
   },
-  "form_state_change_text": "[消失] //*[@id='password']: \"{'value': ''}\"\n[消失] //*[@id='username']: \"{'value': 'testuser'}\"\n[消失] //*[@id='agree']: \"{'value': 'on', 'checked': False}\"",
+  "form_state_change_text": "[消失] //*[@id='username']: \"{'value': 'testuser'}\"\n[消失] //*[@id='agree']: \"{'value': 'on', 'checked': False}\"\n[消失] //*[@id='password']: \"{'value': ''}\"",
   "classification": {
     "category": "toggle",
     "element_type": "checkbox",

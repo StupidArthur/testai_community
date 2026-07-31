@@ -173,5 +173,3 @@ platform 提供 `Base` 与连接；**仅 `changelog/` 拥有业务表**：
 全库 ER 与其它表见 [database.md](../database.md)。
 
 ---
-
-*designed by @yuzechao*

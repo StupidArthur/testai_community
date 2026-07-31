@@ -31,14 +31,6 @@
   "context_excerpt": "- WebArea \"Demo App\"\n  - text \"Demo App\"\n  - text \"欢迎登录\"\n  - textbox \"请输入用户名\" [required, value=\"testuser\"]  ← [操作目标]\n  - textbox \"请输入密码\" [required, value=\"••••••\"]\n  - checkbox \"同意协议\" [checked]\n  - text \"同意用户协议\"\n  - button \"登录\"\n",
   "form_state_changes": {
     "changed": {
-      "//*[@id='password']": {
-        "from": {
-          "value": ""
-        },
-        "to": {
-          "value": "testpass"
-        }
-      },
       "//*[@id='agree']": {
         "from": {
           "value": "on",
@@ -48,13 +40,21 @@
           "value": "on",
           "checked": true
         }
+      },
+      "//*[@id='password']": {
+        "from": {
+          "value": ""
+        },
+        "to": {
+          "value": "testpass"
+        }
       }
     },
     "added": {},
     "removed": {},
     "hasChanges": true
   },
-  "form_state_change_text": "[变化] //*[@id='password']: \"{'value': ''}\" → \"{'value': 'testpass'}\"\n[变化] //*[@id='agree']: \"{'value': 'on', 'checked': False}\" → \"{'value': 'on', 'checked': True}\"",
+  "form_state_change_text": "[变化] //*[@id='agree']: \"{'value': 'on', 'checked': False}\" → \"{'value': 'on', 'checked': True}\"\n[变化] //*[@id='password']: \"{'value': ''}\" → \"{'value': 'testpass'}\"",
   "classification": {
     "category": "form-input",
     "element_type": "input",

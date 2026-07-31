@@ -135,5 +135,3 @@ flowchart TB
 - [如何接入新模块](../how_to_add_new_app.md)
 
 ---
-
-*designed by @yuzechao*

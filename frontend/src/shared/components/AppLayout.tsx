@@ -11,9 +11,9 @@ import {
   LockOutlined,
   UserOutlined,
   HistoryOutlined,
-  FileTextOutlined,
   ToolOutlined,
   BookOutlined,
+  ProjectOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useLocation, Outlet } from 'react-router-dom'
 import { useThemeStore } from '../hooks/useTheme'
@@ -47,9 +47,27 @@ const navBtnActiveStyle: React.CSSProperties = {
   background: 'color-mix(in srgb, var(--color-primary) 10%, transparent)',
 }
 
-function NavButton({ icon, label, active, onClick }: { icon: ReactNode; label: string; active: boolean; onClick: () => void }) {
+function NavButton({
+  icon,
+  label,
+  active,
+  onClick,
+  'data-testid': testId,
+}: {
+  icon: ReactNode
+  label: string
+  active: boolean
+  onClick: () => void
+  'data-testid'?: string
+}) {
   return (
-    <button className="nav-btn" style={active ? navBtnActiveStyle : navBtnStyle} onClick={onClick} type="button">
+    <button
+      className="nav-btn"
+      style={active ? navBtnActiveStyle : navBtnStyle}
+      onClick={onClick}
+      type="button"
+      data-testid={testId}
+    >
       {icon}
       {label}
     </button>
@@ -135,6 +153,13 @@ export default function AppLayout() {
             TestAI Community
           </Text>
           <NavButton
+            icon={<ProjectOutlined />}
+            label="项目管理"
+            active={isActive('/projects')}
+            onClick={() => navigate('/projects')}
+            data-testid="nav-projects"
+          />
+          <NavButton
             icon={<AppstoreOutlined />}
             label="Skill 管理"
             active={isActive('/skills')}
@@ -152,12 +177,7 @@ export default function AppLayout() {
             active={location.pathname.startsWith('/knowledge-base')}
             onClick={() => navigate('/knowledge-base')}
           />
-          <NavButton
-            icon={<FileTextOutlined />}
-            label="工作日报"
-            active={isActive('/daily-reports')}
-            onClick={() => navigate('/daily-reports')}
-          />
+          {/* 工作日报入口暂时关闭：进度填报以测试任务管理为准，后续再议合并 */}
           <NavButton
             icon={<HistoryOutlined />}
             label="更新日志"
@@ -170,6 +190,7 @@ export default function AppLayout() {
               label="用户管理"
               active={isActive('/admin')}
               onClick={() => navigate('/admin')}
+              data-testid="nav-admin"
             />
           )}
         </div>
@@ -196,7 +217,7 @@ export default function AppLayout() {
                 {
                   key: 'logout',
                   icon: <LogoutOutlined />,
-                  label: '注销',
+                  label: <span data-testid="logout">注销</span>,
                   onClick: handleLogout,
                 },
               ],

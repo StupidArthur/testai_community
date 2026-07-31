@@ -159,5 +159,3 @@ python -m app.ai_service.news
 | Memory | `memory.py` |
 
 ---
-
-*designed by @yuzechao*

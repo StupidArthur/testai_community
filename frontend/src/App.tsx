@@ -1,4 +1,4 @@
-import { ConfigProvider, theme } from 'antd'
+import { App as AntdApp, ConfigProvider, theme } from 'antd'
 import { RouterProvider } from 'react-router-dom'
 import { router } from './router'
 import { useThemeStore } from './shared/hooks/useTheme'
@@ -15,7 +15,13 @@ export default function App() {
         token: mode === 'dark' ? antdThemeDark : antdTheme,
       }}
     >
-      <RouterProvider router={router} />
+      {/* message/notification 挂到 body，避免被 Drawer/Modal 遮住 */}
+      <AntdApp
+        message={{ getContainer: () => document.body }}
+        notification={{ getContainer: () => document.body }}
+      >
+        <RouterProvider router={router} />
+      </AntdApp>
     </ConfigProvider>
   )
 }

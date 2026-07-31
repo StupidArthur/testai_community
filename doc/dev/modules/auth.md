@@ -180,5 +180,3 @@ external_api **不**走 JWT，使用 `X-API-Key`（见 [external_api.md](./exter
 - 若前端从不使用该 token，可改为只返回 `UserOut`；**暂不改**，避免破坏 `authApi.addUser` 契约。
 
 ---
-
-*designed by @yuzechao*

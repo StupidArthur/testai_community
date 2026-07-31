@@ -30,6 +30,7 @@ import {
   type ChatMessage,
   type KnowledgeDocument,
 } from '../../shared/api/knowledge-base'
+import { mergeCitationsByFilename } from '../utils/mergeCitations'
 
 const { Title, Text, Paragraph } = Typography
 
@@ -331,10 +332,9 @@ export default function KnowledgeBaseDetailPage() {
                           <Text type="secondary" style={{ fontSize: 12 }}>
                             参考来源：
                           </Text>
-                          {msg.citations.map((c, i) => (
-                            <Tag key={i} style={{ marginTop: 4 }}>
-                              {c.filename || '文档'}
-                              {c.page && c.page > 0 ? ` p${c.page}` : ''}
+                          {mergeCitationsByFilename(msg.citations).map((c) => (
+                            <Tag key={c.key} style={{ marginTop: 4 }}>
+                              {c.label}
                             </Tag>
                           ))}
                         </div>
@@ -373,10 +373,6 @@ export default function KnowledgeBaseDetailPage() {
           </Card>
         </Col>
       </Row>
-
-      <Text type="secondary" style={{ display: 'block', textAlign: 'right', marginTop: 8, fontSize: 12 }}>
-        designed by @yuzechao
-      </Text>
     </div>
   )
 }

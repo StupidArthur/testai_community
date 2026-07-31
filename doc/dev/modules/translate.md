@@ -176,5 +176,3 @@ stateDiagram-v2
 详见 [database.md](../database.md)。
 
 ---
-
-*designed by @yuzechao*

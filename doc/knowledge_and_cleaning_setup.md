@@ -266,5 +266,3 @@ RAG 问答
 - [deploy_ab_same_pc.md](./deploy_ab_same_pc.md) — 同机 A/B 部署  
 
 ---
-
-designed by @yuzechao

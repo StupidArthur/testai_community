@@ -200,5 +200,3 @@ flowchart TB
 - [architecture_guide.md](../architecture_guide.md) — 单 App 约束  
 
 ---
-
-*designed by @yuzechao*

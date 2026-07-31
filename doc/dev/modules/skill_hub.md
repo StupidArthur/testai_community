@@ -203,5 +203,3 @@ flowchart LR
 业务模块存 `skill_ref_json`，任务启动时固化 `resolved_version_id`。详见 [skill_ref_design.md](../skill_ref_design.md)。
 
 ---
-
-*designed by @yuzechao*

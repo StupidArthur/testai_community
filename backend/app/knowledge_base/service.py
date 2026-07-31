@@ -262,19 +262,27 @@ async def upload_document(
     dest = raw_dir / f"{doc_id}_{filename}"
 
     written = 0
-    with dest.open("wb") as fh:
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            written += len(chunk)
-            if written > MAX_UPLOAD_BYTES:
-                dest.unlink(missing_ok=True)
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"单文件超过 {MAX_UPLOAD_BYTES // (1024 * 1024)}MB 限制",
-                )
-            fh.write(chunk)
+    oversized = False
+    try:
+        with dest.open("wb") as fh:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > MAX_UPLOAD_BYTES:
+                    oversized = True
+                    break
+                fh.write(chunk)
+    finally:
+        if oversized:
+            dest.unlink(missing_ok=True)
+
+    if oversized:
+        raise HTTPException(
+            status_code=413,
+            detail=f"单文件超过 {MAX_UPLOAD_BYTES // (1024 * 1024)}MB 限制（当前约 {written // (1024 * 1024)}MB）",
+        )
 
     current_total = _kb_storage_bytes(db, kb_id)
     if current_total + written > MAX_TOTAL_BYTES:
@@ -336,6 +344,16 @@ async def chat_with_knowledge_base(db: Session, user: User, kb_id: str, question
             detail="知识库尚无可检索内容：请在知识库直接上传文档并等待「可用」，或完成数据清洗后「批准入库」",
         )
 
+    # 多轮：在写入本轮 user 消息前读取最近历史，供检索与生成使用
+    history_rows = (
+        db.query(KnowledgeChatMessage)
+        .filter(KnowledgeChatMessage.kb_id == kb_id, KnowledgeChatMessage.user_id == user.id)
+        .order_by(KnowledgeChatMessage.created_at.desc())
+        .limit(4)
+        .all()
+    )
+    chat_history = [{"role": m.role, "content": m.content} for m in reversed(history_rows)]
+
     user_msg = KnowledgeChatMessage(
         id=uuid.uuid4().hex,
         kb_id=kb.id,
@@ -346,7 +364,7 @@ async def chat_with_knowledge_base(db: Session, user: User, kb_id: str, question
     )
     db.add(user_msg)
 
-    result = await answer_with_rag(kb.id, question.strip())
+    result = await answer_with_rag(kb.id, question.strip(), history=chat_history)
     citations = result.get("citations") or []
     assistant_msg = KnowledgeChatMessage(
         id=uuid.uuid4().hex,

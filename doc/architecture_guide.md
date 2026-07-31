@@ -210,7 +210,7 @@ frontend/src/
 | 服务端状态 | TanStack Query（`queryKey` 按模块+资源划分） |
 | 客户端状态 | 仅 truly local 的用 useState；跨页面主题用 Zustand |
 | 主题 | 使用 `var(--color-*)` 变量，不硬编码颜色 |
-| 网站署名 | 首页底部加 `designed by @yuzechao`（用户规范） |
+| 网站署名 | （已取消强制署名） |
 
 ---
 
@@ -351,5 +351,3 @@ App 之间**不走 HTTP**，通过 **Python import** 协作；允许 import 的�
 - [如何接入新模块](./how_to_add_new_app.md) — step-by-step 操作手册
 
 ---
-
-*designed by @yuzechao*

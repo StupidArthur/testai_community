@@ -150,76 +150,70 @@ function Install-ChromeWin64 {
     if (-not (Test-Path $chromeExe)) {
         Write-Host "chrome.exe missing after extract" -ForegroundColor Red
         exit 1
-    }function Write-LauncherScript {
-    $lines = @(
-        '@echo off'
-        'setlocal EnableExtensions'
-        'title Feature Recorder Dashboard'
-        'chcp 65001 >nul 2>&1'
-        'set "ROOT=%~dp0"'
-        'set "LOG=%ROOT%startup.log"'
-        'cd /d "%ROOT%" || goto :fail_cd'
-        'set "NODE_EXE=%ROOT%node\node.exe"'
-        'set "APP_BUNDLE=%ROOT%app\app.bundle.cjs"'
-        'if not exist "%NODE_EXE%" goto :fail_node'
-        'if not exist "%APP_BUNDLE%" goto :fail_bundle'
-        'netstat -ano | findstr ":3000 " | findstr "LISTENING" >nul 2>&1'
-        'if %errorlevel%==0 goto :fail_port'
-        'set "APP_MODE=dashboard"'
-        'set "PATH=%ROOT%node;%PATH%"'
-        'echo.'
-        'echo ========================================'
-        'echo   功能录制 Dashboard 正在启动...'
-        'echo   启动后浏览器打开: http://localhost:3000'
-        'echo   请勿关闭本黑色窗口！'
-        'echo ========================================'
-        'echo.'
-        'echo [%date% %time%] start >> "%LOG%"'
-        '"%NODE_EXE%" "%APP_BUNDLE%" 2>> "%LOG%"'
-        'if errorlevel 1 goto :fail_run'
-        'goto :eof'
-        ':fail_cd'
-        'echo [错误] 无法进入目录: %ROOT%'
-        'pause'
-        'exit /b 1'
-        ':fail_node'
-        'echo.'
-        'echo [错误] 未找到 node.exe，说明 zip 未完整解压。'
-        'echo 请右键 zip - 全部解压缩 - 解压到如 C:\feature-recorder'
-        'echo 不要只复制 feature-recorder.cmd 这一个文件。'
-        'echo 期望路径: %NODE_EXE%'
-        'echo.'
-        'pause'
-        'exit /b 1'
-        ':fail_bundle'
-        'echo [错误] 未找到 app\app.bundle.cjs，请重新完整解压 zip。'
-        'pause'
-        'exit /b 1'
-        ':fail_port'
-        'echo.'
-        'echo [错误] 端口 3000 已被占用。'
-        'echo 请先关闭之前打开的功能录制黑窗口，或任务管理器结束 node.exe。'
-        'echo.'
-        'pause'
-        'exit /b 1'
-        ':fail_run'
-        'echo [%date% %time%] failed >> "%LOG%"'
-        'echo.'
-        'echo [错误] 程序启动失败'
-        'echo 详细日志: %LOG%'
-        'echo 常见原因: 未完整解压 / 杀毒软件拦截 node.exe / 路径含特殊字符'
-        'echo.'
-        'type "%LOG%"'
-        'echo.'
-        'pause'
-        'exit /b 1'
-
+    }
     Write-Host "  chrome-win64: $(Join-Path $DestRoot 'chrome-win64')" -ForegroundColor Green
     return $true
 }
 
-    )
-    $content = $lines -join "`r`n"
+function Write-LauncherScript {
+    $content = @'
+@echo off
+setlocal EnableExtensions
+title Feature Recorder Dashboard
+chcp 65001 >nul 2>&1
+set "ROOT=%~dp0"
+set "LOG=%ROOT%startup.log"
+cd /d "%ROOT%" || goto :fail_cd
+set "NODE_EXE=%ROOT%node\node.exe"
+set "APP_BUNDLE=%ROOT%app\app.bundle.cjs"
+if not exist "%NODE_EXE%" goto :fail_node
+if not exist "%APP_BUNDLE%" goto :fail_bundle
+netstat -ano | findstr ":3000 " | findstr "LISTENING" >nul 2>&1
+if %errorlevel%==0 goto :fail_port
+set "APP_MODE=dashboard"
+set "PATH=%ROOT%node;%PATH%"
+echo.
+echo ========================================
+echo   Feature Recorder Dashboard starting...
+echo   Browser: http://localhost:3000
+echo   Keep this window open.
+echo ========================================
+echo.
+echo [%date% %time%] start >> "%LOG%"
+"%NODE_EXE%" "%APP_BUNDLE%" 2>> "%LOG%"
+if errorlevel 1 goto :fail_run
+goto :eof
+:fail_cd
+echo [ERROR] Cannot cd to %ROOT%
+pause
+exit /b 1
+:fail_node
+echo.
+echo [ERROR] node.exe not found. Extract the full zip first.
+echo Right-click zip - Extract All - e.g. C:\feature-recorder
+echo Expected: %NODE_EXE%
+echo.
+pause
+exit /b 1
+:fail_bundle
+echo [ERROR] app\app.bundle.cjs not found. Re-extract the full zip.
+pause
+exit /b 1
+:fail_port
+echo.
+echo [ERROR] Port 3000 is in use. Close the previous recorder window.
+echo.
+pause
+exit /b 1
+:fail_run
+echo [%date% %time%] failed >> "%LOG%"
+echo.
+echo [ERROR] Startup failed. See log: %LOG%
+type "%LOG%"
+echo.
+pause
+exit /b 1
+'@
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($LauncherCmd, $content, $utf8NoBom)
     Write-Host "  launcher: $LauncherCmd" -ForegroundColor Green

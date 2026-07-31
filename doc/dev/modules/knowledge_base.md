@@ -129,10 +129,13 @@ sequenceDiagram
 
   U->>S: POST /chat { question }
   S->>S: 校验 ready 文档数 > 0
+  S->>S: 读取最近 4 条对话历史
   S->>S: 写入 user message
-  R->>E: embed_text(question)
+  R->>R: 扩展检索 query（追问拼接历史；来源追问强调文档出处）
+  R->>E: embed_text(expanded_query)
   R->>C: query_kb(top_k=KB_RAG_TOP_K)
-  R->>M: chat(system=RAG_SYSTEM_PROMPT, context+hits)
+  R->>R: 按 http_api / frontend_page 重排 chunk
+  R->>M: chat(system + history + context + question)
   S->>S: 写入 assistant message + citations_json
   S->>U: ChatResponse
 ```
@@ -288,5 +291,3 @@ knowledge_base **不得**直接调用 Ollama / MiniMax Provider，统一经 ai_s
 - [requirements.md](../../requirements.md) §3.8
 
 ---
-
-*designed by @yuzechao*

@@ -56,5 +56,3 @@ npm run dashboard
 - 翻译引导用户使用平台 `/translate`
 
 ---
-
-*designed by @yuzechao*

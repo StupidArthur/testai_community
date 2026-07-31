@@ -15,6 +15,7 @@ from app.auth.models import User, UserRole
 from app.platform.config import TOOL_HUB_ARTIFACT_DIR
 
 from . import ALLOWED_CLIENT_EXTENSIONS, DEFAULT_TOOL_TYPE, MAX_ARTIFACT_BYTES
+from .bootstrap import RECORDER_BUILD_HINT, sync_feature_recorder_artifact
 from .models import Tool, ToolVersion
 from .schemas import (
     ToolCardOut,
@@ -352,10 +353,21 @@ def resolve_artifact_path(db: Session, user: User, tool_id: str) -> tuple[Path, 
 
     latest = _latest_version_row(tool)
     if not latest or not latest.artifact_stored_name:
-        raise HTTPException(status_code=404, detail="暂无可下载文件")
+        if tool.slug == "feature_recorder" and sync_feature_recorder_artifact(db, tool):
+            db.commit()
+            db.refresh(tool)
+            latest = _latest_version_row(tool)
+        if not latest or not latest.artifact_stored_name:
+            detail = RECORDER_BUILD_HINT if tool.slug == "feature_recorder" else "暂无可下载文件"
+            raise HTTPException(status_code=404, detail=detail)
 
     path = TOOL_HUB_ARTIFACT_DIR / latest.artifact_stored_name
     if not path.is_file():
-        raise HTTPException(status_code=404, detail="文件不存在")
+        if tool.slug == "feature_recorder" and sync_feature_recorder_artifact(db, tool):
+            db.commit()
+            path = TOOL_HUB_ARTIFACT_DIR / latest.artifact_stored_name
+        if not path.is_file():
+            detail = RECORDER_BUILD_HINT if tool.slug == "feature_recorder" else "文件不存在"
+            raise HTTPException(status_code=404, detail=detail)
     filename = latest.artifact_filename or path.name
     return path, filename

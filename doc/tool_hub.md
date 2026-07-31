@@ -196,5 +196,3 @@ Windows 会把 `.zip` 显示为 **「压缩(zipped)文件夹」**（图标带拉
 | [user_manual.md](./user_manual.md) | 平台整体用户手册 |
 
 ---
-
-*designed by @yuzechao*

@@ -19,6 +19,8 @@ import {
   type ChatMessage,
 } from '../../shared/api/knowledge-base'
 import CleanJobListPage from '../../data_cleaning/pages/CleanJobListPage'
+import { mergeCitationsByFilename } from '../utils/mergeCitations'
+import './KnowledgeHubPage.css'
 
 const { Title, Text, Paragraph } = Typography
 
@@ -90,12 +92,12 @@ function KnowledgeChatPanel({ kbId }: { kbId: string }) {
     (detail?.document_count ?? 0) === 0
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 480, height: 'calc(100vh - 220px)' }}>
+    <div className="knowledge-hub-chat">
       {!hasReady && (
         <Alert
+          className="knowledge-hub-chat__alert"
           type="info"
           showIcon
-          style={{ marginBottom: 16 }}
           message={hasArchivedOnly ? '尚无可检索内容' : '知识库为空'}
           description={
             hasArchivedOnly
@@ -105,12 +107,8 @@ function KnowledgeChatPanel({ kbId }: { kbId: string }) {
         />
       )}
 
-      <Card
-        title="知识问答"
-        style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
-        styles={{ body: { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 } }}
-      >
-        <div style={{ flex: 1, overflow: 'auto', marginBottom: 16, paddingRight: 8 }}>
+      <Card title="知识问答" className="knowledge-hub-chat__card">
+        <div className="knowledge-hub-chat__messages">
           {localMessages.length === 0 ? (
             <Text type="secondary">向知识库提问，将基于已入库文档 RAG 检索后回答</Text>
           ) : (
@@ -143,10 +141,9 @@ function KnowledgeChatPanel({ kbId }: { kbId: string }) {
                       <Text type="secondary" style={{ fontSize: 12 }}>
                         参考来源：
                       </Text>
-                      {msg.citations.map((c, i) => (
-                        <Tag key={i} style={{ marginTop: 4 }}>
-                          {c.filename || '文档'}
-                          {c.page && c.page > 0 ? ` p${c.page}` : ''}
+                      {mergeCitationsByFilename(msg.citations).map((c) => (
+                        <Tag key={c.key} style={{ marginTop: 4 }}>
+                          {c.label}
                         </Tag>
                       ))}
                     </div>
@@ -158,7 +155,7 @@ function KnowledgeChatPanel({ kbId }: { kbId: string }) {
           <div ref={chatEndRef} />
         </div>
 
-        <Space.Compact style={{ width: '100%' }}>
+        <Space.Compact className="knowledge-hub-chat__input" style={{ width: '100%' }}>
           <Input.TextArea
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
@@ -189,6 +186,7 @@ function KnowledgeChatPanel({ kbId }: { kbId: string }) {
 
 /**
  * 全站唯一知识库入口：问答 + 清洗入库 两个 Tab。
+ * 布局：标题与 Tab 栏固定，各 Tab 内容在内部滚动。
  */
 export default function KnowledgeHubPage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -208,8 +206,8 @@ export default function KnowledgeHubPage() {
   }
 
   return (
-    <div style={{ maxWidth: 1200, margin: '0 auto', padding: '24px 24px 8px' }}>
-      <div style={{ marginBottom: 20 }}>
+    <div className="knowledge-hub-page">
+      <div className="knowledge-hub-page__header">
         <Title level={3} style={{ margin: 0 }}>
           <BookOutlined style={{ color: 'var(--color-primary)', marginRight: 8 }} />
           知识库
@@ -220,6 +218,7 @@ export default function KnowledgeHubPage() {
       </div>
 
       <Tabs
+        className="knowledge-hub-page__tabs"
         activeKey={activeTab}
         onChange={(key) => setSearchParams(key === 'chat' ? {} : { tab: key })}
         items={[
@@ -237,14 +236,16 @@ export default function KnowledgeHubPage() {
               </span>
             ),
             children: (
-              <CleanJobListPage embedded kbId={kbase.id} reviewPathPrefix="/knowledge-base/clean" />
+              <div className="knowledge-hub-clean">
+                <CleanJobListPage embedded kbId={kbase.id} reviewPathPrefix="/knowledge-base/clean" />
+              </div>
             ),
           },
         ]}
       />
 
-      <Text type="secondary" style={{ display: 'block', textAlign: 'right', marginTop: 8, fontSize: 12 }}>
-        designed by @yuzechao
+      <Text type="secondary" className="knowledge-hub-page__footer">
+        designed by @huangjing
       </Text>
     </div>
   )

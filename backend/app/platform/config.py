@@ -178,6 +178,35 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./database.sqlite")
 
+# ==================== 企业微信群推送（测试任务日报/周报） ====================
+
+WECOM_WEBHOOK_URL = os.getenv("WECOM_WEBHOOK_URL", "").strip()
+# 默认开启定时轮询；未配置 webhook 时定时任务会跳过实际发送
+WECOM_PUSH_ENABLED = os.getenv("WECOM_PUSH_ENABLED", "true").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+# 幂等：同一 period 已成功发送则跳过（备份计划任务靠此避免重复发）
+WECOM_PUSH_IDEMPOTENCY_ENABLED = os.getenv(
+    "WECOM_PUSH_IDEMPOTENCY_ENABLED", "true"
+).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _opt_int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    return int(raw)
+
+
+WECOM_DAILY_PUSH_HOUR = _opt_int_env("WECOM_DAILY_PUSH_HOUR", 20)
+WECOM_DAILY_PUSH_MINUTE = _opt_int_env("WECOM_DAILY_PUSH_MINUTE", 0)
+WECOM_WEEKLY_PUSH_WEEKDAY = _opt_int_env("WECOM_WEEKLY_PUSH_WEEKDAY", 2)  # Wed=2
+WECOM_WEEKLY_PUSH_HOUR = _opt_int_env("WECOM_WEEKLY_PUSH_HOUR", 17)
+WECOM_WEEKLY_PUSH_MINUTE = _opt_int_env("WECOM_WEEKLY_PUSH_MINUTE", 30)
+
 # ==================== 运行参数 ====================
 
 MAX_CONCURRENT_JOBS = _int_env("MAX_CONCURRENT_JOBS", 1)

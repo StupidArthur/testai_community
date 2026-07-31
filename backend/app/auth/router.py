@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.platform.database import get_db
 from app.auth.models import User, UserRole
 from app.auth.schemas import (
-    UserRegister, UserLogin, TokenOut, UserOut,
+    UserRegister, UserLogin, TokenOut, UserOut, UserUpdate,
     ResetPasswordRequest, ChangePasswordRequest,
 )
 from app.auth.service import (
@@ -15,6 +15,10 @@ from app.auth.service import (
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
+# 灌数占位账号：仅用于展示「无负责人」，禁止登录
+_LOGIN_BLOCKED_USERNAMES = frozenset({"无"})
+
+
 @router.post("/login", response_model=TokenOut)
 def login(data: UserLogin, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == data.username).first()
@@ -22,6 +26,11 @@ def login(data: UserLogin, db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误",
+        )
+    if user.username in _LOGIN_BLOCKED_USERNAMES:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="占位账号不可登录",
         )
     token = create_access_token({"sub": str(user.id)})
     return TokenOut(
@@ -42,11 +51,19 @@ def add_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="用户名已存在",
         )
-    role = UserRole.Admin if data.role == "Admin" else UserRole.Engineer
+    role_raw = (data.role or "Engineer").strip()
+    try:
+        role = UserRole(role_raw)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"无效角色: {role_raw}，可选 Engineer / Manager / Admin",
+        ) from exc
     user = User(
         username=data.username,
         password_hash=hash_password(data.password),
         role=role,
+        real_name=(data.real_name or "").strip(),
     )
     db.add(user)
     db.commit()
@@ -56,6 +73,23 @@ def add_user(
         access_token=token,
         user=UserOut.model_validate(user),
     )
+
+
+@router.patch("/{user_id}", response_model=UserOut)
+def update_user(
+    user_id: int,
+    data: UserUpdate,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(RequireRole(["Admin"])),
+):
+    """Admin 更新用户真实姓名等资料。"""
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    target.real_name = (data.real_name or "").strip()
+    db.commit()
+    db.refresh(target)
+    return UserOut.model_validate(target)
 
 
 @router.get("/current-user", response_model=UserOut)

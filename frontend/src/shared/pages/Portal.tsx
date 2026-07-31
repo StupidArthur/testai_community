@@ -1,137 +1,97 @@
 import { useNavigate } from 'react-router-dom'
-import { Card, Typography } from 'antd'
-import { ThunderboltOutlined, ToolOutlined, BookOutlined } from '@ant-design/icons'
+import { Typography } from 'antd'
+import {
+  ProjectOutlined,
+  ThunderboltOutlined,
+  ToolOutlined,
+  BookOutlined,
+  ArrowRightOutlined,
+} from '@ant-design/icons'
+import './Portal.css'
 
 const { Title, Text } = Typography
 
+const SECONDARY = [
+  {
+    key: 'skills',
+    path: '/skills',
+    icon: <ThunderboltOutlined />,
+    title: 'Skill 管理',
+    desc: 'Prompt 资产 · 版本与分支',
+  },
+  {
+    key: 'tools',
+    path: '/tool-hub',
+    icon: <ToolOutlined />,
+    title: '工具集',
+    desc: '功能录制 · AI 翻译',
+  },
+  {
+    key: 'kb',
+    path: '/knowledge-base',
+    icon: <BookOutlined />,
+    title: '知识库',
+    desc: '清洗入库 · RAG 问答',
+  },
+] as const
+
+/**
+ * 登录后首页：大篇幅进入「项目管理」，其余模块为次要入口。
+ */
 export default function Portal() {
   const navigate = useNavigate()
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'var(--color-bg-secondary)',
-        padding: 40,
-        minHeight: 'calc(100vh - 64px - 48px)',
-      }}
-    >
-      <div style={{ textAlign: 'center', marginBottom: 48 }}>
-        <Title level={2} style={{ color: 'var(--color-text)', marginBottom: 8 }}>
-          TestAI Community
-        </Title>
-        <Text type="secondary">
-          统一测试资产与工具平台
-        </Text>
+    <div className="portal">
+      <div className="portal__inner">
+        <header className="portal__brand">
+          <Title level={2} className="portal__brand-title">
+            TestAI Community
+          </Title>
+          <Text type="secondary">统一测试资产与工具平台</Text>
+        </header>
+
+        <button
+          type="button"
+          className="portal__hero"
+          onClick={() => navigate('/projects')}
+        >
+          <div className="portal__hero-icon" aria-hidden>
+            <ProjectOutlined />
+          </div>
+          <div className="portal__hero-copy">
+            <span className="portal__hero-label">项目管理</span>
+            <span className="portal__hero-desc">
+              项目 · 领域 · 周 Action · 进度与风险日更
+            </span>
+          </div>
+          <span className="portal__hero-cta">
+            进入
+            <ArrowRightOutlined />
+          </span>
+        </button>
+
+        <div className="portal__secondary-label">
+          <Text type="secondary">其它能力</Text>
+        </div>
+
+        <div className="portal__secondary">
+          {SECONDARY.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className="portal__chip"
+              onClick={() => navigate(item.path)}
+            >
+              <span className="portal__chip-icon">{item.icon}</span>
+              <span className="portal__chip-text">
+                <span className="portal__chip-title">{item.title}</span>
+                <span className="portal__chip-desc">{item.desc}</span>
+              </span>
+            </button>
+          ))}
+        </div>
       </div>
-
-      <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', justifyContent: 'center', maxWidth: 720 }}>
-        {/* Skill 管理卡片 */}
-        <Card
-          hoverable
-          style={{
-            width: 300,
-            border: '1px solid var(--color-border)',
-            background: 'var(--color-bg)',
-            cursor: 'pointer',
-          }}
-          onClick={() => navigate('/skills')}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '8px 0' }}>
-            <ThunderboltOutlined style={{ fontSize: 48, color: 'var(--color-primary)' }} />
-            <Title level={4} style={{ color: 'var(--color-text)', margin: 0, textAlign: 'center' }}>
-              Skill 管理
-            </Title>
-            <Text type="secondary" style={{ textAlign: 'center' }}>
-              Prompt 资产中心<br />
-              9 维 Agent 编辑器<br />
-              版本管理与分支协作
-            </Text>
-            <Text
-              style={{
-                color: 'var(--color-primary)',
-                fontWeight: 500,
-                marginTop: 8,
-              }}
-            >
-              进入 →
-            </Text>
-          </div>
-        </Card>
-
-        {/* 工具集卡片 */}
-        <Card
-          hoverable
-          style={{
-            width: 300,
-            border: '1px solid var(--color-border)',
-            background: 'var(--color-bg)',
-            cursor: 'pointer',
-          }}
-          onClick={() => navigate('/tool-hub')}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '8px 0' }}>
-            <ToolOutlined style={{ fontSize: 48, color: 'var(--color-primary)' }} />
-            <Title level={4} style={{ color: 'var(--color-text)', margin: 0, textAlign: 'center' }}>
-              工具集
-            </Title>
-            <Text type="secondary" style={{ textAlign: 'center' }}>
-              功能录制（客户端下载）<br />
-              AI 翻译等平台集成工具<br />
-              说明书与版本 changelog
-            </Text>
-            <Text
-              style={{
-                color: 'var(--color-primary)',
-                fontWeight: 500,
-                marginTop: 8,
-              }}
-            >
-              进入 →
-            </Text>
-          </div>
-        </Card>
-
-        {/* 知识库：清洗入库 + RAG 问答 */}
-        <Card
-          hoverable
-          style={{
-            width: 300,
-            border: '1px solid var(--color-border)',
-            background: 'var(--color-bg)',
-            cursor: 'pointer',
-          }}
-          onClick={() => navigate('/knowledge-base')}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '8px 0' }}>
-            <BookOutlined style={{ fontSize: 48, color: 'var(--color-primary)' }} />
-            <Title level={4} style={{ color: 'var(--color-text)', margin: 0, textAlign: 'center' }}>
-              知识库
-            </Title>
-            <Text type="secondary" style={{ textAlign: 'center' }}>
-              文档清洗审核入库<br />
-              锚点对齐与冲突检测<br />
-              RAG 智能问答
-            </Text>
-            <Text
-              style={{
-                color: 'var(--color-primary)',
-                fontWeight: 500,
-                marginTop: 8,
-              }}
-            >
-              进入 →
-            </Text>
-          </div>
-        </Card>
-      </div>
-
-      <Text type="secondary" style={{ marginTop: 48, fontSize: 12 }}>
-        designed by @yuzechao
-      </Text>
     </div>
   )
 }

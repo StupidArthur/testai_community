@@ -81,5 +81,3 @@
 平台集成工具页（如 `/translate`）**不在顶栏与首页单独展示**，仅从工具集进入；页内提供 **返回工具集** 按钮（`ReturnToToolHubButton`）。
 
 ---
-
-*designed by @yuzechao*

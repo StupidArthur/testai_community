@@ -18,6 +18,7 @@ import ToolDetailPage from './tool_hub/pages/ToolDetailPage'
 import KnowledgeHubPage from './knowledge_base/pages/KnowledgeHubPage'
 import CleanJobReviewPage from './data_cleaning/pages/CleanJobReviewPage'
 import AnchorDictPage from './data_cleaning/pages/AnchorDictPage'
+import ProjectManagePage from './test_manage/pages/ProjectManagePage'
 import { refreshCurrentUser, isAdmin } from './shared/hooks/useAuth'
 
 function decodeJWTPayload(token: string): Record<string, unknown> | null {
@@ -106,6 +107,10 @@ export const router = createBrowserRouter([
       {
         index: true,
         element: <Portal />,
+      },
+      {
+        path: 'projects',
+        element: <ProjectManagePage />,
       },
       {
         path: 'skills',

@@ -69,3 +69,8 @@ export function useAuthSession(): { user: User | null; ready: boolean } {
 export function isAdmin(user: User | null | undefined): boolean {
   return user?.role === 'Admin'
 }
+
+/** 项目管理测试管理员：Admin 或 Manager */
+export function isTmAdmin(user: User | null | undefined): boolean {
+  return user?.role === 'Admin' || user?.role === 'Manager'
+}

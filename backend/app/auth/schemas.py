@@ -5,6 +5,7 @@ class UserRegister(BaseModel):
     username: str
     password: str = Field(default="123456", min_length=6, max_length=128, description="密码至少 6 位")
     role: str = "Engineer"
+    real_name: str = Field(default="", max_length=64, description="真实姓名")
 
 
 class UserLogin(BaseModel):
@@ -15,9 +16,16 @@ class UserLogin(BaseModel):
 class UserOut(BaseModel):
     id: int
     username: str
+    real_name: str = ""
     role: str
 
     model_config = {"from_attributes": True}
+
+
+class UserUpdate(BaseModel):
+    """Admin 更新用户资料（目前仅真实姓名）。"""
+
+    real_name: str = Field(..., max_length=64)
 
 
 class TokenOut(BaseModel):

@@ -23,6 +23,12 @@ _RECORDER_RELEASE_ZIP = (
     PROJECT_ROOT / "feature_recorder" / "release" / "feature-recorder-win64.zip"
 )
 
+RECORDER_BUILD_HINT = (
+    "功能录制安装包尚未构建或文件已丢失。"
+    "请在项目根目录执行：powershell -ExecutionPolicy Bypass -File scripts\\build_feature_recorder.ps1 ，"
+    "构建完成后重启后端。"
+)
+
 _TRANSLATE_MANUAL = """# AI 翻译
 
 将 **功能录制** 产出的 ZIP 上传至平台，自动翻译为中文测试用例与文档。
@@ -164,27 +170,41 @@ def _ensure_client_tool(
     return tool
 
 
-def _sync_recorder_artifact(db: Session, tool: Tool, owner_id: int) -> None:
-    """若本地已构建 zip，同步到工具集制品目录并绑定最新版本。"""
+def sync_feature_recorder_artifact(db: Session, tool: Tool, owner_id: int | None = None) -> bool:
+    """
+    若本地 release zip 存在，同步到工具集制品目录并绑定最新版本。
+
+    返回：同步后制品文件是否可下载。
+    """
+    if tool.slug != _RECORDER_SLUG:
+        return False
+
+    latest = max(tool.versions, key=lambda v: (v.created_at, v.version_label)) if tool.versions else None
+    if latest and latest.artifact_stored_name:
+        dest = TOOL_HUB_ARTIFACT_DIR / latest.artifact_stored_name
+        if dest.is_file():
+            return True
+
     if not _RECORDER_RELEASE_ZIP.is_file():
-        return
+        return False
 
     TOOL_HUB_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
-    latest = max(tool.versions, key=lambda v: (v.created_at, v.version_label)) if tool.versions else None
+    oid = owner_id if owner_id is not None else _admin_user_id(db)
 
     if latest and latest.artifact_stored_name:
         dest = TOOL_HUB_ARTIFACT_DIR / latest.artifact_stored_name
         shutil.copy2(_RECORDER_RELEASE_ZIP, dest)
         latest.artifact_filename = "feature-recorder-win64.zip"
-        return
+        return dest.is_file()
 
     stored_name = f"{tool.id}_{uuid.uuid4().hex}.zip"
-    shutil.copy2(_RECORDER_RELEASE_ZIP, TOOL_HUB_ARTIFACT_DIR / stored_name)
+    dest = TOOL_HUB_ARTIFACT_DIR / stored_name
+    shutil.copy2(_RECORDER_RELEASE_ZIP, dest)
 
     if latest:
         latest.artifact_filename = "feature-recorder-win64.zip"
         latest.artifact_stored_name = stored_name
-        return
+        return dest.is_file()
 
     db.add(
         ToolVersion(
@@ -194,9 +214,15 @@ def _sync_recorder_artifact(db: Session, tool: Tool, owner_id: int) -> None:
             changelog_md="",
             artifact_filename="feature-recorder-win64.zip",
             artifact_stored_name=stored_name,
-            created_by_user_id=owner_id,
+            created_by_user_id=oid,
         )
     )
+    return dest.is_file()
+
+
+def _sync_recorder_artifact(db: Session, tool: Tool, owner_id: int) -> None:
+    """启动时同步功能录制制品（若 release zip 已构建）。"""
+    sync_feature_recorder_artifact(db, tool, owner_id=owner_id)
 
 
 def ensure_tool_hub_startup(engine: Engine) -> None:

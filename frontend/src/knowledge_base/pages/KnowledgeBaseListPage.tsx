@@ -177,10 +177,6 @@ export default function KnowledgeBaseListPage() {
           </Form.Item>
         </Form>
       </Modal>
-
-      <Text type="secondary" style={{ display: 'block', textAlign: 'right', marginTop: 24, fontSize: 12 }}>
-        designed by @yuzechao
-      </Text>
     </div>
   )
 }

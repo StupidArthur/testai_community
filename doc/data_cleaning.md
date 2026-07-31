@@ -149,5 +149,3 @@
 环境准备与需提供项见 **[knowledge_and_cleaning_setup.md](./knowledge_and_cleaning_setup.md)**。
 
 ---
-
-designed by @yuzechao

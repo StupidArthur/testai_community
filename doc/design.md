@@ -1,7 +1,9 @@
 # TestAI Community 设计文档
 
-> 文档版本：2026-06-13  
-> 项目路径：`G:/deploy/testai_community/`
+> 文档版本：2026-07-29  
+> 项目路径：仓库根目录 `testai_community/`
+
+项目管理（test_manage）产品行为与使用说明见：[test_manage_product_guide.md](./test_manage_product_guide.md)；模块设计见 [test_manage.md](./test_manage.md)。
 
 ---
 
