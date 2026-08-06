@@ -369,13 +369,24 @@ def collect_task_progress_rows(
             elif a.status == STATUS_DRAFT:
                 draft += 1
         avg = int(round(sum(progresses) / len(progresses))) if progresses else 0
+        from app.test_manage.models import TmTaskWeekProgress
+
+        manual = (
+            db.query(TmTaskWeekProgress)
+            .filter(
+                TmTaskWeekProgress.task_id == tid,
+                TmTaskWeekProgress.week_key == key,
+            )
+            .first()
+        )
+        display = int(manual.progress_percent) if manual else avg
         rows.append(
             TaskProgressRow(
                 task_id=tid,
                 task_title=(task.title if task else tid) or tid,
                 domain_name=(domain.name if domain else "") or "—",
                 project_name=(project.name if project else "") or "—",
-                progress_avg=avg,
+                progress_avg=display,
                 action_count=len(acts),
                 published_count=published,
                 done_count=done,

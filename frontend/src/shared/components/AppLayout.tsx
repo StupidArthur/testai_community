@@ -44,7 +44,8 @@ const navBtnStyle: React.CSSProperties = {
 const navBtnActiveStyle: React.CSSProperties = {
   ...navBtnStyle,
   color: 'var(--color-primary)',
-  background: 'color-mix(in srgb, var(--color-primary) 10%, transparent)',
+  /* Edge 不支持 color-mix：先写 rgba 回退 */
+  background: 'rgba(0, 112, 243, 0.10)',
 }
 
 function NavButton({

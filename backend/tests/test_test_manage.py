@@ -24,30 +24,30 @@ from app.test_manage.week import (
 def test_week_thu_in_current_window():
     thu = datetime(2026, 7, 16, 10, 0, tzinfo=TM_TZ)
     ws = current_week_start(thu)
-    assert ws == datetime(2026, 7, 15, 18, 0, tzinfo=TM_TZ)
-    assert week_end(ws) == datetime(2026, 7, 22, 18, 0, tzinfo=TM_TZ)
-    assert week_key(ws) == "2026-07-15T18"
+    assert ws == datetime(2026, 7, 15, 17, 0, tzinfo=TM_TZ)
+    assert week_end(ws) == datetime(2026, 7, 22, 17, 0, tzinfo=TM_TZ)
+    assert week_key(ws) == "2026-07-15T17"
 
 
-def test_week_wed_before_18_belongs_prev():
-    wed = datetime(2026, 7, 15, 17, 59, tzinfo=TM_TZ)
-    assert current_week_start(wed) == datetime(2026, 7, 8, 18, 0, tzinfo=TM_TZ)
+def test_week_wed_before_17_belongs_prev():
+    wed = datetime(2026, 7, 15, 16, 59, tzinfo=TM_TZ)
+    assert current_week_start(wed) == datetime(2026, 7, 8, 17, 0, tzinfo=TM_TZ)
 
 
-def test_week_wed_at_18_starts_new():
-    wed = datetime(2026, 7, 15, 18, 0, tzinfo=TM_TZ)
-    assert current_week_start(wed) == datetime(2026, 7, 15, 18, 0, tzinfo=TM_TZ)
+def test_week_wed_at_17_starts_new():
+    wed = datetime(2026, 7, 15, 17, 0, tzinfo=TM_TZ)
+    assert current_week_start(wed) == datetime(2026, 7, 15, 17, 0, tzinfo=TM_TZ)
 
 
 def test_week_monday_still_prev_window():
-    """周一仍属上周三 18:00 开启的周。"""
+    """周一仍属上周三 17:00 开启的周。"""
     mon = datetime(2026, 7, 13, 12, 0, tzinfo=TM_TZ)  # 周一
-    assert current_week_start(mon) == datetime(2026, 7, 8, 18, 0, tzinfo=TM_TZ)
+    assert current_week_start(mon) == datetime(2026, 7, 8, 17, 0, tzinfo=TM_TZ)
 
 
 def test_previous_week_start_fn():
-    ws = datetime(2026, 7, 15, 18, 0, tzinfo=TM_TZ)
-    assert previous_week_start(ws) == datetime(2026, 7, 8, 18, 0, tzinfo=TM_TZ)
+    ws = datetime(2026, 7, 15, 17, 0, tzinfo=TM_TZ)
+    assert previous_week_start(ws) == datetime(2026, 7, 8, 17, 0, tzinfo=TM_TZ)
 
 
 # ── fixtures helpers ─────────────────────────────────────────

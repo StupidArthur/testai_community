@@ -11,7 +11,11 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.auth.models import User, UserRole
-from app.platform.config import WECOM_PUSH_IDEMPOTENCY_ENABLED, WECOM_WEBHOOK_URL
+from app.platform.config import (
+    WECOM_PUSH_IDEMPOTENCY_ENABLED,
+    WECOM_WEBHOOK_URL,
+    WECOM_WEEKLY_IDEMPOTENCY_ENABLED,
+)
 from app.test_manage.config import (
     PUSH_TRIGGER_MANUAL,
     PUSH_TRIGGER_SCHEDULE,
@@ -213,7 +217,13 @@ async def push_weekly(
     """
     ws = daily_context_week_start()
     period = report.weekly_period_key(ws)
-    if not force and not dry_run and _already_sent(db, REPORT_KIND_WEEKLY, period):
+    # 周报幂等由 WECOM_WEEKLY_IDEMPOTENCY_ENABLED 单独控制（默认关，可同周重发）
+    if (
+        WECOM_WEEKLY_IDEMPOTENCY_ENABLED
+        and not force
+        and not dry_run
+        and _already_sent(db, REPORT_KIND_WEEKLY, period)
+    ):
         return PushResult(
             kind=REPORT_KIND_WEEKLY,
             period_key=period,

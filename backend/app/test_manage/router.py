@@ -18,6 +18,7 @@ from app.test_manage.schemas import (
     ActionCorrectionOut,
     ActionCreate,
     ActionDetailOut,
+    ActionLineageOut,
     ActionOut,
     ActionUpdate,
     BoardOut,
@@ -34,7 +35,10 @@ from app.test_manage.schemas import (
     TaskDetailOut,
     TaskOut,
     TaskUpdate,
+    TaskWeekProgressOut,
+    TaskWeekProgressUpsert,
     UserBrief,
+    WeekEndUpdate,
     WeekInfoOut,
 )
 
@@ -42,9 +46,21 @@ router = APIRouter(prefix="/api/test-manage", tags=["test_manage"])
 
 
 @router.get("/week", response_model=WeekInfoOut)
-def api_week(current_user: User = Depends(get_current_user)):
-    _ = current_user
-    return svc.get_week_info()
+def api_week(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return svc.get_week_info(db, current_user)
+
+
+@router.put("/week/end", response_model=WeekInfoOut)
+def api_set_week_end(
+    data: WeekEndUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Admin/Manager：设置当前活动周结束时刻（并同步本周 Action.due_at）。"""
+    return svc.update_week_end(db, current_user, data)
 
 
 @router.get("/users", response_model=list[UserBrief])
@@ -147,6 +163,27 @@ def api_get_task(
     return svc.get_task(db, current_user, task_id)
 
 
+@router.get("/tasks/{task_id}/week-progress", response_model=TaskWeekProgressOut)
+def api_get_task_week_progress(
+    task_id: str,
+    week_key: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return svc.get_task_week_progress(db, current_user, task_id, week_key_s=week_key)
+
+
+@router.put("/tasks/{task_id}/week-progress", response_model=TaskWeekProgressOut)
+def api_put_task_week_progress(
+    task_id: str,
+    data: TaskWeekProgressUpsert,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """周结束前填写 Task 进度（推荐值=本周 Action 平均）。"""
+    return svc.upsert_task_week_progress(db, current_user, task_id, data)
+
+
 @router.patch("/tasks/{task_id}", response_model=TaskOut)
 def api_update_task(
     task_id: str,
@@ -200,6 +237,16 @@ def api_get_action(
     current_user: User = Depends(get_current_user),
 ):
     return svc.get_action(db, current_user, action_id)
+
+
+@router.get("/actions/{action_id}/lineage", response_model=ActionLineageOut)
+def api_action_lineage(
+    action_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Action 跨周延续：周数、各周进度与风险文案。"""
+    return svc.get_action_lineage(db, current_user, action_id)
 
 
 @router.patch("/actions/{action_id}", response_model=ActionOut)

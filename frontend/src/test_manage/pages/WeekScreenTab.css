@@ -83,6 +83,7 @@
 
 .tm-screen__fs-btn {
   background: var(--tm-screen-accent-soft) !important;
+  border-color: #8fc0f8 !important;
   border-color: color-mix(in srgb, var(--tm-screen-accent) 35%, white) !important;
   color: var(--tm-screen-accent) !important;
 }
@@ -377,6 +378,13 @@
   min-width: 120px;
 }
 
+.tm-screen__progress-tip {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--tm-screen-warn);
+}
+
 .tm-screen__env {
   display: inline-block;
   max-width: 120px;
@@ -431,6 +439,7 @@
 }
 
 .tm-screen__chip--on {
+  border-color: #7eb0f0;
   border-color: color-mix(in srgb, var(--tm-screen-accent) 45%, white);
   background: var(--tm-screen-accent-soft);
   color: var(--tm-screen-accent);
@@ -493,6 +502,7 @@
 
 .tm-screen__more-done:hover {
   color: var(--tm-screen-accent);
+  border-color: #8fc0f8;
   border-color: color-mix(in srgb, var(--tm-screen-accent) 40%, white);
 }
 

@@ -319,7 +319,7 @@ export default function KnowledgeBaseDetailPage() {
                         borderRadius: 12,
                         background:
                           msg.role === 'user'
-                            ? 'color-mix(in srgb, var(--color-primary) 12%, transparent)'
+                            ? 'rgba(0, 112, 243, 0.12)'
                             : 'var(--color-bg-secondary)',
                         textAlign: 'left',
                       }}

@@ -2,7 +2,7 @@
 测试任务管理（项目管理）模块常量。
 
 层级：Project → Domain → Task → Action（周轮回）
-周边界：每周三 18:00 → 下一周三 18:00
+周边界：每周三 17:00 → 下一周三 17:00
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 TM_TZ = timezone(timedelta(hours=8), name="UTC+8")
 
 WEEK_BOUNDARY_WEEKDAY = 2  # 周三
-WEEK_BOUNDARY_HOUR = 18
+WEEK_BOUNDARY_HOUR = 17
 WEEK_BOUNDARY_MINUTE = 0
 
 STATUS_DRAFT = "draft"

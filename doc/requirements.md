@@ -88,10 +88,10 @@ TestAI Community 将原 **Skill Hub（技能管理）** 与 **Recorder Translate
 
 | ID | 需求 | 优先级 |
 |----|------|--------|
-| TM-01 | Project → Domain → Task → Action（周三 18:00 周界；**切周日日更/日报仍属上一汇报周**）；大屏「已完成」**仅 Task.status=done/cancelled** | P0 ✅ |
-| TM-02 | Task 需求/负责人/人员；可更新+日志；Action 草稿可改（含负责人），**发布后字段全锁（本周负责人不可改派）**；Admin/Manager 或 Task lead **当前周内随时**可建 Action | P0 ✅ |
+| TM-01 | Project → Domain → Task → Action（默认周三 18:00 周界，**周结束可配**；**切周日日更/日报仍属上一汇报周**）；大屏「已完成」**仅 Task.status=done/cancelled**；Task 周进度周结束前手填，未填回退 Action 平均并提示 | P0 ✅ |
+| TM-02 | Task 需求/负责人/人员；可更新+日志；Action 草稿可改（含负责人），**发布后字段全锁（本周负责人不可改派）**；Admin/Manager 或 Task lead **当前周内随时**可建 Action；Action 延续链路可查 | P0 ✅ |
 | TM-03 | 日更仅 Action 负责人或 Admin/Manager；**说明去空白后非空（无最少字数）、进度不倒退、仅当天、19:50锁定**；切周日写上一汇报周；更正时间线；看板 Action 卡片风险≤3行 | P0 ✅ |
-| TM-06 | 企微群日报/周报：**日报每天发送**（短进展+风险，无风险也发）；Admin/Manager 可手动；定时默认 **20:00**/周三 17:30；日更截止 **19:50**；**推荐 Windows 计划任务**（`WECOM_PUSH_ENABLED=false` 防重复） | P1 ✅ |
+| TM-06 | 企微群日报/周报：**日报每天发送**（短进展+风险，无风险也发）；Admin/Manager 可手动；日报 **17:12** + **20:00～20:04**（幂等）；周报一律 **周结束 + 15 分钟**（周报幂等默认关）；日更截止 **19:50**；**推荐 Windows 计划任务**（`WECOM_PUSH_ENABLED=false` 防重复） | P1 ✅ |
 | TM-04 | 测试管理员 Manager（manager/123456） | P0 ✅ |
 | TM-05 | Action 负责人仅可选 Task lead+测试人员；测试内容≤1000；**环境≤300**；需求≤5000 | P0 ✅ |
 | TM-07 | Action 状态机：draft→published；published→done；**done 终态不可重开**；**不支持取消**；完成不可日更；**标记完成须最新日更进度=100%** | P0 ✅ |

@@ -1,4 +1,4 @@
-﻿# Windows 计划任务入口：周报。日志落在 scripts/logs/
+# Windows 计划任务入口：周报。日志落在 scripts/logs/
 $ErrorActionPreference = "Continue"
 $ScriptsDir = $PSScriptRoot
 $BackendDir = Split-Path -Parent $ScriptsDir
@@ -17,20 +17,33 @@ function Write-Log([string]$msg) {
 
 Write-Log "START weekly BackendDir=$BackendDir"
 $env:TM_PUSH_KIND = "weekly"
-$env:TM_PUSH_FORCE = "1"
+# 0 = wait until week_end+15; skip if already sent this week
+$env:TM_PUSH_FORCE = "0"
 $env:PYTHONWARNINGS = "ignore"
 Set-Location -LiteralPath $BackendDir
 
-$Python = $null
-foreach ($c in @(
-    "$env:LOCALAPPDATA\Python\pythoncore-3.14-64\python.exe",
-    "$env:LOCALAPPDATA\Programs\Python\Python314\python.exe",
+# Prefer backend\.venv (prod); then common install locations for the task user
+$candidates = @(
+    (Join-Path $BackendDir ".venv\Scripts\python.exe"),
+    (Join-Path $BackendDir "venv\Scripts\python.exe"),
+    "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe",
+    "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe",
     "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe",
-    "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe"
-)) {
-    if (Test-Path -LiteralPath $c) { $Python = $c; break }
+    "$env:LOCALAPPDATA\Programs\Python\Python314\python.exe",
+    "$env:LOCALAPPDATA\Python\pythoncore-3.14-64\python.exe",
+    "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\python.exe",
+    "C:\Python311\python.exe",
+    "C:\Python312\python.exe"
+)
+$Python = $null
+foreach ($c in $candidates) {
+    if ($c -and (Test-Path -LiteralPath $c)) { $Python = $c; break }
 }
-if (-not $Python) { Write-Log "FAIL no python"; exit 1 }
+if (-not $Python) {
+    Write-Log "FAIL no python"
+    foreach ($c in $candidates) { Write-Log ("  tried: " + $c) }
+    exit 1
+}
 Write-Log "Python=$Python"
 
 $script = Join-Path $ScriptsDir "wecom_scheduled_push.py"

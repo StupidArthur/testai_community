@@ -10,6 +10,7 @@ import {
   shouldHighlightEmptyTask,
   shouldShowAddActionButton,
   taskParticipantUsers,
+  toScreenBoardTasks,
 } from './boardUi'
 
 describe('shouldHighlightEmptyTask', () => {
@@ -95,5 +96,45 @@ describe('emptyActionDescription', () => {
     expect(emptyActionDescription({ readOnly: true, canAddAction: true })).toContain('该周无')
     expect(emptyActionDescription({ readOnly: false, canAddAction: true })).toContain('+ Action')
     expect(emptyActionDescription({ readOnly: false, canAddAction: false })).toContain('已完成')
+  })
+})
+
+describe('toScreenBoardTasks', () => {
+  const base = {
+    week_progress_avg: 0,
+    task: { id: 't1' },
+  }
+
+  it('去掉草稿 Action，并按可见项重算均进度', () => {
+    const out = toScreenBoardTasks([
+      {
+        ...base,
+        week_progress_avg: 25,
+        actions: [
+          { status: 'draft', progress_percent: 0 },
+          { status: 'published', progress_percent: 40 },
+          { status: 'done', progress_percent: 100 },
+        ],
+      },
+    ])
+    expect(out).toHaveLength(1)
+    expect(out[0].actions.map((a) => a.status)).toEqual(['published', 'done'])
+    expect(out[0].week_progress_avg).toBe(70)
+  })
+
+  it('仅草稿的 Task 不进入大屏', () => {
+    const out = toScreenBoardTasks([
+      {
+        ...base,
+        actions: [{ status: 'draft', progress_percent: 0 }],
+      },
+    ])
+    expect(out).toHaveLength(0)
+  })
+
+  it('本周 0 Action 的空 Task 仍保留', () => {
+    const out = toScreenBoardTasks([{ ...base, actions: [] }])
+    expect(out).toHaveLength(1)
+    expect(out[0].actions).toEqual([])
   })
 })

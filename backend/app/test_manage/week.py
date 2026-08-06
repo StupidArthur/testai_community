@@ -1,5 +1,5 @@
 """
-周窗口计算：默认周三 18:00 为一周起点。
+周窗口计算：默认周三 17:00 为一周起点。
 """
 from __future__ import annotations
 
@@ -24,10 +24,10 @@ def _as_local(dt: datetime | None = None) -> datetime:
 
 def current_week_start(now: datetime | None = None) -> datetime:
     """
-    返回「当前所处周」的起始时刻（周三 18:00）。
+    返回「当前所处周」的起始时刻（周三 17:00）。
 
-    例：周四任意时刻 → 本周三 18:00；
-    周三 17:59 → 上上周三 18:00；周三 18:00 → 本周三 18:00。
+    例：周四任意时刻 → 本周三 17:00；
+    周三 16:59 → 上一周三 17:00；周三 17:00 → 本周三 17:00。
     """
     local = _as_local(now)
     # 回溯到本周一 0 点再对齐到周三 18:00 候选
@@ -49,7 +49,7 @@ def current_week_start(now: datetime | None = None) -> datetime:
 
 
 def week_end(week_start: datetime) -> datetime:
-    """周结束时刻（下一周三 18:00，半开区间右端）。"""
+    """周结束时刻（下一周三 17:00，半开区间右端）。"""
     ws = _as_local(week_start)
     return ws + timedelta(days=7)
 
@@ -67,7 +67,7 @@ def week_key(week_start: datetime) -> str:
 
 
 def _this_wednesday_boundary(local: datetime) -> datetime:
-    """本自然周（周一～周日）内的周三 18:00 切周点。"""
+    """本自然周（周一～周日）内的周三 17:00 切周点。"""
     days_since_monday = local.weekday()
     monday = (local - timedelta(days=days_since_monday)).replace(
         hour=0, minute=0, second=0, microsecond=0
@@ -85,7 +85,7 @@ def daily_context_week_start(now: datetime | None = None) -> datetime:
     """
     日更 / 企微日报所属周。
 
-    切周日（周三）全天：日报与日更仍归属「以今天 18:00 为终点」的那一周
+    切周日（周三）全天：日报与日更仍归属「以今天 17:00 为终点」的那一周
     （即刚结束或即将结束的一周的最后一天），不写「新一周」的日报。
     其它日子：与 current_week_start 一致。
     """

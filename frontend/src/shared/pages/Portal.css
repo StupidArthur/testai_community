@@ -1,6 +1,11 @@
+/* Edge 等不支持 color-mix 时用 rgba/hex 回退；支持则覆盖为 color-mix（跟随主题变量） */
+
 .portal {
   display: flex;
   justify-content: center;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(0, 112, 243, 0.14), transparent),
+    var(--color-bg-secondary);
   background:
     radial-gradient(ellipse 80% 50% at 50% -10%, color-mix(in srgb, var(--color-primary) 14%, transparent), transparent),
     var(--color-bg-secondary);
@@ -37,13 +42,15 @@
   cursor: pointer;
   text-align: left;
   color: inherit;
-  background:
-    linear-gradient(
-      125deg,
-      color-mix(in srgb, var(--color-primary) 22%, var(--color-bg)) 0%,
-      color-mix(in srgb, var(--color-primary) 8%, var(--color-bg)) 55%,
-      var(--color-bg) 100%
-    );
+  /* 回退：#0070f3 与白底混合的近似色 */
+  background: linear-gradient(125deg, #c7e0fc 0%, #eaf4fe 55%, var(--color-bg) 100%);
+  box-shadow: inset 0 0 0 1px #a8c8f5;
+  background: linear-gradient(
+    125deg,
+    color-mix(in srgb, var(--color-primary) 22%, var(--color-bg)) 0%,
+    color-mix(in srgb, var(--color-primary) 8%, var(--color-bg)) 55%,
+    var(--color-bg) 100%
+  );
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
   transition: transform 0.2s ease, box-shadow 0.2s ease;
   font-family: inherit;
@@ -51,6 +58,9 @@
 
 .portal__hero:hover {
   transform: translateY(-2px);
+  box-shadow:
+    inset 0 0 0 1px #7eb0f0,
+    0 12px 28px rgba(0, 112, 243, 0.12);
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 40%, var(--color-border)),
     0 12px 28px color-mix(in srgb, var(--color-primary) 12%, transparent);
@@ -70,6 +80,7 @@
   justify-content: center;
   font-size: 36px;
   color: var(--color-primary);
+  background: rgba(0, 112, 243, 0.12);
   background: color-mix(in srgb, var(--color-primary) 12%, transparent);
   border-radius: 4px;
 }
@@ -132,6 +143,8 @@
 }
 
 .portal__chip:hover {
+  border-color: #7eb0f0;
+  background: #f5f9fe;
   border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
   background: color-mix(in srgb, var(--color-primary) 4%, var(--color-bg));
 }

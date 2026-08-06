@@ -114,13 +114,27 @@ def ensure_test_manage_startup(engine: Engine) -> None:
             ],
         )
         _set_schema_version(engine, TM_SCHEMA_VERSION)
-    # 推送表增量创建，不随 TM_SCHEMA_VERSION 重建清空
+    # 推送表 + 周周期/Task 周进度：增量创建，不随 TM_SCHEMA_VERSION 重建清空
     Base.metadata.create_all(
         bind=engine,
         tables=[
             _models.TmPushSnapshot.__table__,
             _models.TmPushRun.__table__,
+            _models.TmWeekPeriod.__table__,
+            _models.TmTaskWeekProgress.__table__,
         ],
     )
     ensure_manager_user()
-    log.info("test_manage ready (schema=%s, week=Wed 18:00)", TM_SCHEMA_VERSION)
+    # 预热当前周窗口（无则按经典周三规则创建）
+    db = SessionLocal()
+    try:
+        from app.test_manage.period import get_or_create_active_period
+
+        get_or_create_active_period(db)
+        db.commit()
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        log.exception("ensure week period failed")
+    finally:
+        db.close()
+    log.info("test_manage ready (schema=%s)", TM_SCHEMA_VERSION)

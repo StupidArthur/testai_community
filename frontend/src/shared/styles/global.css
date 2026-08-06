@@ -143,9 +143,11 @@ a:hover {
   width: 8px;
 }
 .tool-markdown-panel::-webkit-scrollbar-thumb {
+  background: rgba(82, 82, 91, 0.35);
   background: color-mix(in srgb, var(--color-text-secondary) 35%, transparent);
   border-radius: 4px;
 }
 .tool-markdown-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(82, 82, 91, 0.55);
   background: color-mix(in srgb, var(--color-text-secondary) 55%, transparent);
 }

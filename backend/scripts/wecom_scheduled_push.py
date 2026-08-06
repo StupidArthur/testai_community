@@ -70,6 +70,50 @@ async def run_push(*, kind: str, dry_run: bool = False, force: bool = False) -> 
                     today=today,
                 )
             elif kind == "weekly":
+                from app.test_manage.config import now_tm
+                from app.test_manage.week import _as_local, current_week_start, week_end
+
+                # Prefer configurable period (newer deploys); fall back to classic Wed 18:00 window.
+                try:
+                    from app.test_manage.period import (
+                        compute_weekly_push_at,
+                        get_daily_context_period,
+                        get_or_create_active_period,
+                    )
+
+                    get_or_create_active_period(db)
+                    ctx = get_daily_context_period(db)
+                    push_at = compute_weekly_push_at(ctx.week_end)
+                except (ModuleNotFoundError, ImportError) as exc:
+                    log.warning(
+                        "period/week models incomplete (%s) — use classic week_end+15min; "
+                        "sync backend/app/test_manage/ (period.py + models.py) to prod",
+                        exc,
+                    )
+                    from datetime import timedelta
+
+                    we = week_end(current_week_start())
+                    push_at = _as_local(we) + timedelta(minutes=15)
+
+                now = now_tm()
+                # force=1 用于联调/一次性测试任务，可绕过「未到 week_end+15」门闩
+                if (
+                    _as_local(now) < _as_local(push_at)
+                    and not dry_run
+                    and not force
+                ):
+                    log.info(
+                        "weekly not due yet push_at=%s now=%s — skip",
+                        push_at.isoformat(),
+                        now.isoformat(),
+                    )
+                    return
+                if force and _as_local(now) < _as_local(push_at):
+                    log.info(
+                        "weekly force=1 bypass time gate push_at=%s now=%s",
+                        push_at.isoformat(),
+                        now.isoformat(),
+                    )
                 result = await push_svc.push_weekly(
                     db, trigger=PUSH_TRIGGER_SCHEDULE, dry_run=dry_run, force=force
                 )
@@ -111,7 +155,7 @@ async def run_push(*, kind: str, dry_run: bool = False, force: bool = False) -> 
 if __name__ == "__main__":
     kind = (os.getenv("TM_PUSH_KIND") or "daily").strip().lower()
     dry = (os.getenv("TM_PUSH_DRY_RUN") or "").strip().lower() in ("1", "true", "yes")
-    # 默认不 force：已成功则跳过，由 20:15 / 17:45 备份任务补漏
+    # 默认不 force：已成功则跳过，由 20:01~20:04 备份任务补漏
     force_env = (os.getenv("TM_PUSH_FORCE") or "0").strip().lower()
     force = force_env in ("1", "true", "yes")
     try:

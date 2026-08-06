@@ -216,6 +216,11 @@ class BoardTaskOut(BaseModel):
     task: TaskOut
     actions: list[ActionOut]
     week_progress_avg: int = 0
+    """展示用进度：手填优先，否则 Action 平均。"""
+    progress_is_manual: bool = False
+    """False 表示未手填 Task 周进度，当前值为 Action 平均推荐。"""
+    recommended_progress: int = 0
+    """Action 最新进度算术平均（推荐填写值）。"""
     risks: list[str] = Field(default_factory=list)
 
 
@@ -235,6 +240,7 @@ class BoardOut(BaseModel):
     week_start: datetime
     week_end: datetime
     week_key: str
+    weekly_push_at: datetime | None = None
     summary: BoardSummaryOut = Field(default_factory=BoardSummaryOut)
     tasks: list[BoardTaskOut]
 
@@ -252,10 +258,52 @@ class WeekInfoOut(BaseModel):
     week_start: datetime
     week_end: datetime
     week_key: str
+    weekly_push_at: datetime | None = None
+    can_set_week_end: bool = False
     history: list[WeekOptionOut] = Field(
         default_factory=list,
         description="最近 N 个历史业务周（不含本周），供「历史」下拉使用",
     )
+
+
+class WeekEndUpdate(BaseModel):
+    """设置当前活动周结束时刻（须晚于现在）。"""
+
+    week_end: datetime
+
+
+class TaskWeekProgressUpsert(BaseModel):
+    progress_percent: int = Field(..., ge=0, le=100)
+    note: str = Field(default="", max_length=TEXT_FIELD_MAX_CHARS)
+
+
+class TaskWeekProgressOut(BaseModel):
+    task_id: str
+    week_key: str
+    progress_percent: int
+    recommended_progress: int
+    progress_is_manual: bool
+    note: str = ""
+    updated_by: int | None = None
+    updated_at: datetime | None = None
+    can_edit: bool = False
+
+
+class ActionLineageSegmentOut(BaseModel):
+    action_id: str
+    week_key: str
+    week_start: datetime
+    title: str
+    status: str
+    progress_percent: int
+    risks: list[str] = Field(default_factory=list)
+    is_current: bool = False
+
+
+class ActionLineageOut(BaseModel):
+    action_id: str
+    weeks_count: int
+    segments: list[ActionLineageSegmentOut] = Field(default_factory=list)
 
 
 class PushTriggerRequest(BaseModel):

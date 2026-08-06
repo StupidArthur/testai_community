@@ -57,12 +57,12 @@ export function taskParticipantUsers(
   return users.filter((u) => ids.has(Number(u.id)))
 }
 
-/** 看板「我的 / 其他 / 全部」过滤 */
-export function filterBoardTasksByScope(
-  list: BoardTaskLike[],
+/** 看板「我的 / 其他 / 全部」过滤（泛型保留 BoardTask 等完整类型） */
+export function filterBoardTasksByScope<T extends BoardTaskLike>(
+  list: T[],
   scope: BoardScope,
   currentUserId: number | null | undefined,
-): BoardTaskLike[] {
+): T[] {
   if (currentUserId == null || scope === 'all') return list
   if (scope === 'mine') {
     return list.filter((bt) => Number(bt.task.lead_id) === currentUserId)
@@ -94,4 +94,32 @@ export function emptyActionDescription(opts: {
   if (opts.readOnly) return '该周无 Action'
   if (opts.canAddAction) return '本周尚无 Action — 点「+ Action」新建或复制上周'
   return '本周无 Action（Task 已完成，不可再添加）'
+}
+
+/**
+ * 大屏视图：去掉草稿 Action（领导汇报不展示未发布项）。
+ * - 仅草稿的 Task 整行隐藏
+ * - 本周 0 Action 的空 Task 仍保留（提醒尚未建 Action）
+ * - 进度均值按可见 Action 重算
+ */
+export function toScreenBoardTasks<
+  T extends {
+    actions: { status: string; progress_percent?: number }[]
+    week_progress_avg: number
+  },
+>(tasks: T[]): T[] {
+  const out: T[] = []
+  for (const bt of tasks) {
+    const visible = bt.actions.filter((a) => a.status !== 'draft')
+    if (bt.actions.length > 0 && visible.length === 0) {
+      continue
+    }
+    const avg = visible.length
+      ? Math.round(
+          visible.reduce((s, a) => s + (a.progress_percent || 0), 0) / visible.length,
+        )
+      : 0
+    out.push({ ...bt, actions: visible, week_progress_avg: avg })
+  }
+  return out
 }

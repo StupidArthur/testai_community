@@ -41,6 +41,14 @@ from app.test_manage.models import (
     TmTask,
     TmTaskTester,
     TmTaskUpdateLog,
+    TmTaskWeekProgress,
+    TmWeekPeriod,
+)
+from app.test_manage.period import (
+    compute_weekly_push_at,
+    get_daily_context_period,
+    get_or_create_active_period,
+    set_active_week_end,
 )
 from app.test_manage.schemas import (
     ActionCloneRequest,
@@ -48,6 +56,8 @@ from app.test_manage.schemas import (
     ActionCorrectionOut,
     ActionCreate,
     ActionDetailOut,
+    ActionLineageOut,
+    ActionLineageSegmentOut,
     ActionOut,
     ActionUpdate,
     BoardOut,
@@ -65,7 +75,10 @@ from app.test_manage.schemas import (
     TaskOut,
     TaskUpdate,
     TaskUpdateLogOut,
+    TaskWeekProgressOut,
+    TaskWeekProgressUpsert,
     UserBrief,
+    WeekEndUpdate,
     WeekInfoOut,
     WeekOptionOut,
 )
@@ -135,57 +148,100 @@ def _ensure_users(db: Session, ids: list[int]) -> None:
         raise HTTPException(status_code=400, detail=f"用户不存在: {sorted(missing)}")
 
 
-def _history_week_label(ws: datetime) -> str:
-    we = week_end(ws)
+def _history_week_label(ws: datetime, we: datetime) -> str:
     return (
         f"{ws.strftime('%m-%d %H:%M')} → {we.strftime('%m-%d %H:%M')} · {week_key(ws)}"
     )
 
 
 def list_history_week_options(
-    *, limit: int = HISTORY_WEEK_OPTIONS_MAX
+    db: Session,
+    *,
+    limit: int = HISTORY_WEEK_OPTIONS_MAX,
 ) -> list[WeekOptionOut]:
-    """不含本周的最近 N 个业务周，供前端「历史」下拉。"""
+    """不含本周的最近 N 个业务周（优先读 tm_week_periods）。"""
     n = max(0, min(int(limit), HISTORY_WEEK_OPTIONS_MAX))
-    ws = current_week_start()
+    active = get_or_create_active_period(db)
+    rows = (
+        db.query(TmWeekPeriod)
+        .filter(TmWeekPeriod.week_key != active.week_key)
+        .order_by(TmWeekPeriod.week_start.desc())
+        .limit(n)
+        .all()
+    )
+    if rows:
+        return [
+            WeekOptionOut(
+                week_start=r.week_start,
+                week_end=r.week_end,
+                week_key=r.week_key,
+                label=_history_week_label(r.week_start, r.week_end),
+            )
+            for r in rows
+        ]
+    # 兼容：尚无历史周期行时回退经典周
+    ws = active.week_start
     out: list[WeekOptionOut] = []
     for _ in range(n):
         ws = previous_week_start(ws)
+        we = week_end(ws)
         out.append(
             WeekOptionOut(
                 week_start=ws,
-                week_end=week_end(ws),
+                week_end=we,
                 week_key=week_key(ws),
-                label=_history_week_label(ws),
+                label=_history_week_label(ws, we),
             )
         )
     return out
 
 
-def get_week_info() -> WeekInfoOut:
-    ws = current_week_start()
+def get_week_info(db: Session, user: User) -> WeekInfoOut:
+    period = get_or_create_active_period(db)
+    db.commit()
     return WeekInfoOut(
-        week_start=ws,
-        week_end=week_end(ws),
-        week_key=week_key(ws),
-        history=list_history_week_options(),
+        week_start=period.week_start,
+        week_end=period.week_end,
+        week_key=period.week_key,
+        weekly_push_at=compute_weekly_push_at(period.week_end),
+        can_set_week_end=is_tm_admin(user),
+        history=list_history_week_options(db),
     )
 
 
-def _is_writable_action_week(action: TmAction) -> bool:
+def update_week_end(db: Session, user: User, data: WeekEndUpdate) -> WeekInfoOut:
+    require_tm_admin(user)
+    try:
+        set_active_week_end(db, week_end=data.week_end, user_id=user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    db.commit()
+    return get_week_info(db, user)
+
+
+def _writable_week_keys(db: Session) -> set[str]:
+    active = get_or_create_active_period(db)
+    daily = get_daily_context_period(db)
+    return {active.week_key, daily.week_key}
+
+
+def _is_writable_action_week(db: Session, action: TmAction) -> bool:
     """
     非「当前可写周」的 Action 一律只读。
-    可写周 = current_week_start ∪ daily_context_week_start（覆盖周三切日口径）。
+    可写周 = 活动周 ∪ 日更上下文周（切日全天仍写结束周）。
     """
-    keys = {
-        week_key(current_week_start()),
-        week_key(daily_context_week_start()),
-    }
-    return action.week_key in keys
+    return action.week_key in _writable_week_keys(db)
+
+
+def _session_of(obj) -> Session:
+    sess = Session.object_session(obj)
+    if sess is None:
+        raise HTTPException(status_code=500, detail="内部错误：对象未绑定会话")
+    return sess
 
 
 def _assert_writable_action_week(action: TmAction) -> None:
-    if not _is_writable_action_week(action):
+    if not _is_writable_action_week(_session_of(action), action):
         raise HTTPException(
             status_code=400,
             detail="历史周 Action 只读，不可编辑；请切回「本周」操作",
@@ -534,7 +590,7 @@ def _ensure_progress_for_done(action: TmAction) -> None:
 
 def _can_mark_action_done(user: User, action: TmAction, progress: int) -> bool:
     """有状态变更权、进行中、且进度已满才可点完成。"""
-    if not _is_writable_action_week(action):
+    if not _is_writable_action_week(_session_of(action), action):
         return False
     if action.status != STATUS_PUBLISHED:
         return False
@@ -550,7 +606,7 @@ def _can_change_action_status(user: User, action: TmAction) -> bool:
     - 该 Action 本周负责人（自己的 Action）
     历史周一律不可改状态。
     """
-    if not _is_writable_action_week(action):
+    if not _is_writable_action_week(_session_of(action), action):
         return False
     if is_tm_admin(user):
         return True
@@ -560,7 +616,7 @@ def _can_change_action_status(user: User, action: TmAction) -> bool:
 
 
 def _can_edit_action_fields(user: User, action: TmAction) -> bool:
-    if not _is_writable_action_week(action):
+    if not _is_writable_action_week(_session_of(action), action):
         return False
     if action.status != STATUS_DRAFT:
         return False
@@ -574,13 +630,14 @@ def _can_daily(user: User, action: TmAction) -> bool:
     """
     B1：仅「进行中」Action；Admin/Manager 或该 Action 负责人可写日更。
     已完成不可日更；过当日截止（默认 19:50）后窗口关闭。
-    周三切周日：日更只允许写「日报所属周」（刚结束周）的 Action，不写新一周。
+    切日：日更只允许写「日报所属周」的 Action。
     """
     if action.status != STATUS_PUBLISHED:
         return False
     if is_daily_edit_locked():
         return False
-    if action.week_key != week_key(daily_context_week_start()):
+    daily = get_daily_context_period(_session_of(action))
+    if action.week_key != daily.week_key:
         return False
     return is_tm_admin(user) or action.owner_id == user.id
 
@@ -603,12 +660,12 @@ def _validate_daily_payload(action: TmAction, data: DailyUpdateUpsert) -> tuple[
             ),
         )
 
-    ctx_key = week_key(daily_context_week_start())
-    if action.week_key != ctx_key:
+    ctx = get_daily_context_period(_session_of(action))
+    if action.week_key != ctx.week_key:
         raise HTTPException(
             status_code=400,
             detail=(
-                "今日日更属于刚结束/进行中的汇报周（切周日周三全天仍写上一周），"
+                "今日日更属于刚结束/进行中的汇报周（切日当天仍写结束周），"
                 "请勿给新一周 Action 写日更"
             ),
         )
@@ -639,7 +696,7 @@ def _validate_daily_payload(action: TmAction, data: DailyUpdateUpsert) -> tuple[
 
 def _can_correct(user: User, action: TmAction) -> bool:
     """发布后可追加更正说明（字段本身不可改）；历史周只读。"""
-    if not _is_writable_action_week(action):
+    if not _is_writable_action_week(_session_of(action), action):
         return False
     if action.status in (STATUS_DRAFT, STATUS_CANCELLED):
         return False
@@ -691,11 +748,12 @@ def _action_out(user: User, action: TmAction) -> ActionOut:
     )
 
 
-def _publish_action(action: TmAction) -> None:
+def _publish_action(db: Session, action: TmAction) -> None:
     action.status = STATUS_PUBLISHED
     action.published_at = now_tm()
     if action.due_at is None:
-        action.due_at = week_end(action.week_start)
+        period = get_or_create_active_period(db)
+        action.due_at = period.week_end
 
 
 def create_action(db: Session, user: User, data: ActionCreate) -> ActionOut:
@@ -714,13 +772,13 @@ def create_action(db: Session, user: User, data: ActionCreate) -> ActionOut:
         if not db.query(TmAction).filter(TmAction.id == data.source_action_id).first():
             raise HTTPException(status_code=400, detail="引用的 Action 不存在")
 
-    ws = current_week_start()
+    period = get_or_create_active_period(db, user_id=user.id)
     action = TmAction(
         task_id=task.id,
         project_id=task.project_id,
         domain_id=task.domain_id,
-        week_start=ws,
-        week_key=week_key(ws),
+        week_start=period.week_start,
+        week_key=period.week_key,
         title=data.title.strip(),
         owner_id=owner_id,
         test_content=(data.test_content or "").strip(),
@@ -728,12 +786,12 @@ def create_action(db: Session, user: User, data: ActionCreate) -> ActionOut:
         status=STATUS_DRAFT,
         source_action_id=data.source_action_id,
         created_by=user.id,
-        due_at=week_end(ws),
+        due_at=period.week_end,
     )
     db.add(action)
     db.flush()
     if data.publish:
-        _publish_action(action)
+        _publish_action(db, action)
     db.commit()
     return _action_out(user, _load_action(db, action.id))
 
@@ -771,11 +829,11 @@ def update_action(db: Session, user: User, action_id: str, data: ActionUpdate) -
         if data.status == STATUS_DONE and action.status != STATUS_DONE:
             _ensure_progress_for_done(action)
         if data.status == STATUS_PUBLISHED and action.status == STATUS_DRAFT:
-            _publish_action(action)
+            _publish_action(db, action)
         else:
             action.status = data.status
             if data.status == STATUS_PUBLISHED and not action.published_at:
-                _publish_action(action)
+                _publish_action(db, action)
 
     # 字段：仅草稿可改（发布后本周负责人亦锁定，一周结束不再改派）
     field_touch = any(
@@ -884,7 +942,7 @@ def list_mine_actions(db: Session, user: User) -> list[ActionOut]:
 
     不含「仅因是 Task 测试人员/负责人」而挂上的他人 Action（那些在看板看）。
     """
-    wk = week_key(current_week_start())
+    wk = get_or_create_active_period(db).week_key
     q = (
         db.query(TmAction)
         .options(
@@ -906,7 +964,14 @@ def list_clone_candidates(db: Session, user: User, task_id: str) -> list[ActionO
         raise HTTPException(status_code=403, detail="无权查看可引用列表")
     if not can_add_action_to_task(task):
         return []
-    prev_key = week_key(previous_week_start())
+    active = get_or_create_active_period(db)
+    prev = (
+        db.query(TmWeekPeriod)
+        .filter(TmWeekPeriod.week_end <= active.week_start)
+        .order_by(TmWeekPeriod.week_end.desc())
+        .first()
+    )
+    prev_key = prev.week_key if prev else week_key(previous_week_start(active.week_start))
     rows = (
         db.query(TmAction)
         .options(
@@ -921,6 +986,171 @@ def list_clone_candidates(db: Session, user: User, task_id: str) -> list[ActionO
     return [_action_out(user, a) for a in rows]
 
 
+def _action_avg_progress(act_outs: list[ActionOut]) -> int:
+    visible = [x for x in act_outs if x.status != STATUS_DRAFT]
+    pool = visible if visible else act_outs
+    if not pool:
+        return 0
+    return int(round(sum(x.progress_percent for x in pool) / len(pool)))
+
+
+def _resolve_task_week_progress(
+    db: Session,
+    *,
+    task_id: str,
+    week_key_s: str,
+    act_outs: list[ActionOut],
+) -> tuple[int, int, bool]:
+    recommended = _action_avg_progress(act_outs)
+    row = (
+        db.query(TmTaskWeekProgress)
+        .filter(
+            TmTaskWeekProgress.task_id == task_id,
+            TmTaskWeekProgress.week_key == week_key_s,
+        )
+        .first()
+    )
+    if row:
+        return int(row.progress_percent), recommended, True
+    return recommended, recommended, False
+
+
+def get_task_week_progress(
+    db: Session, user: User, task_id: str, *, week_key_s: str | None = None
+) -> TaskWeekProgressOut:
+    task = _load_task(db, task_id)
+    period = get_or_create_active_period(db)
+    key = week_key_s or period.week_key
+    acts = (
+        db.query(TmAction)
+        .options(joinedload(TmAction.daily_updates))
+        .filter(TmAction.task_id == task_id, TmAction.week_key == key)
+        .filter(TmAction.status != STATUS_CANCELLED)
+        .all()
+    )
+    act_outs = [_action_out(user, a) for a in acts]
+    display, recommended, manual = _resolve_task_week_progress(
+        db, task_id=task_id, week_key_s=key, act_outs=act_outs
+    )
+    row = (
+        db.query(TmTaskWeekProgress)
+        .filter(
+            TmTaskWeekProgress.task_id == task_id,
+            TmTaskWeekProgress.week_key == key,
+        )
+        .first()
+    )
+    return TaskWeekProgressOut(
+        task_id=task_id,
+        week_key=key,
+        progress_percent=display,
+        recommended_progress=recommended,
+        progress_is_manual=manual,
+        note=(row.note if row else "") or "",
+        updated_by=row.updated_by if row else None,
+        updated_at=row.updated_at if row else None,
+        can_edit=can_edit_task(user, task) and key in _writable_week_keys(db),
+    )
+
+
+def upsert_task_week_progress(
+    db: Session, user: User, task_id: str, data: TaskWeekProgressUpsert
+) -> TaskWeekProgressOut:
+    task = _load_task(db, task_id)
+    if not can_edit_task(user, task):
+        raise HTTPException(status_code=403, detail="仅测试管理员或 Task 测试负责人可填写周进度")
+    period = get_or_create_active_period(db)
+    if period.week_key not in _writable_week_keys(db):
+        raise HTTPException(status_code=400, detail="历史周不可填写 Task 进度")
+    row = (
+        db.query(TmTaskWeekProgress)
+        .filter(
+            TmTaskWeekProgress.task_id == task_id,
+            TmTaskWeekProgress.week_key == period.week_key,
+        )
+        .first()
+    )
+    if not row:
+        row = TmTaskWeekProgress(
+            task_id=task_id,
+            week_key=period.week_key,
+            progress_percent=data.progress_percent,
+            note=(data.note or "").strip(),
+            updated_by=user.id,
+        )
+        db.add(row)
+    else:
+        row.progress_percent = data.progress_percent
+        row.note = (data.note or "").strip()
+        row.updated_by = user.id
+    db.commit()
+    return get_task_week_progress(db, user, task_id, week_key_s=period.week_key)
+
+
+def get_action_lineage(db: Session, user: User, action_id: str) -> ActionLineageOut:
+    _ = user
+    start = _load_action(db, action_id)
+    cur = start
+    seen: set[str] = set()
+    chain: list[TmAction] = []
+    while cur and cur.id not in seen:
+        seen.add(cur.id)
+        chain.append(cur)
+        if not cur.source_action_id:
+            break
+        cur = (
+            db.query(TmAction)
+            .options(joinedload(TmAction.daily_updates))
+            .filter(TmAction.id == cur.source_action_id)
+            .first()
+        )
+    chain.reverse()
+    tip_ids = {chain[-1].id}
+    while tip_ids:
+        children = (
+            db.query(TmAction)
+            .options(joinedload(TmAction.daily_updates))
+            .filter(TmAction.source_action_id.in_(tip_ids))
+            .all()
+        )
+        tip_ids = set()
+        for ch in children:
+            if ch.id in seen:
+                continue
+            seen.add(ch.id)
+            chain.append(ch)
+            tip_ids.add(ch.id)
+
+    segments: list[ActionLineageSegmentOut] = []
+    for a in chain:
+        progress, _ = _latest_progress(a)
+        risks: list[str] = []
+        for du in sorted(
+            a.daily_updates or [],
+            key=lambda u: (u.report_date, u.updated_at or u.created_at),
+        ):
+            r = (du.risk_blocker or "").strip()
+            if r and r not in risks:
+                risks.append(r)
+        segments.append(
+            ActionLineageSegmentOut(
+                action_id=a.id,
+                week_key=a.week_key,
+                week_start=a.week_start,
+                title=a.title,
+                status=a.status,
+                progress_percent=progress,
+                risks=risks,
+                is_current=a.id == start.id,
+            )
+        )
+    return ActionLineageOut(
+        action_id=start.id,
+        weeks_count=len(segments),
+        segments=segments,
+    )
+
+
 def get_board(
     db: Session,
     user: User,
@@ -930,8 +1160,17 @@ def get_board(
 ) -> BoardOut:
     """周 × Task 看板（项目管理首页）。全员可读。"""
     _ = can_view_all(user)
-    ws = week_start or current_week_start()
-    key = week_key(ws)
+    active = get_or_create_active_period(db)
+    if week_start is not None:
+        key = week_key(week_start)
+        period_row = db.query(TmWeekPeriod).filter(TmWeekPeriod.week_key == key).first()
+        ws = period_row.week_start if period_row else week_start
+        we = period_row.week_end if period_row else week_end(week_start)
+    else:
+        key = active.week_key
+        ws = active.week_start
+        we = active.week_end
+
     q = (
         db.query(TmAction)
         .options(
@@ -950,7 +1189,6 @@ def get_board(
     for a in actions:
         by_task.setdefault(a.task_id, []).append(a)
 
-    # 本周无 Action 的已发布 Task 也展示空卡片（便于补建）
     tq = (
         db.query(TmTask)
         .options(
@@ -964,39 +1202,35 @@ def get_board(
     tasks = {t.id: t for t in tq.all()}
     for tid in by_task:
         if tid not in tasks:
-            t = _load_task(db, tid)
-            tasks[tid] = t
+            tasks[tid] = _load_task(db, tid)
 
     board_tasks: list[BoardTaskOut] = []
     for tid, task in sorted(tasks.items(), key=lambda x: x[1].title):
         acts = by_task.get(tid, [])
         act_outs = [_action_out(user, a) for a in acts]
-        # 开放风险仅计「进行中」Action（完成/草稿遗留文案不计入大屏与 KPI）
         risks = [
             x.latest_risk
             for x in act_outs
             if x.status == STATUS_PUBLISHED and (x.latest_risk or "").strip()
         ]
-        avg = (
-            int(round(sum(x.progress_percent for x in act_outs) / len(act_outs)))
-            if act_outs
-            else 0
+        display, recommended, manual = _resolve_task_week_progress(
+            db, task_id=tid, week_key_s=key, act_outs=act_outs
         )
         board_tasks.append(
             BoardTaskOut(
                 task=_task_out(user, task),
                 actions=act_outs,
-                week_progress_avg=avg,
+                week_progress_avg=display,
+                progress_is_manual=manual,
+                recommended_progress=recommended,
                 risks=risks,
             )
         )
 
-    # 历史周：只展示该周确有 Action 的 Task（避免空卡片刷屏）
-    viewing_history = key != week_key(current_week_start())
+    viewing_history = key != active.week_key
     if viewing_history:
         board_tasks = [b for b in board_tasks if b.actions]
 
-    # 当前周：非管理员只保留有 Action 或自己参与的 Task
     if not viewing_history and not is_tm_admin(user):
         board_tasks = [
             b
@@ -1013,8 +1247,8 @@ def get_board(
         if a.status == STATUS_PUBLISHED and (a.latest_risk or "").strip()
     )
     progress_avg = (
-        int(round(sum(a.progress_percent for a in all_actions) / len(all_actions)))
-        if all_actions
+        int(round(sum(b.week_progress_avg for b in board_tasks) / len(board_tasks)))
+        if board_tasks
         else 0
     )
     summary = BoardSummaryOut(
@@ -1029,8 +1263,9 @@ def get_board(
 
     return BoardOut(
         week_start=ws,
-        week_end=week_end(ws),
+        week_end=we,
         week_key=key,
+        weekly_push_at=compute_weekly_push_at(we),
         summary=summary,
         tasks=board_tasks,
     )

@@ -254,3 +254,48 @@ class TmPushRun(Base):
     skipped = Column(Integer, nullable=False, default=0)  # 1=无内容跳过
     message_bytes = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class TmWeekPeriod(Base):
+    """
+    业务周窗口：Admin/Manager 可配置本周结束时刻；起点为上一窗口终点。
+    默认仍按「周三 17:00 起、+7 天」自动开窗。
+    """
+
+    __tablename__ = "tm_week_periods"
+
+    id = Column(String, primary_key=True, default=_new_uuid)
+    week_key = Column(String, nullable=False, unique=True, index=True)
+    week_start = Column(DateTime(timezone=True), nullable=False, index=True)
+    week_end = Column(DateTime(timezone=True), nullable=False, index=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class TmTaskWeekProgress(Base):
+    """
+    Task 本周进度（周结束前由 Admin/Manager/测试负责人手填）。
+    未填写时展示侧用 Action 平均，并标记未手填。
+    """
+
+    __tablename__ = "tm_task_week_progress"
+    __table_args__ = (
+        UniqueConstraint("task_id", "week_key", name="uq_tm_task_week_progress"),
+    )
+
+    id = Column(String, primary_key=True, default=_new_uuid)
+    task_id = Column(
+        String, ForeignKey("tm_tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    week_key = Column(String, nullable=False, index=True)
+    progress_percent = Column(Integer, nullable=False, default=0)
+    note = Column(Text, nullable=False, default="")
+    updated_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

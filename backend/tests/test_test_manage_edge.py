@@ -434,13 +434,13 @@ def test_unauthenticated_board_401(client):
     assert r.status_code == 401
 
 
-def test_week_boundary_one_second_around_wed18():
-    just_before = datetime(2026, 7, 15, 17, 59, 59, tzinfo=TM_TZ)
-    just_at = datetime(2026, 7, 15, 18, 0, 0, tzinfo=TM_TZ)
-    just_after = datetime(2026, 7, 15, 18, 0, 1, tzinfo=TM_TZ)
-    assert current_week_start(just_before) == datetime(2026, 7, 8, 18, 0, tzinfo=TM_TZ)
-    assert current_week_start(just_at) == datetime(2026, 7, 15, 18, 0, tzinfo=TM_TZ)
-    assert current_week_start(just_after) == datetime(2026, 7, 15, 18, 0, tzinfo=TM_TZ)
+def test_week_boundary_one_second_around_wed17():
+    just_before = datetime(2026, 7, 15, 16, 59, 59, tzinfo=TM_TZ)
+    just_at = datetime(2026, 7, 15, 17, 0, 0, tzinfo=TM_TZ)
+    just_after = datetime(2026, 7, 15, 17, 0, 1, tzinfo=TM_TZ)
+    assert current_week_start(just_before) == datetime(2026, 7, 8, 17, 0, tzinfo=TM_TZ)
+    assert current_week_start(just_at) == datetime(2026, 7, 15, 17, 0, tzinfo=TM_TZ)
+    assert current_week_start(just_after) == datetime(2026, 7, 15, 17, 0, tzinfo=TM_TZ)
 
 
 def test_action_default_owner_is_task_lead(client, mgr_headers, eng_headers):

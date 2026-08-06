@@ -4,6 +4,8 @@ import {
   App,
   Button,
   Card,
+  Collapse,
+  DatePicker,
   Drawer,
   Empty,
   Form,
@@ -27,6 +29,7 @@ import {
   WarningOutlined,
 } from '@ant-design/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import dayjs from 'dayjs'
 import {
   testManageApi,
   type BoardTask,
@@ -76,6 +79,12 @@ function userSelectOptions(users: { id: number; username: string; real_name?: st
   }))
 }
 
+function formatDateTimeShort(iso?: string | null) {
+  if (!iso) return '—'
+  const d = dayjs(iso)
+  return d.isValid() ? d.format('MM-DD HH:mm') : iso
+}
+
 function formatWeekShort(weekStart?: string, weekEnd?: string) {
   if (!weekStart) return ''
   const s = new Date(weekStart)
@@ -119,6 +128,33 @@ export default function ProjectManagePage() {
   const { data: week } = useQuery({
     queryKey: ['tm-week'],
     queryFn: async () => (await testManageApi.week()).data,
+  })
+
+  const setWeekEndMut = useMutation({
+    mutationFn: async (weekEndIso: string) => (await testManageApi.setWeekEnd(weekEndIso)).data,
+    onSuccess: (data) => {
+      const pushHint = data.weekly_push_at
+        ? `；周报预计 ${formatDateTimeShort(data.weekly_push_at)} 发送`
+        : ''
+      message.success(`本周结束时间已更新；本周 Action 截止时间已同步${pushHint}`)
+      void qc.invalidateQueries({ queryKey: ['tm-week'] })
+      void qc.invalidateQueries({ queryKey: ['tm-board'] })
+    },
+    onError: (e: any) => message.error(e?.response?.data?.detail || '设置失败'),
+  })
+
+  const upsertTaskWeekProgressMut = useMutation({
+    mutationFn: async (p: { id: string; progress_percent: number; note?: string }) =>
+      (await testManageApi.upsertTaskWeekProgress(p.id, {
+        progress_percent: p.progress_percent,
+        note: p.note,
+      })).data,
+    onSuccess: () => {
+      message.success('本周 Task 进度已保存')
+      void qc.invalidateQueries({ queryKey: ['tm-task-week-progress'] })
+      void qc.invalidateQueries({ queryKey: ['tm-board'] })
+    },
+    onError: (e: any) => message.error(e?.response?.data?.detail || '保存周进度失败'),
   })
 
   const {
@@ -210,6 +246,13 @@ export default function ProjectManagePage() {
     queryKey: ['tm-task', editTaskId],
     queryFn: async () => (await testManageApi.getTask(editTaskId!)).data,
     enabled: !!editTaskId,
+  })
+
+  /** 本周 Task 周进度（周报口径；未填则后端返回 Action 平均推荐值） */
+  const { data: taskWeekProgress } = useQuery({
+    queryKey: ['tm-task-week-progress', editTaskId, week?.week_key || ''],
+    queryFn: async () => (await testManageApi.getTaskWeekProgress(editTaskId!)).data,
+    enabled: !!editTaskId && !viewingHistory,
   })
 
   const { data: cloneCandidates = [] } = useQuery({
@@ -429,6 +472,11 @@ export default function ProjectManagePage() {
               <Text type="secondary">
                 {formatWeekShort(board?.week_start || week?.week_start, board?.week_end || week?.week_end)}
               </Text>
+              {!viewingHistory && (board?.weekly_push_at || week?.weekly_push_at) ? (
+                <Text type="secondary" data-testid="tm-weekly-push-at">
+                  周报预计 {formatDateTimeShort(board?.weekly_push_at || week?.weekly_push_at)} 发送
+                </Text>
+              ) : null}
               <WeekViewSwitcher
                 mode={weekMode}
                 onModeChange={handleWeekModeChange}
@@ -438,6 +486,25 @@ export default function ProjectManagePage() {
                 testIdPrefix="tm-board-week"
               />
             </Space>
+            {!viewingHistory && week?.can_set_week_end ? (
+              <Space wrap size={8} style={{ marginTop: 8 }} align="center">
+                <Text type="secondary">周结束</Text>
+                <DatePicker
+                  showTime={{ format: 'HH:mm' }}
+                  format="YYYY-MM-DD HH:mm"
+                  value={week?.week_end ? dayjs(week.week_end) : null}
+                  disabled={setWeekEndMut.isPending}
+                  onChange={(v) => {
+                    if (!v) return
+                    setWeekEndMut.mutate(v.toISOString())
+                  }}
+                  data-testid="tm-week-end-picker"
+                />
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  周报在周结束时间后 15 分钟发送
+                </Text>
+              </Space>
+            ) : null}
           </div>
           <div className="tm-week-summary__stats tm-week-summary__stats--slim">
             <div className="tm-week-summary__stat">
@@ -879,6 +946,70 @@ export default function ProjectManagePage() {
               {taskDetail.project_name} / {taskDetail.domain_name} · 负责人{' '}
               {userName(taskDetail.lead_id)}
             </Text>
+            {!viewingHistory && taskWeekProgress ? (
+              <Card
+                size="small"
+                title="本周 Task 进度（周报）"
+                data-testid="tm-task-week-progress"
+              >
+                {!taskWeekProgress.progress_is_manual ? (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 12 }}
+                    message="尚未手填 Task 进度，当前按本周 Action 进度平均值展示"
+                    description={`推荐值 ${taskWeekProgress.recommended_progress}%`}
+                  />
+                ) : null}
+                {taskWeekProgress.can_edit ? (
+                  <Form
+                    key={`week-progress-${taskDetail.id}-${taskWeekProgress.updated_at || 'new'}-${taskWeekProgress.progress_is_manual}`}
+                    layout="vertical"
+                    initialValues={{
+                      progress_percent: taskWeekProgress.progress_percent,
+                      note: taskWeekProgress.note || '',
+                    }}
+                    onFinish={(v) =>
+                      upsertTaskWeekProgressMut.mutate({
+                        id: taskDetail.id,
+                        progress_percent: Number(v.progress_percent),
+                        note: (v.note || '').trim(),
+                      })
+                    }
+                  >
+                    <Form.Item
+                      name="progress_percent"
+                      label="本周进度 %"
+                      rules={[{ required: true, message: '请填写进度' }]}
+                      extra={`推荐填 Action 平均 ${taskWeekProgress.recommended_progress}%；请在周结束前填写`}
+                    >
+                      <InputNumber min={0} max={100} style={{ width: '100%' }} data-testid="tm-task-week-progress-input" />
+                    </Form.Item>
+                    <Form.Item name="note" label="备注（可选）">
+                      <Input placeholder="周进度说明" maxLength={500} />
+                    </Form.Item>
+                    <Button
+                      type="primary"
+                      htmlType="submit"
+                      block
+                      loading={upsertTaskWeekProgressMut.isPending}
+                      data-testid="tm-task-week-progress-save"
+                    >
+                      保存本周进度
+                    </Button>
+                  </Form>
+                ) : (
+                  <div>
+                    <Progress percent={taskWeekProgress.progress_percent} />
+                    {taskWeekProgress.note ? (
+                      <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                        {taskWeekProgress.note}
+                      </Paragraph>
+                    ) : null}
+                  </div>
+                )}
+              </Card>
+            ) : null}
             {taskDetail.can_edit ? (
               <Form
                 key={`${taskDetail.id}-${taskFormEpoch}`}
@@ -1221,29 +1352,36 @@ function BoardTaskCard(props: {
         </Space>
       }
       extra={
-        <Space>
-          <Text type="secondary">{bt.week_progress_avg}%</Text>
-          {!readOnly && bt.task.can_edit && (
-            <>
-              <Button size="small" onClick={props.onEditTask} data-testid="tm-btn-edit-task">
-                Task
-              </Button>
-              {shouldShowAddActionButton({
-                readOnly: !!readOnly,
-                canEdit: !!bt.task.can_edit,
-                canAddAction: !!bt.task.can_add_action,
-              }) ? (
-                <Button
-                  size="small"
-                  type="primary"
-                  onClick={props.onAddAction}
-                  data-testid="tm-btn-add-action"
-                >
-                  + Action
+        <Space direction="vertical" size={0} style={{ alignItems: 'flex-end' }}>
+          <Space>
+            <Text type="secondary">{bt.week_progress_avg}%</Text>
+            {!readOnly && bt.task.can_edit && (
+              <>
+                <Button size="small" onClick={props.onEditTask} data-testid="tm-btn-edit-task">
+                  Task
                 </Button>
-              ) : null}
-            </>
-          )}
+                {shouldShowAddActionButton({
+                  readOnly: !!readOnly,
+                  canEdit: !!bt.task.can_edit,
+                  canAddAction: !!bt.task.can_add_action,
+                }) ? (
+                  <Button
+                    size="small"
+                    type="primary"
+                    onClick={props.onAddAction}
+                    data-testid="tm-btn-add-action"
+                  >
+                    + Action
+                  </Button>
+                ) : null}
+              </>
+            )}
+          </Space>
+          {bt.progress_is_manual === false ? (
+            <Text type="warning" style={{ fontSize: 12 }} data-testid="tm-task-progress-tip">
+              未手填 Task 进度
+            </Text>
+          ) : null}
         </Space>
       }
     >
@@ -1475,6 +1613,12 @@ function ActionDetailDrawer(props: {
     enabled: !!d && props.open && canEditFields,
   })
 
+  const { data: lineage } = useQuery({
+    queryKey: ['tm-action-lineage', d?.id],
+    queryFn: async () => (await testManageApi.getActionLineage(d!.id)).data,
+    enabled: !!d?.id && props.open,
+  })
+
   const ownerCandidates = taskParticipantUsers(draftTask, props.users)
 
   /** 时间线按时间正序：最旧在上、最新在下，滚到底即可看到刚追加的 */
@@ -1518,6 +1662,43 @@ function ActionDetailDrawer(props: {
             </Text>
           </div>
           <Progress percent={d.progress_percent} />
+          {lineage && lineage.weeks_count > 0 ? (
+            <Collapse
+              size="small"
+              data-testid="tm-action-lineage"
+              items={[
+                {
+                  key: 'lineage',
+                  label: `延续历史（共 ${lineage.weeks_count} 周）`,
+                  children: (
+                    <Timeline
+                      items={lineage.segments.map((seg) => ({
+                        color: seg.is_current ? 'green' : 'blue',
+                        children: (
+                          <div>
+                            <Space wrap size={4}>
+                              <Text strong>{seg.week_key}</Text>
+                              {seg.is_current ? <Tag color="success">当前</Tag> : null}
+                              <Tag>{STATUS_LABEL[seg.status]?.text || seg.status}</Tag>
+                              <Text type="secondary">{seg.progress_percent}%</Text>
+                            </Space>
+                            <div>{seg.title}</div>
+                            {seg.risks.length > 0 ? (
+                              <Paragraph type="danger" style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>
+                                风险/问题：{seg.risks.join('；')}
+                              </Paragraph>
+                            ) : (
+                              <Text type="secondary">本周无风险记录</Text>
+                            )}
+                          </div>
+                        ),
+                      }))}
+                    />
+                  ),
+                },
+              ]}
+            />
+          ) : null}
           {forceReadOnly ? (
             <Alert type="info" showIcon message="历史周只读：不可编辑、日更或变更状态，请切回「本周」。" />
           ) : null}
@@ -1535,7 +1716,7 @@ function ActionDetailDrawer(props: {
               <Form
                 form={draftForm}
                 layout="vertical"
-                key={d.id + d.updated_at}
+                key={`${d.id}-${d.updated_at || ''}`}
                 initialValues={{
                   title: d.title,
                   owner_id: d.owner_id,

@@ -12,7 +12,9 @@ import {
   DownOutlined,
   RightOutlined,
 } from '@ant-design/icons'
+import dayjs from 'dayjs'
 import type { BoardOut, BoardTask, WeekHistoryOption } from '../../shared/api/test-manage'
+import { toScreenBoardTasks } from '../utils/boardUi'
 import WeekViewSwitcher, { type WeekViewMode } from './WeekViewSwitcher'
 import './WeekScreenTab.css'
 
@@ -141,7 +143,10 @@ export default function WeekScreenTab(props: {
     return () => document.removeEventListener('fullscreenchange', onFs)
   }, [])
 
-  const tasks = props.board?.tasks ?? []
+  const tasks = useMemo(
+    () => toScreenBoardTasks(props.board?.tasks ?? []),
+    [props.board?.tasks],
+  )
 
   const domains = useMemo(() => {
     const set = new Set<string>()
@@ -240,6 +245,9 @@ export default function WeekScreenTab(props: {
           </h1>
           <p className="tm-screen__week">
             周窗口 {formatWeekRange(props.board?.week_start, props.board?.week_end)}
+            {props.board?.weekly_push_at ? (
+              <> · 周报预计 {dayjs(props.board.weekly_push_at).format('MM-DD HH:mm')} 发送</>
+            ) : null}
             {props.board?.week_key ? ` · ${props.board.week_key}` : ''}
           </p>
           <Space size={4} style={{ marginTop: 10 }} wrap>
@@ -506,6 +514,11 @@ function TaskGroup(props: {
             strokeColor={hasRisk ? '#d97706' : '#0070f3'}
             trailColor="rgba(15, 23, 42, 0.08)"
           />
+          {!bt.progress_is_manual ? (
+            <div className="tm-screen__progress-tip" title={`推荐值（Action 平均）${bt.recommended_progress ?? bt.week_progress_avg}%`}>
+              未手填 Task 进度
+            </div>
+          ) : null}
         </td>
         <td>
           {hasRisk ? (

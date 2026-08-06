@@ -2,8 +2,8 @@
 周三切周回归：日更/看板/新建 Action / 推送所属周口径。
 
 规则摘要（UTC+8）：
-- current_week_start：≥周三 18:00 进入「新一周」
-- daily_context_week_start：周三全天仍用「刚结束周」（this_wed_18 - 7d）
+- current_week_start：≥周三 17:00 进入「新一周」
+- daily_context_week_start：周三全天仍用「刚结束周」（this_wed_17 - 7d）
   → 切周后新建的 Action 属新周，当天不可日更；仍应写旧周 Action 的日更
 """
 from __future__ import annotations
@@ -25,12 +25,12 @@ from app.test_manage import push_report as report
 TAG = "【切周】"
 
 # 固定锚点：2026-07-15 为周三
-WED_BEFORE = datetime(2026, 7, 15, 17, 59, tzinfo=TM_TZ)
-WED_AT = datetime(2026, 7, 15, 18, 0, tzinfo=TM_TZ)
-WED_AFTER = datetime(2026, 7, 15, 19, 30, tzinfo=TM_TZ)
+WED_BEFORE = datetime(2026, 7, 15, 16, 59, tzinfo=TM_TZ)
+WED_AT = datetime(2026, 7, 15, 17, 0, tzinfo=TM_TZ)
+WED_AFTER = datetime(2026, 7, 15, 18, 30, tzinfo=TM_TZ)
 THU = datetime(2026, 7, 16, 10, 0, tzinfo=TM_TZ)
-OLD_WEEK = datetime(2026, 7, 8, 18, 0, tzinfo=TM_TZ)
-NEW_WEEK = datetime(2026, 7, 15, 18, 0, tzinfo=TM_TZ)
+OLD_WEEK = datetime(2026, 7, 8, 17, 0, tzinfo=TM_TZ)
+NEW_WEEK = datetime(2026, 7, 15, 17, 0, tzinfo=TM_TZ)
 
 
 # ── 纯函数口径 ──────────────────────────────────────────────

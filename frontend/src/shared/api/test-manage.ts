@@ -68,6 +68,8 @@ export interface TmAction {
   created_by: number
   published_at: string | null
   due_at: string | null
+  /** 用于草稿表单重挂载；后端若未返回可缺省 */
+  updated_at?: string | null
   progress_percent: number
   latest_risk: string
   task_title?: string | null
@@ -102,6 +104,9 @@ export interface BoardTask {
   task: TmTask
   actions: TmAction[]
   week_progress_avg: number
+  /** false=未手填，展示的是 Action 平均推荐值 */
+  progress_is_manual?: boolean
+  recommended_progress?: number
   risks: string[]
 }
 
@@ -126,6 +131,8 @@ export interface WeekInfo {
   week_start: string
   week_end: string
   week_key: string
+  weekly_push_at?: string | null
+  can_set_week_end?: boolean
   history: WeekHistoryOption[]
 }
 
@@ -133,12 +140,44 @@ export interface BoardOut {
   week_start: string
   week_end: string
   week_key: string
+  weekly_push_at?: string | null
   summary: BoardSummary
   tasks: BoardTask[]
 }
 
+export interface TaskWeekProgress {
+  task_id: string
+  week_key: string
+  progress_percent: number
+  recommended_progress: number
+  progress_is_manual: boolean
+  note: string
+  updated_by?: number | null
+  updated_at?: string | null
+  can_edit: boolean
+}
+
+export interface ActionLineageSegment {
+  action_id: string
+  week_key: string
+  week_start: string
+  title: string
+  status: string
+  progress_percent: number
+  risks: string[]
+  is_current: boolean
+}
+
+export interface ActionLineage {
+  action_id: string
+  weeks_count: number
+  segments: ActionLineageSegment[]
+}
+
 export const testManageApi = {
   week: () => apiClient.get<WeekInfo>('/test-manage/week'),
+  setWeekEnd: (week_end: string) =>
+    apiClient.put<WeekInfo>('/test-manage/week/end', { week_end }),
   users: () => apiClient.get<TmUserBrief[]>('/test-manage/users'),
   board: (params?: { project_id?: string; week_start?: string }) =>
     apiClient.get<BoardOut>('/test-manage/board', { params }),
@@ -163,6 +202,14 @@ export const testManageApi = {
     publish?: boolean
   }) => apiClient.post<TmTask>('/test-manage/tasks', data),
   getTask: (id: string) => apiClient.get<TmTaskDetail>(`/test-manage/tasks/${id}`),
+  getTaskWeekProgress: (id: string, week_key?: string) =>
+    apiClient.get<TaskWeekProgress>(`/test-manage/tasks/${id}/week-progress`, {
+      params: week_key ? { week_key } : undefined,
+    }),
+  upsertTaskWeekProgress: (
+    id: string,
+    data: { progress_percent: number; note?: string },
+  ) => apiClient.put<TaskWeekProgress>(`/test-manage/tasks/${id}/week-progress`, data),
   updateTask: (
     id: string,
     data: {
@@ -190,6 +237,8 @@ export const testManageApi = {
   cloneAction: (id: string, data?: { title?: string; publish?: boolean }) =>
     apiClient.post<TmAction>(`/test-manage/actions/${id}/clone`, data || {}),
   getAction: (id: string) => apiClient.get<TmActionDetail>(`/test-manage/actions/${id}`),
+  getActionLineage: (id: string) =>
+    apiClient.get<ActionLineage>(`/test-manage/actions/${id}/lineage`),
   updateAction: (
     id: string,
     data: {
