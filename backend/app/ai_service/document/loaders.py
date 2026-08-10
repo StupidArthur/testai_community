@@ -45,22 +45,54 @@ def _read_docx(path: Path) -> tuple[str, list[Path]]:
     """读取 docx 段落文字并导出内嵌图片到临时目录。"""
     from docx import Document  # python-docx
 
-    doc = Document(str(path))
+    from .docx_compat import ensure_docx_broken_rels_patch
+
+    ensure_docx_broken_rels_patch()
+
+    try:
+        doc = Document(str(path))
+    except KeyError as exc:
+        # 仍失败时尝试 LibreOffice 另存清洗后再读
+        log.warning("docx open failed (%s), try LibreOffice repair: %s", path.name, exc)
+        tmp_dir = Path(tempfile.mkdtemp(prefix="kb_docx_repair_"))
+        repaired = convert_with_libreoffice(path, tmp_dir, "docx")
+        if repaired is None:
+            raise ValueError(
+                f"无法打开 Word 文档（损坏的内部链接/图片引用: {exc}）。"
+                "请用 Word 打开后另存为新的 .docx 再上传。"
+            ) from exc
+        doc = Document(str(repaired))
+
     paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+    # 表格文字一并纳入，避免「正文在表里」时切分结果为空
+    for table in doc.tables:
+        for row in table.rows:
+            cells = [c.text.strip() for c in row.cells if c.text and c.text.strip()]
+            if cells:
+                paragraphs.append(" | ".join(cells))
     text = "\n\n".join(paragraphs)
 
     image_paths: list[Path] = []
     tmp_dir = Path(tempfile.mkdtemp(prefix="kb_docx_img_"))
     img_idx = 0
     for rel in doc.part.rels.values():
-        if "image" not in rel.reltype:
+        if "image" not in getattr(rel, "reltype", ""):
             continue
-        blob = rel.target_part.blob
-        ext = rel.target_part.content_type.split("/")[-1].replace("jpeg", "jpg")
-        out = tmp_dir / f"img_{img_idx}.{ext}"
-        out.write_bytes(blob)
-        image_paths.append(out)
-        img_idx += 1
+        try:
+            if getattr(rel, "is_external", False):
+                continue
+            target_ref = (getattr(rel, "target_ref", None) or "").strip()
+            if not target_ref or target_ref.upper() == "NULL" or target_ref.startswith("#"):
+                continue
+            part = rel.target_part
+            blob = part.blob
+            ext = part.content_type.split("/")[-1].replace("jpeg", "jpg")
+            out = tmp_dir / f"img_{img_idx}.{ext}"
+            out.write_bytes(blob)
+            image_paths.append(out)
+            img_idx += 1
+        except Exception as exc:  # noqa: BLE001
+            log.warning("docx 内嵌图跳过 (%s): %s", path.name, exc)
     return text, image_paths
 
 

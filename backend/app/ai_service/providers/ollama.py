@@ -51,25 +51,40 @@ class OllamaProvider:
         """
         单条文本向量化。
 
-        :param text: 待嵌入文本
-        :param model: 覆盖默认 OLLAMA_EMBED_MODEL
-        :return: 浮点向量
+        兼容 Ollama 新旧 API：
+        - 新版：POST /api/embed  body={"model","input"}
+        - 旧版：POST /api/embeddings  body={"model","prompt"}
         """
         if not self.is_configured():
             raise LLMNotConfiguredError("请设置 OLLAMA_BASE_URL 并启动 Ollama 服务")
-        payload = {
-            "model": model or OLLAMA_EMBED_MODEL,
-            "prompt": text,
-        }
+        model_name = model or OLLAMA_EMBED_MODEL
         async with httpx.AsyncClient(timeout=EMBED_TIMEOUT_SEC) as client:
+            # 优先新接口（部分新版本已移除 /api/embeddings → 404）
             resp = await client.post(
-                f"{self._base_url}/api/embeddings",
-                json=payload,
+                f"{self._base_url}/api/embed",
+                json={"model": model_name, "input": text},
                 headers=self._headers(),
             )
+            if resp.status_code == 404:
+                resp = await client.post(
+                    f"{self._base_url}/api/embeddings",
+                    json={"model": model_name, "prompt": text},
+                    headers=self._headers(),
+                )
+            if resp.status_code == 404:
+                raise RuntimeError(
+                    f"Ollama 向量接口不可用（404）。请确认本机已启动 ollama serve，"
+                    f"并执行 ollama pull {model_name}；当前请求地址 {self._base_url}"
+                )
             resp.raise_for_status()
             data = resp.json()
+
         embedding = data.get("embedding")
+        if not isinstance(embedding, list) or not embedding:
+            # /api/embed 返回 embeddings: [[...]]
+            emb_list = data.get("embeddings")
+            if isinstance(emb_list, list) and emb_list and isinstance(emb_list[0], list):
+                embedding = emb_list[0]
         if not isinstance(embedding, list) or not embedding:
             raise RuntimeError(f"Ollama embedding 返回异常: {data}")
         return [float(x) for x in embedding]

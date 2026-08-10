@@ -217,6 +217,18 @@ async def _process_job(job_id: str) -> None:
                         scope.setdefault("version", job.version)
                     if job.environment:
                         scope.setdefault("environment", job.environment)
+                    # 词典未命中时，用 LLM 提炼的主题标签写入 scope（不对用户暴露）
+                    labels = [
+                        str(x).strip()
+                        for x in (extracted.get("anchor_labels") or [])
+                        if str(x).strip()
+                    ][:3]
+                    if labels and "topics" not in scope:
+                        scope["topics"] = labels
+                    if not anchor_ids and labels:
+                        # 元数据用首个主题作软锚点 id，便于排查；非用户词典
+                        soft_id = "topic:" + labels[0][:64]
+                        anchor_ids = [soft_id]
 
                     alignments: list[dict] = []
                     if essence:

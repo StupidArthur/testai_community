@@ -192,9 +192,9 @@ WECOM_PUSH_ENABLED = os.getenv("WECOM_PUSH_ENABLED", "true").strip().lower() in 
 WECOM_PUSH_IDEMPOTENCY_ENABLED = os.getenv(
     "WECOM_PUSH_IDEMPOTENCY_ENABLED", "true"
 ).strip().lower() in ("1", "true", "yes", "on")
-# 周报幂等单独开关（默认关：允许同周重复推，便于调试验收）
+# 周报幂等单独开关（默认开：同周成功发送后跳过，避免 1 分钟轮询重复推群）
 WECOM_WEEKLY_IDEMPOTENCY_ENABLED = os.getenv(
-    "WECOM_WEEKLY_IDEMPOTENCY_ENABLED", "false"
+    "WECOM_WEEKLY_IDEMPOTENCY_ENABLED", "true"
 ).strip().lower() in ("1", "true", "yes", "on")
 
 

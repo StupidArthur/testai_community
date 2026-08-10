@@ -41,10 +41,19 @@ class TestSplitter:
         raw = '步骤1\n\n<json>\n{"tool": "AAS", "ability": "查询"}\n</json>'
         assert is_thinking_chain_paragraph(raw)
 
-    def test_tiny_doc_no_sections(self):
-        """极短文档切分后为空。"""
+    def test_tiny_doc_fallback_full_text(self):
+        """极短文档不再丢弃：兜底为「全文」一段，避免审核页 0 段。"""
         slices = split_plain_text_to_sections("hi")
-        assert slices == []
+        assert len(slices) == 1
+        assert slices[0].section_path == "全文"
+        assert slices[0].raw_text == "hi"
+
+    def test_short_heading_sections_fallback(self):
+        """标题下正文过短时合并兜底。"""
+        text = "## A\n\n短\n\n## B\n\n也短"
+        slices = split_plain_text_to_sections(text)
+        assert len(slices) >= 1
+        assert any(s.section_path == "全文" for s in slices)
 
 
 class TestUtils:

@@ -56,11 +56,6 @@ export default function CleanJobReviewPage() {
     },
   })
 
-  const { data: anchors = [] } = useQuery({
-    queryKey: ['dc-anchors'],
-    queryFn: () => dataCleaningApi.listAnchors().then((r) => r.data),
-  })
-
   const updateMutation = useMutation({
     mutationFn: ({ pid, data }: { pid: string; data: Parameters<typeof dataCleaningApi.updateParagraph>[2] }) =>
       dataCleaningApi.updateParagraph(jobId!, pid, data),
@@ -165,18 +160,9 @@ export default function CleanJobReviewPage() {
             style={{ marginTop: 4, marginBottom: 12 }}
           />
           <Space wrap>
-            <span>锚点：</span>
+            <span>入库操作：</span>
             <Select
-              mode="multiple"
-              style={{ minWidth: 240 }}
-              value={p.anchor_ids}
-              disabled={job?.status !== 'pending_review'}
-              options={anchors.map((a) => ({ value: a.id, label: a.label }))}
-              onChange={(ids) => updateMutation.mutate({ pid: p.id, data: { anchor_ids: ids } })}
-            />
-            <span>操作：</span>
-            <Select
-              style={{ width: 160 }}
+              style={{ width: 200 }}
               value={p.review_action}
               disabled={job?.status !== 'pending_review'}
               options={ACTION_OPTIONS}
@@ -238,6 +224,7 @@ export default function CleanJobReviewPage() {
             <Button
               type="primary"
               icon={<CheckOutlined />}
+              data-testid="kb-clean-approve"
               loading={approveMutation.isPending}
               onClick={() => approveMutation.mutate()}
             >

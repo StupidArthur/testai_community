@@ -309,6 +309,46 @@ def update_project(db: Session, user: User, project_id: str, data: ProjectUpdate
     return ProjectOut.model_validate(row)
 
 
+def archive_project(db: Session, user: User, project_id: str) -> ProjectOut:
+    """归档项目：列表默认隐藏，数据保留可恢复。"""
+    return update_project(
+        db, user, project_id, ProjectUpdate(status=PROJECT_STATUS_ARCHIVED)
+    )
+
+
+def delete_project(db: Session, user: User, project_id: str) -> None:
+    """
+    永久删除项目及其领域 / Task / Action（含日更、更正、Task 周进度等）。
+    仅 Admin/Manager；建错项目时使用。
+    """
+    require_tm_admin(user)
+    row = db.query(TmProject).filter(TmProject.id == project_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    actions = db.query(TmAction).filter(TmAction.project_id == project_id).all()
+    # 先断开跨 Action 延续引用，避免自引用阻碍删除
+    for a in actions:
+        a.source_action_id = None
+    db.flush()
+    for a in actions:
+        db.delete(a)
+    db.flush()
+
+    tasks = db.query(TmTask).filter(TmTask.project_id == project_id).all()
+    for t in tasks:
+        db.delete(t)
+    db.flush()
+
+    domains = db.query(TmDomain).filter(TmDomain.project_id == project_id).all()
+    for d in domains:
+        db.delete(d)
+    db.flush()
+
+    db.delete(row)
+    db.commit()
+
+
 def create_domain(db: Session, user: User, project_id: str, data: DomainCreate) -> DomainOut:
     require_tm_admin(user)
     if not db.query(TmProject).filter(TmProject.id == project_id).first():

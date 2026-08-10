@@ -175,6 +175,7 @@ export default function AppLayout() {
           <NavButton
             icon={<BookOutlined />}
             label="知识库"
+            data-testid="nav-knowledge-base"
             active={location.pathname.startsWith('/knowledge-base')}
             onClick={() => navigate('/knowledge-base')}
           />

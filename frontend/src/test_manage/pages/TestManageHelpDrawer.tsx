@@ -34,15 +34,15 @@ export default function TestManageHelpDrawer(props: Props) {
         <br />
         <Text strong>Action</Text>：本周要执行的具体事项，含负责人、进度与风险。
         <br />
-        <Text strong>周界</Text>：每周三 18:00 切换到下一汇报周。
+        <Text strong>周界</Text>：默认每周三 <Text strong>17:00</Text> 切周（管理员可改本周结束时刻）。
       </Paragraph>
 
       <Title level={5}>三个页签</Title>
       <Paragraph>
-        <Text strong>本周大屏</Text>：查看整体进度、风险与「需关注」列表。
+        <Text strong>本周大屏</Text>：查看整体进度、风险与「需关注」列表；可切历史周（只读）。
         <br />
-        <Text strong>工作台</Text>：按「我的 Task / 其他 Task」查看。我的 Task = 你是测试负责人的条目，便于先分配本周
-        Action。在「新建 Action」或 Task 详情中可「复制上周」。
+        <Text strong>工作台</Text>：按「我的 Task / 其他 / 全部」查看。我的 Task = 你是测试负责人的条目。可「新建
+        Action」或「复制上周」。
         <br />
         <Text strong>我的 Action</Text>：对指派给自己的 Action 提交当日进度。
       </Paragraph>
@@ -65,7 +65,7 @@ export default function TestManageHelpDrawer(props: Props) {
       <Paragraph>
         Action 发布后，标题、负责人、测试内容、环境等字段锁定，不可直接改派。
         需要更正时使用「更正说明」；需要更换负责人时，新建一条 Action 并指定新负责人。
-        标记完成前，日更进度须达到 100%。
+        标记完成前，日更进度须达到 100%。Action 不支持取消。
       </Paragraph>
 
       <Title level={5}>Task 状态</Title>
@@ -79,6 +79,10 @@ export default function TestManageHelpDrawer(props: Props) {
       <Title level={5}>需关注</Title>
       <Paragraph>
         包含：存在开放风险，或仍有进行中的 Action。仅含草稿、无进行中事项的 Task 不计入。
+      </Paragraph>
+
+      <Paragraph type="secondary" style={{ marginTop: 16 }}>
+        更细说明见仓库文档 <Text code>doc/test_manage_product_guide.md</Text>。
       </Paragraph>
       </div>
     </Drawer>

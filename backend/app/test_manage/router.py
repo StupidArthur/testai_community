@@ -113,6 +113,26 @@ def api_update_project(
     return svc.update_project(db, current_user, project_id, data)
 
 
+@router.post("/projects/{project_id}/archive", response_model=ProjectOut)
+def api_archive_project(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """归档项目（列表默认隐藏，数据保留）。"""
+    return svc.archive_project(db, current_user, project_id)
+
+
+@router.delete("/projects/{project_id}", status_code=204)
+def api_delete_project(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """永久删除项目及下属领域 / Task / Action。"""
+    svc.delete_project(db, current_user, project_id)
+
+
 @router.get("/projects/{project_id}/domains", response_model=list[DomainOut])
 def api_list_domains(
     project_id: str,

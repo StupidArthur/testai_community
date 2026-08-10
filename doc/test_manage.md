@@ -1,6 +1,6 @@
 # 测试任务管理（Test Manage / 项目管理）
 
-> 文档版本：2026-08-04  
+> 文档版本：2026-08-10  
 > 状态：**一期已实现（Domain → Task → Action）**  
 > 模块：`backend/app/test_manage/` · `frontend/src/test_manage/`  
 > 入口：顶栏/门户「项目管理」→ `/projects` · API `/api/test-manage`  
@@ -17,9 +17,9 @@ Project（组织容器，如 TPT V2.1；创建维度 + 看板可选筛选）
               └── Action（周实例：测试内容 / 环境；草稿可改，发布后锁定）
 ```
 
-- **Project**：创建与组织用；看板上可按项目筛选，主汇总仍是 **周 × Task**。  
+- **Project**：创建与组织用；看板上可按项目筛选，主汇总仍是 **周 × Task**。Admin/Manager 可**归档**（列表隐藏）或**永久删除**（级联清理下属数据）。  
 - **Task**：主题线；负责人写其下 Action。需求内容上限 **5000** 字。**Task 周进度**在周结束前由 Admin/Manager/Task 负责人填写，供周报；未填则展示本周 Action 进度平均并提示「未手填」。  
-- **Action**：周轮回（默认周三 18:00 → 下周三 18:00，**周结束可配置**）；本周负责人只能从 Task **测试负责人 + 测试人员** 中选；测试内容上限 **1000** 字，环境上限 **300** 字。可通过 `source_action_id` 查看**延续历史**（跨周次数与每周风险）。
+- **Action**：周轮回（默认周三 17:00 → 下周三 17:00，**周结束可配置**）；本周负责人只能从 Task **测试负责人 + 测试人员** 中选；测试内容上限 **1000** 字，环境上限 **300** 字。可通过 `source_action_id` 查看**延续历史**（跨周次数与每周风险）。
 
 ---
 
@@ -27,6 +27,7 @@ Project（组织容器，如 TPT V2.1；创建维度 + 看板可选筛选）
 
 | 操作 | Admin / Manager | Task 测试负责人 | Action 本周负责人（非 lead） | Task 测试人员（非该 Action owner） |
 |------|-----------------|-----------------|------------------------------|-------------------------------------|
+| **建 / 归档 / 删除 Project**；建 Domain | 是 | 否 | 否 | 否 |
 | 编辑 Task / 变更 Task 状态 | 是 | 是 | 否 | 否 |
 | **填写本周 Task 进度** | 是 | 是 | 否 | 否 |
 | **设置本周结束时刻** | 是 | 否 | 否 | 否 |
@@ -65,7 +66,7 @@ Project（组织容器，如 TPT V2.1；创建维度 + 看板可选筛选）
 | 默认周 | 周三 **17:00** → 下周三 **17:00**（UTC+8）；表 `tm_week_periods` |
 | 可配结束 | `PUT /week/end`（Admin/Manager）；须晚于现在与本周起点；同步本周 Action.`due_at` |
 | 周报发送 | `compute_weekly_push_at`：**一律周结束 + 15 分钟**（默认周三 17:00 → **17:15**） |
-| Windows 计划任务 | 周报触发建议每 **15 分钟** tick，由脚本/进程内判定是否到 `weekly_push_at`；改安装脚本后需**重装计划任务** |
+| Windows 计划任务 | 周报触发建议每 **1 分钟** tick，由脚本/进程内判定是否到 `weekly_push_at`（到点后约 1 分钟内发出）；改安装脚本后需**重装计划任务** |
 
 ---
 
@@ -103,7 +104,7 @@ Project（组织容器，如 TPT V2.1；创建维度 + 看板可选筛选）
 
 ## 6. 看板（项目管理首页）
 
-- 默认 Tab「**本周大屏**」：领导汇报视图——KPI、周×Task 明细、风险聚焦侧栏、全屏汇报；支持 **本周 / 历史**（历史下拉最多 10 周，只读）。**草稿 Action 不进入大屏**（KPI/明细均不含；仅草稿的 Task 整行隐藏；工作台仍可见草稿）。Task 进度列：未手填时提示「未手填 Task 进度」，数值为 Action 平均。  
+- 默认 Tab「**本周大屏**」：领导汇报视图——KPI、周×Task 明细（**每条非草稿 Action 均展示子行，含仅 1 条**）、风险聚焦侧栏、全屏汇报；支持 **本周 / 历史**（历史下拉最多 10 周，只读）。**草稿 Action 不进入大屏**（KPI/明细均不含；仅草稿的 Task 整行隐藏；工作台仍可见草稿）。Task 进度列：手填优先；未手填时提示「未手填 Task 进度」，数值为 Action 平均。  
 - 「工作台」：同一周切换；历史周隐藏新建入口；可看周报预计发送时刻；Admin/Manager 可改周结束。  
   - 筛选条在双栏上方；左右面板标题与内容区顶对齐、等高；明细默认「需关注」，多 Action 折叠，表体定高滚动。  
   - **KPI 分两行**：Task / Action 维度各自统计；Action「均进度」= 算术平均（旁侧文案只反映进度，不绑风险）；「有风险」仅计 **进行中** Action。明细「负责人」：**Task 测试负责人在前**，多人「甲 等N人」。  
@@ -121,14 +122,14 @@ Project（组织容器，如 TPT V2.1；创建维度 + 看板可选筛选）
 |----|------|
 | 配置 | `.env`：`WECOM_WEBHOOK_URL`、`WECOM_PUSH_ENABLED`；可选 `WECOM_DAILY_PUSH_*` / `WECOM_WEEKLY_PUSH_*` |
 | 定时（推荐） | Windows 计划任务 + keep-awake；单条 ≤4096，超长先 AI 再砍行；用计划任务时 `WECOM_PUSH_ENABLED=false` |
-| 幂等开关 | `WECOM_PUSH_IDEMPOTENCY_ENABLED`（日报）；`WECOM_WEEKLY_IDEMPOTENCY_ENABLED`（周报，默认 **false** 可同周重发）；计划任务亦可 `TM_PUSH_FORCE=1` |
+| 幂等开关 | `WECOM_PUSH_IDEMPOTENCY_ENABLED`（日报）；`WECOM_WEEKLY_IDEMPOTENCY_ENABLED`（周报，默认 **true** 同周只发一次；调试可设 false）；计划任务亦可 `TM_PUSH_FORCE=1` |
 | 日报 | Action 视角；每天 1 条 |
 | 周报 | Task 视角；**优先用手填 Task 周进度**，未填用 Action 平均；风险挂在 Task 下并标注 Action+负责人；Task 仅进行中可加 Action；**本周 0 Action 的 Task 不计入周报/日报 KPI 的 task_count**（看板仍标红空卡片） |
 | 需关注 | 开放风险或进行中 Action；**不含纯草稿**；大屏明细亦不展示草稿 Action |
 | 切周 | 工作台标红无 Action 的 Task；负责人「复制上周 / 新建」 |
 | 已解决 / 不计开放风险 | 最新日更 `risk_blocker` 为空；或 Action 已 **完成/草稿**（及历史取消；完成态遗留风险文案不再进日报与大屏） |
 | 过长 | ≤4096：先确定性缩短条数，再硬截断（**不调 AI**，保证定时必发） |
-| 备份定时 | 日报 **17:12** 一次 + **20:00～20:04** 共 5 次（幂等，成功一次即可）；周报由 `weekly_push_at`（`week_end+15min`）决定，计划任务建议 15 分钟一轮；周报幂等默认关（`WECOM_WEEKLY_IDEMPOTENCY_ENABLED`，默认可同周重发） |
+| 备份定时 | 日报 **17:12** 一次 + **20:00～20:04** 共 5 次（幂等，成功一次即可）；周报由 `weekly_push_at`（`week_end+15min`）决定，计划任务建议 **1 分钟**一轮；周报幂等默认开（同周只发一次） |
 | 定时 | 进程内轮询（`run.py`）：日报默认每天 **20:00**；周报按周期 `weekly_push_at`。日更当日 **19:50** 后锁定。**生产推荐 Windows 计划任务，见上** |
 | 手动 | `POST /api/test-manage/push/daily|weekly`（Admin/Manager）；`dry_run` / `force`；未配置 webhook 且非 dry_run → 400 |
 | 调试脚本 | `backend/scripts/trigger_wecom_push.py`（改 `__main__` 参数，勿用 CLI） |

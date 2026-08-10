@@ -73,7 +73,14 @@ export default function AnchorDictPage() {
           { title: '启用', dataIndex: 'enabled', width: 80, render: (v: boolean) => (v ? '是' : '否') },
         ]}
       />
-      <Modal title="新建锚点" open={open} onCancel={() => setOpen(false)} onOk={() => form.submit()}>
+      <Modal
+        title="新建锚点"
+        open={open}
+        onCancel={() => setOpen(false)}
+        onOk={() => form.submit()}
+        okText="确定"
+        cancelText="取消"
+      >
         <Form form={form} layout="vertical" onFinish={(v) => createMutation.mutate(v)}>
           <Form.Item name="id" label="ID（英文）" rules={[{ required: true }]}>
             <Input placeholder="login_sms" />

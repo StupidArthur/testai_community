@@ -105,11 +105,12 @@ describe('toScreenBoardTasks', () => {
     task: { id: 't1' },
   }
 
-  it('去掉草稿 Action，并按可见项重算均进度', () => {
+  it('去掉草稿 Action；未手填时按可见项重算均进度', () => {
     const out = toScreenBoardTasks([
       {
         ...base,
         week_progress_avg: 25,
+        progress_is_manual: false,
         actions: [
           { status: 'draft', progress_percent: 0 },
           { status: 'published', progress_percent: 40 },
@@ -120,6 +121,27 @@ describe('toScreenBoardTasks', () => {
     expect(out).toHaveLength(1)
     expect(out[0].actions.map((a) => a.status)).toEqual(['published', 'done'])
     expect(out[0].week_progress_avg).toBe(70)
+    expect(out[0].recommended_progress).toBe(70)
+  })
+
+  it('已手填 Task 进度时保留手填值，仅更新推荐值', () => {
+    const out = toScreenBoardTasks([
+      {
+        ...base,
+        week_progress_avg: 80,
+        progress_is_manual: true,
+        recommended_progress: 0,
+        actions: [
+          { status: 'draft', progress_percent: 0 },
+          { status: 'published', progress_percent: 0 },
+          { status: 'published', progress_percent: 40 },
+        ],
+      },
+    ])
+    expect(out).toHaveLength(1)
+    expect(out[0].actions).toHaveLength(2)
+    expect(out[0].week_progress_avg).toBe(80)
+    expect(out[0].recommended_progress).toBe(20)
   })
 
   it('仅草稿的 Task 不进入大屏', () => {

@@ -22,6 +22,7 @@ import {
 } from 'antd'
 import {
   CopyOutlined,
+  DeleteOutlined,
   EyeOutlined,
   PlusOutlined,
   QuestionCircleOutlined,
@@ -284,6 +285,26 @@ export default function ProjectManagePage() {
     onError: (e: any) => message.error(e?.response?.data?.detail || '失败'),
   })
 
+  const archiveProjectMut = useMutation({
+    mutationFn: (id: string) => testManageApi.archiveProject(id),
+    onSuccess: () => {
+      message.success('项目已归档（列表默认不再显示）')
+      setProjectId(undefined)
+      invalidate()
+    },
+    onError: (e: any) => message.error(e?.response?.data?.detail || '归档失败'),
+  })
+
+  const deleteProjectMut = useMutation({
+    mutationFn: (id: string) => testManageApi.deleteProject(id),
+    onSuccess: () => {
+      message.success('项目已永久删除')
+      setProjectId(undefined)
+      invalidate()
+    },
+    onError: (e: any) => message.error(e?.response?.data?.detail || '删除失败'),
+  })
+
   const createDomainMut = useMutation({
     mutationFn: (name: string) => testManageApi.createDomain(projectId!, { name }),
     onSuccess: () => {
@@ -501,7 +522,7 @@ export default function ProjectManagePage() {
                   data-testid="tm-week-end-picker"
                 />
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  周报在周结束时间后 15 分钟发送
+                  周报在周结束时间后 15 分钟发送（到点后约 1 分钟内发出）
                 </Text>
               </Space>
             ) : null}
@@ -591,6 +612,42 @@ export default function ProjectManagePage() {
                 }}
               >
                 新建 Task
+              </Button>
+              <Button
+                disabled={!projectId || archiveProjectMut.isPending}
+                onClick={() => {
+                  const p = projects.find((x) => x.id === projectId)
+                  if (!p) return
+                  Modal.confirm({
+                    title: `归档项目「${p.name}」？`,
+                    content: '归档后默认列表不再显示；数据保留，可通过接口恢复为 active。',
+                    okText: '归档',
+                    onOk: () => archiveProjectMut.mutateAsync(p.id),
+                  })
+                }}
+                data-testid="tm-btn-archive-project"
+              >
+                归档项目
+              </Button>
+              <Button
+                danger
+                icon={<DeleteOutlined />}
+                disabled={!projectId || deleteProjectMut.isPending}
+                onClick={() => {
+                  const p = projects.find((x) => x.id === projectId)
+                  if (!p) return
+                  Modal.confirm({
+                    title: `永久删除项目「${p.name}」？`,
+                    content:
+                      '将删除该项目下全部领域、Task、Action 及日更等数据，且不可恢复。建错项目时再用。',
+                    okText: '永久删除',
+                    okType: 'danger',
+                    onOk: () => deleteProjectMut.mutateAsync(p.id),
+                  })
+                }}
+                data-testid="tm-btn-delete-project"
+              >
+                删除项目
               </Button>
             </>
           )}

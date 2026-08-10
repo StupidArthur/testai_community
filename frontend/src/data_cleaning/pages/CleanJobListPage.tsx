@@ -130,10 +130,9 @@ export default function CleanJobListPage({
             <FilterOutlined style={{ color: 'var(--color-primary)', marginRight: 8 }} />
             数据清洗
           </Title>
-          <Text type="secondary">入库前质检：提炼精华、检测冲突，人工确认后再写入知识库</Text>
+          <Text type="secondary">入库前质检：提炼精华、检测冲突，确认后写入知识库</Text>
         </div>
         <Space>
-          <Button onClick={() => navigate('/knowledge-base/anchors')}>锚点词典</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>
             新建清洗任务
           </Button>
@@ -143,8 +142,12 @@ export default function CleanJobListPage({
 
       {embedded && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16, gap: 8 }}>
-          <Button onClick={() => navigate('/knowledge-base/anchors')}>锚点词典</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            data-testid="kb-clean-new"
+            onClick={() => setOpen(true)}
+          >
             新建清洗任务
           </Button>
         </div>
@@ -153,6 +156,7 @@ export default function CleanJobListPage({
       <Card>
         <Table
           rowKey="id"
+          data-testid="kb-clean-table"
           loading={isLoading}
           dataSource={jobs}
           locale={{ emptyText: <Empty description="暂无清洗任务" /> }}
@@ -169,13 +173,16 @@ export default function CleanJobListPage({
         open={open}
         onCancel={() => setOpen(false)}
         onOk={() => form.submit()}
+        okText="确定"
+        cancelText="取消"
         confirmLoading={createMutation.isPending}
         width={560}
+        data-testid="kb-clean-modal"
       >
         <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
           {embedded
-            ? '上传文档后系统自动切分、挂锚点；请在审核页确认并批准入库。'
-            : '上传时选择文档类型；系统切分后自动挂锚点，请在审核页确认。'}
+            ? '上传文档后系统自动切分提炼；请在审核页确认并批准入库。'
+            : '上传时选择文档类型；系统切分提炼后请在审核页确认。'}
         </Text>
         <Form
           form={form}
@@ -210,8 +217,18 @@ export default function CleanJobListPage({
             <Input.TextArea rows={2} />
           </Form.Item>
           <Form.Item label="文档文件" required>
-            <Upload beforeUpload={(f) => { setFile(f); return false }} maxCount={1} onRemove={() => setFile(null)}>
-              <Button icon={<UploadOutlined />}>选择文件</Button>
+            <Upload
+              data-testid="kb-clean-upload"
+              beforeUpload={(f) => {
+                setFile(f)
+                return false
+              }}
+              maxCount={1}
+              onRemove={() => setFile(null)}
+            >
+              <Button icon={<UploadOutlined />} data-testid="kb-clean-upload-btn">
+                选择文件
+              </Button>
             </Upload>
           </Form.Item>
         </Form>

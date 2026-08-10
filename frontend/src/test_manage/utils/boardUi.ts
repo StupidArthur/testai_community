@@ -100,12 +100,15 @@ export function emptyActionDescription(opts: {
  * 大屏视图：去掉草稿 Action（领导汇报不展示未发布项）。
  * - 仅草稿的 Task 整行隐藏
  * - 本周 0 Action 的空 Task 仍保留（提醒尚未建 Action）
- * - 进度均值按可见 Action 重算
+ * - 未手填时：按可见 Action 重算 week_progress_avg / recommended
+ * - 已手填：保留 week_progress_avg，仅用可见 Action 更新 recommended_progress
  */
 export function toScreenBoardTasks<
   T extends {
     actions: { status: string; progress_percent?: number }[]
     week_progress_avg: number
+    progress_is_manual?: boolean
+    recommended_progress?: number
   },
 >(tasks: T[]): T[] {
   const out: T[] = []
@@ -114,12 +117,18 @@ export function toScreenBoardTasks<
     if (bt.actions.length > 0 && visible.length === 0) {
       continue
     }
-    const avg = visible.length
+    const actionAvg = visible.length
       ? Math.round(
           visible.reduce((s, a) => s + (a.progress_percent || 0), 0) / visible.length,
         )
       : 0
-    out.push({ ...bt, actions: visible, week_progress_avg: avg })
+    const weekAvg = bt.progress_is_manual ? bt.week_progress_avg : actionAvg
+    out.push({
+      ...bt,
+      actions: visible,
+      week_progress_avg: weekAvg,
+      recommended_progress: actionAvg,
+    })
   }
   return out
 }

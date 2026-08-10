@@ -185,6 +185,11 @@ export const testManageApi = {
   listProjects: () => apiClient.get<TmProject[]>('/test-manage/projects'),
   createProject: (data: { name: string; description?: string }) =>
     apiClient.post<TmProject>('/test-manage/projects', data),
+  updateProject: (id: string, data: { name?: string; description?: string; status?: string }) =>
+    apiClient.patch<TmProject>(`/test-manage/projects/${id}`, data),
+  archiveProject: (id: string) =>
+    apiClient.post<TmProject>(`/test-manage/projects/${id}/archive`),
+  deleteProject: (id: string) => apiClient.delete(`/test-manage/projects/${id}`),
   listDomains: (projectId: string) =>
     apiClient.get<TmDomain[]>(`/test-manage/projects/${projectId}/domains`),
   createDomain: (projectId: string, data: { name: string }) =>

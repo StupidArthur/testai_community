@@ -92,10 +92,11 @@ function KnowledgeChatPanel({ kbId }: { kbId: string }) {
     (detail?.document_count ?? 0) === 0
 
   return (
-    <div className="knowledge-hub-chat">
+    <div className="knowledge-hub-chat" data-testid="kb-chat-panel">
       {!hasReady && (
         <Alert
           className="knowledge-hub-chat__alert"
+          data-testid="kb-chat-empty-alert"
           type="info"
           showIcon
           message={hasArchivedOnly ? '尚无可检索内容' : '知识库为空'}
@@ -108,13 +109,14 @@ function KnowledgeChatPanel({ kbId }: { kbId: string }) {
       )}
 
       <Card title="知识问答" className="knowledge-hub-chat__card">
-        <div className="knowledge-hub-chat__messages">
+        <div className="knowledge-hub-chat__messages" data-testid="kb-chat-messages">
           {localMessages.length === 0 ? (
             <Text type="secondary">向知识库提问，将基于已入库文档 RAG 检索后回答</Text>
           ) : (
             localMessages.map((msg) => (
               <div
                 key={msg.id}
+                data-testid={`kb-chat-msg-${msg.role}`}
                 style={{
                   marginBottom: 16,
                   textAlign: msg.role === 'user' ? 'right' : 'left',
@@ -157,6 +159,7 @@ function KnowledgeChatPanel({ kbId }: { kbId: string }) {
 
         <Space.Compact className="knowledge-hub-chat__input" style={{ width: '100%' }}>
           <Input.TextArea
+            data-testid="kb-chat-input"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             placeholder={hasReady ? '输入问题…' : '请先完成清洗入库后再提问'}
@@ -172,6 +175,7 @@ function KnowledgeChatPanel({ kbId }: { kbId: string }) {
           <Button
             type="primary"
             icon={<SendOutlined />}
+            data-testid="kb-chat-send"
             onClick={handleSend}
             loading={chatMutation.isPending}
             disabled={!hasReady}
@@ -206,7 +210,7 @@ export default function KnowledgeHubPage() {
   }
 
   return (
-    <div className="knowledge-hub-page">
+    <div className="knowledge-hub-page" data-testid="kb-hub">
       <div className="knowledge-hub-page__header">
         <Title level={3} style={{ margin: 0 }}>
           <BookOutlined style={{ color: 'var(--color-primary)', marginRight: 8 }} />
@@ -219,6 +223,7 @@ export default function KnowledgeHubPage() {
 
       <Tabs
         className="knowledge-hub-page__tabs"
+        data-testid="kb-hub-tabs"
         activeKey={activeTab}
         onChange={(key) => setSearchParams(key === 'chat' ? {} : { tab: key })}
         items={[
@@ -236,7 +241,7 @@ export default function KnowledgeHubPage() {
               </span>
             ),
             children: (
-              <div className="knowledge-hub-clean">
+              <div className="knowledge-hub-clean" data-testid="kb-clean-panel">
                 <CleanJobListPage embedded kbId={kbase.id} reviewPathPrefix="/knowledge-base/clean" />
               </div>
             ),
@@ -244,8 +249,8 @@ export default function KnowledgeHubPage() {
         ]}
       />
 
-      <Text type="secondary" className="knowledge-hub-page__footer">
-        designed by @huangjing
+      <Text type="secondary" className="knowledge-hub-page__footer" data-testid="kb-hub-credit">
+        designed by @yuzechao
       </Text>
     </div>
   )

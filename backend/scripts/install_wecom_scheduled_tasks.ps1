@@ -3,7 +3,7 @@
 # Or:      powershell -ExecutionPolicy Bypass -File .\install_wecom_scheduled_tasks.ps1
 #
 # Daily: 17:12 + 20:00..20:04 (idempotent; already-sent skips later ticks)
-# Weekly: every 15 minutes; send time = week_end + 15 min (Python rule)
+# Weekly: poll every 1 minute; send time = week_end + 15 min (Python rule)
 # Also installs TestAI-WeCom-KeepAwake when present.
 
 $ErrorActionPreference = "Stop"
@@ -20,6 +20,7 @@ $PsExe = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.e
 Write-Host ("Daily  : " + $DailyPs1)
 Write-Host ("Weekly : " + $WeeklyPs1)
 Write-Host ("User   : " + $UserId)
+Write-Host "Weekly poll minutes: 1 (hardcoded)"
 
 function Install-Ps1Task {
     param(
@@ -42,8 +43,9 @@ function Install-Ps1Task {
         )
     }
     else {
-        # Duration must be finite; MaxValue is rejected by Windows Task Scheduler
-        $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 15) -RepetitionDuration (New-TimeSpan -Days 3650)
+        # Poll every 1 minute so send is near weekly_push_at (week_end + 15 min).
+        # Duration must be finite; MaxValue is rejected by Windows Task Scheduler.
+        $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration (New-TimeSpan -Days 3650)
     }
 
     $settings = New-ScheduledTaskSettingsSet `
@@ -101,6 +103,6 @@ Write-Host ""
 Write-Host "Done."
 Write-Host "  [1] Ensure .env has WECOM_WEBHOOK_URL"
 Write-Host "  [2] Set WECOM_PUSH_ENABLED=false (prod backend should not double-send)"
-Write-Host "  [3] Daily 17:12 + 20:00~20:04 ; Weekly every 15min (week_end+15min rule)"
+Write-Host "  [3] Daily 17:12 + 20:00~20:04 ; Weekly every 1min (week_end+15min rule)"
 Write-Host "  [4] KeepAwake running; optional: .\configure_wecom_push_power.ps1"
 Write-Host "  [5] Disable TestAI-WeCom-* on DEV machine to avoid double push"

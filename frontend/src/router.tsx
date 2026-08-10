@@ -17,7 +17,6 @@ import ToolHubPage from './tool_hub/pages/ToolHubPage'
 import ToolDetailPage from './tool_hub/pages/ToolDetailPage'
 import KnowledgeHubPage from './knowledge_base/pages/KnowledgeHubPage'
 import CleanJobReviewPage from './data_cleaning/pages/CleanJobReviewPage'
-import AnchorDictPage from './data_cleaning/pages/AnchorDictPage'
 import ProjectManagePage from './test_manage/pages/ProjectManagePage'
 import { refreshCurrentUser, isAdmin } from './shared/hooks/useAuth'
 
@@ -162,7 +161,7 @@ export const router = createBrowserRouter([
       },
       {
         path: 'data-cleaning/anchors',
-        element: <Navigate to="/knowledge-base/anchors" replace />,
+        element: <Navigate to="/knowledge-base?tab=clean" replace />,
       },
       {
         path: 'data-cleaning/:jobId',
@@ -174,7 +173,7 @@ export const router = createBrowserRouter([
       },
       {
         path: 'knowledge-base/anchors',
-        element: <AdminRoute><AnchorDictPage /></AdminRoute>,
+        element: <Navigate to="/knowledge-base?tab=clean" replace />,
       },
       {
         path: 'knowledge-base/clean/:jobId',

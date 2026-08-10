@@ -366,7 +366,8 @@ export default function WeekScreenTab(props: {
           <div className="tm-screen__section-head">
             <h2>周 × Task 明细</h2>
             <span>
-              展示 {filteredTasks.length} 个 Task
+              展示 {filteredTasks.length} 个 Task ·{' '}
+              {filteredTasks.reduce((n, bt) => n + bt.actions.length, 0)} 个 Action
               {hiddenDoneCount > 0 && focus === 'focus' ? ` · 已折叠完成 ${hiddenDoneCount}` : ''}
             </span>
           </div>
@@ -487,7 +488,9 @@ function TaskGroup(props: {
   onOpenTaskAction: () => void
 }) {
   const { bt, open, status, hasRisk } = props
-  const multi = bt.actions.length > 1
+  const actionCount = bt.actions.length
+  const multi = actionCount > 1
+  const hasActions = actionCount > 0
 
   return (
     <>
@@ -495,7 +498,7 @@ function TaskGroup(props: {
         className={`tm-screen__task-row${hasRisk ? ' tm-screen__row--risk' : ''}`}
         onClick={() => {
           if (multi) props.onToggle()
-          else props.onOpenTaskAction()
+          else if (hasActions) props.onOpenTaskAction()
         }}
       >
         <td className="tm-screen__td-caret">
@@ -531,8 +534,9 @@ function TaskGroup(props: {
           )}
         </td>
       </tr>
+      {/* 有 Action 即展示子行（含仅 1 条），避免 KPI 与明细条数对不上 */}
       {open &&
-        multi &&
+        hasActions &&
         bt.actions.map((a) => (
           <tr
             key={a.id}

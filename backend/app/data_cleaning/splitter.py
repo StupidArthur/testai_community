@@ -99,8 +99,14 @@ def split_plain_text_to_sections(text: str) -> list[SectionSlice]:
             if seq >= MAX_PARAGRAPHS_PER_JOB:
                 return slices
 
-    if not slices and text:
-        slices.append(SectionSlice(seq=0, section_path="全文", raw_text=text[:12000]))
+    # 有正文却被标题切碎过滤时：合并全文兜底，避免 pending_review + 0 段
+    if not slices and text.strip():
+        merged = "\n\n".join(raw for _, raw in sections) if sections else text
+        body = (merged or text).strip()
+        if body:
+            slices.append(
+                SectionSlice(seq=0, section_path="全文", raw_text=body[:12000])
+            )
     return slices
 
 

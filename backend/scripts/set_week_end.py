@@ -2,7 +2,7 @@
 运维：设置当前活动周的 week_end（并同步本周 Action.due_at）。
 
 周报正式发送时刻 = week_end + 15 分钟（见 period.compute_weekly_push_at）。
-正式计划任务用 TM_PUSH_FORCE=0，到点后由 TestAI-WeCom-Weekly（每 15 分钟）触发。
+正式计划任务用 TM_PUSH_FORCE=0，到点后由 TestAI-WeCom-Weekly（默认每 1 分钟）触发。
 
 用法（在 backend 目录、使用 .venv Python）::
 

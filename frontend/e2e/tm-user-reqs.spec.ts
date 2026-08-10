@@ -37,7 +37,7 @@ test.describe(`TM 三点需求 UI ${RUN}`, () => {
 
     const picker = page.getByTestId('tm-week-end-picker')
     await expect(picker).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByText('周报在周结束时间后 15 分钟发送')).toBeVisible()
+    await expect(page.getByText(/周报在周结束时间后 15 分钟发送/)).toBeVisible()
 
     const pushHint = page.getByTestId('tm-weekly-push-at')
     await expect(pushHint).toBeVisible()
