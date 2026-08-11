@@ -113,7 +113,7 @@ KB_MAX_DOCS_PER_KB = _int_env("KB_MAX_DOCS_PER_KB", 100)
 KB_MAX_CONCURRENT_JOBS = _int_env("KB_MAX_CONCURRENT_JOBS", 2)
 KB_CHUNK_SIZE = _int_env("KB_CHUNK_SIZE", 800)
 KB_CHUNK_OVERLAP = _int_env("KB_CHUNK_OVERLAP", 120)
-KB_RAG_TOP_K = _int_env("KB_RAG_TOP_K", 6)
+KB_RAG_TOP_K = _int_env("KB_RAG_TOP_K", 10)
 
 # ==================== LibreOffice（.doc 转换） ====================
 
@@ -178,23 +178,25 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./database.sqlite")
 
-# ==================== 企业微信群推送（测试任务日报/周报） ====================
+# ==================== 钉钉群推送（测试任务日报/周报） ====================
 
-WECOM_WEBHOOK_URL = os.getenv("WECOM_WEBHOOK_URL", "").strip()
+DINGTALK_WEBHOOK_URL = os.getenv("DINGTALK_WEBHOOK_URL", "").strip()
+# 自定义机器人安全关键词（须与钉钉后台一致）
+DINGTALK_KEYWORD = os.getenv("DINGTALK_KEYWORD", "msg").strip() or "msg"
 # 默认开启定时轮询；未配置 webhook 时定时任务会跳过实际发送
-WECOM_PUSH_ENABLED = os.getenv("WECOM_PUSH_ENABLED", "true").strip().lower() in (
+DINGTALK_PUSH_ENABLED = os.getenv("DINGTALK_PUSH_ENABLED", "true").strip().lower() in (
     "1",
     "true",
     "yes",
     "on",
 )
 # 幂等：同一 period 已成功发送则跳过（备份计划任务靠此避免重复发）
-WECOM_PUSH_IDEMPOTENCY_ENABLED = os.getenv(
-    "WECOM_PUSH_IDEMPOTENCY_ENABLED", "true"
+DINGTALK_PUSH_IDEMPOTENCY_ENABLED = os.getenv(
+    "DINGTALK_PUSH_IDEMPOTENCY_ENABLED", "true"
 ).strip().lower() in ("1", "true", "yes", "on")
 # 周报幂等单独开关（默认开：同周成功发送后跳过，避免 1 分钟轮询重复推群）
-WECOM_WEEKLY_IDEMPOTENCY_ENABLED = os.getenv(
-    "WECOM_WEEKLY_IDEMPOTENCY_ENABLED", "true"
+DINGTALK_WEEKLY_IDEMPOTENCY_ENABLED = os.getenv(
+    "DINGTALK_WEEKLY_IDEMPOTENCY_ENABLED", "true"
 ).strip().lower() in ("1", "true", "yes", "on")
 
 
@@ -205,11 +207,11 @@ def _opt_int_env(name: str, default: int) -> int:
     return int(raw)
 
 
-WECOM_DAILY_PUSH_HOUR = _opt_int_env("WECOM_DAILY_PUSH_HOUR", 20)
-WECOM_DAILY_PUSH_MINUTE = _opt_int_env("WECOM_DAILY_PUSH_MINUTE", 0)
-WECOM_WEEKLY_PUSH_WEEKDAY = _opt_int_env("WECOM_WEEKLY_PUSH_WEEKDAY", 2)  # Wed=2
-WECOM_WEEKLY_PUSH_HOUR = _opt_int_env("WECOM_WEEKLY_PUSH_HOUR", 17)
-WECOM_WEEKLY_PUSH_MINUTE = _opt_int_env("WECOM_WEEKLY_PUSH_MINUTE", 30)
+DINGTALK_DAILY_PUSH_HOUR = _opt_int_env("DINGTALK_DAILY_PUSH_HOUR", 20)
+DINGTALK_DAILY_PUSH_MINUTE = _opt_int_env("DINGTALK_DAILY_PUSH_MINUTE", 0)
+DINGTALK_WEEKLY_PUSH_WEEKDAY = _opt_int_env("DINGTALK_WEEKLY_PUSH_WEEKDAY", 2)  # Wed=2
+DINGTALK_WEEKLY_PUSH_HOUR = _opt_int_env("DINGTALK_WEEKLY_PUSH_HOUR", 17)
+DINGTALK_WEEKLY_PUSH_MINUTE = _opt_int_env("DINGTALK_WEEKLY_PUSH_MINUTE", 30)
 
 # ==================== 运行参数 ====================
 

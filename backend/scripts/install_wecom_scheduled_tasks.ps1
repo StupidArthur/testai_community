@@ -29,7 +29,15 @@ function Install-Ps1Task {
         [string]$Kind
     )
 
-    $arg = "-NoProfile -ExecutionPolicy Bypass -File `"$Ps1Path`""
+    # Hidden console: weekly task runs every 1 minute
+    $arg = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $Ps1Path + '"'
+    if ([string]::IsNullOrWhiteSpace($arg)) {
+        throw ("Empty Argument for task " + $TaskName + " path=" + $Ps1Path)
+    }
+    if ([string]::IsNullOrWhiteSpace($PsExe) -or -not (Test-Path $PsExe)) {
+        throw ("powershell.exe not found: " + $PsExe)
+    }
+    Write-Host ("Action: " + $PsExe + " " + $arg)
     $action = New-ScheduledTaskAction -Execute $PsExe -Argument $arg
 
     if ($Kind -eq "daily") {
@@ -54,7 +62,8 @@ function Install-Ps1Task {
         -StartWhenAvailable `
         -WakeToRun `
         -ExecutionTimeLimit (New-TimeSpan -Hours 1) `
-        -MultipleInstances IgnoreNew
+        -MultipleInstances IgnoreNew `
+        -Hidden
 
     $principal = New-ScheduledTaskPrincipal `
         -UserId $UserId `
@@ -101,8 +110,9 @@ if (Test-Path $KeepInstall) {
 
 Write-Host ""
 Write-Host "Done."
-Write-Host "  [1] Ensure .env has WECOM_WEBHOOK_URL"
-Write-Host "  [2] Set WECOM_PUSH_ENABLED=false (prod backend should not double-send)"
-Write-Host "  [3] Daily 17:12 + 20:00~20:04 ; Weekly every 1min (week_end+15min rule)"
+Write-Host "  [1] Ensure .env has DINGTALK_WEBHOOK_URL + DINGTALK_KEYWORD=msg"
+Write-Host "  [2] Set DINGTALK_PUSH_ENABLED=false (prod backend should not double-send)"
+Write-Host "  [3] Daily 17:12 + 20:00~20:04 ; Weekly every 1min (week_end+15min), WindowStyle Hidden"
 Write-Host "  [4] KeepAwake running; optional: .\configure_wecom_push_power.ps1"
 Write-Host "  [5] Disable TestAI-WeCom-* on DEV machine to avoid double push"
+Write-Host "  [6] After change: re-run .\install_wecom_tasks.cmd on PROD to re-register tasks"

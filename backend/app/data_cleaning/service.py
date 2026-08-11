@@ -209,6 +209,34 @@ def update_paragraph(
     return paragraph_to_out(p)
 
 
+def batch_set_review_action(
+    db: Session,
+    user: User,
+    job_id: str,
+    review_action: str,
+) -> dict:
+    """将任务下全部待审段落的入库操作设为同一值。"""
+    _ = user
+    job = _get_job_or_404(db, job_id)
+    if job.status != "pending_review":
+        raise HTTPException(status_code=400, detail="仅待审核任务可批量修改入库操作")
+    if review_action not in ("add", "supersede", "coexist", "skip"):
+        raise HTTPException(status_code=400, detail=f"不支持的入库操作: {review_action}")
+
+    rows = (
+        db.query(ParagraphUnit)
+        .filter(ParagraphUnit.job_id == job_id)
+        .all()
+    )
+    now = datetime.utcnow()
+    for p in rows:
+        p.review_action = review_action
+        p.updated_at = now
+    job.updated_at = now
+    db.commit()
+    return {"updated_count": len(rows), "review_action": review_action}
+
+
 async def approve_clean_job(
     db: Session,
     user: User,

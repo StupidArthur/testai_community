@@ -15,6 +15,8 @@ from .schemas import (
     AnchorNodeUpdate,
     ApproveJobRequest,
     ApproveJobResult,
+    BatchReviewActionRequest,
+    BatchReviewActionResult,
     CleanJobDetailOut,
     CleanJobOut,
     ParagraphUnitOut,
@@ -22,6 +24,7 @@ from .schemas import (
 )
 from .service import (
     approve_clean_job,
+    batch_set_review_action,
     create_anchor_node,
     create_clean_job,
     get_clean_job_detail,
@@ -96,6 +99,18 @@ def api_update_paragraph(
     current_user: User = Depends(get_current_user),
 ) -> ParagraphUnitOut:
     return update_paragraph(db, current_user, job_id, paragraph_id, data)
+
+
+@router.post("/jobs/{job_id}/batch-review-action", response_model=BatchReviewActionResult)
+def api_batch_review_action(
+    job_id: str,
+    data: BatchReviewActionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BatchReviewActionResult:
+    """批量设置本任务全部段落的入库操作（新增/替换/并存/跳过）。"""
+    result = batch_set_review_action(db, current_user, job_id, data.review_action)
+    return BatchReviewActionResult(**result)
 
 
 @router.post("/jobs/{job_id}/approve", response_model=ApproveJobResult)

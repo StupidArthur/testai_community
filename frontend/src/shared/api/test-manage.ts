@@ -9,6 +9,8 @@ export interface TmProject {
   description: string | null
   status: string
   created_by: number
+  /** 用于「默认选最新创建的 TPT」 */
+  created_at?: string
 }
 
 export interface TmDomain {
@@ -226,6 +228,9 @@ export const testManageApi = {
       change_summary?: string
     },
   ) => apiClient.patch<TmTask>(`/test-manage/tasks/${id}`, data),
+  archiveTask: (id: string) =>
+    apiClient.post<TmTask>(`/test-manage/tasks/${id}/archive`),
+  deleteTask: (id: string) => apiClient.delete(`/test-manage/tasks/${id}`),
 
   mine: () => apiClient.get<TmAction[]>('/test-manage/actions/mine'),
   cloneCandidates: (taskId: string) =>

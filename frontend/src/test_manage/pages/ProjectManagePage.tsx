@@ -6,7 +6,9 @@ import {
   Card,
   Collapse,
   DatePicker,
+  Descriptions,
   Drawer,
+  Dropdown,
   Empty,
   Form,
   Input,
@@ -20,10 +22,12 @@ import {
   Timeline,
   Typography,
 } from 'antd'
+import type { MenuProps } from 'antd'
 import {
   CopyOutlined,
   DeleteOutlined,
-  EyeOutlined,
+  DownOutlined,
+  EditOutlined,
   PlusOutlined,
   QuestionCircleOutlined,
   SendOutlined,
@@ -102,8 +106,8 @@ export default function ProjectManagePage() {
   const user = useCurrentUser()
   const tmAdmin = isTmAdmin(user)
   const qc = useQueryClient()
-  /** 必须用 App.useApp()，静态 message 在 AntdApp 下经常不弹出 */
-  const { message } = App.useApp()
+  /** 必须用 App.useApp()，静态 message/Modal 在 AntdApp 下经常不弹出 */
+  const { message, modal } = App.useApp()
 
   const [projectId, setProjectId] = useState<string | undefined>()
   /** 本周 | 历史（历史只读，下拉最多 10 周） */
@@ -115,6 +119,10 @@ export default function ProjectManagePage() {
   const [domainModal, setDomainModal] = useState(false)
   const [detailActionId, setDetailActionId] = useState<string | null>(null)
   const [editTaskId, setEditTaskId] = useState<string | null>(null)
+  /** Task 抽屉：默认只读写进度；点小「编辑」才改基本信息 */
+  const [taskInfoEditing, setTaskInfoEditing] = useState(false)
+  /** 打开抽屉时滚动焦点：进度 | 详情 */
+  const [taskDrawerFocus, setTaskDrawerFocus] = useState<'progress' | 'detail'>('progress')
   /** 保存后递增，强制 Task 编辑表单用新 initialValues 重挂载 */
   const [taskFormEpoch, setTaskFormEpoch] = useState(0)
   /** Task 抽屉内成功提示（Toast 被挡时仍可见） */
@@ -192,6 +200,23 @@ export default function ProjectManagePage() {
     queryFn: async () => (await testManageApi.listProjects()).data,
   })
 
+  /**
+   * 大屏/工作台默认项目：优先名称含 TPT 的最新创建；否则取全部里最新创建。
+   */
+  useEffect(() => {
+    if (projectId) return
+    if (!projects.length) return
+    const tpt = projects.filter((p) => /tpt/i.test(p.name || ''))
+    const pool = tpt.length > 0 ? tpt : projects
+    const sorted = [...pool].sort((a, b) => {
+      const ta = a.created_at ? Date.parse(a.created_at) : 0
+      const tb = b.created_at ? Date.parse(b.created_at) : 0
+      return tb - ta
+    })
+    const pick = sorted[0]
+    if (pick?.id) setProjectId(pick.id)
+  }, [projects, projectId])
+
   const historyOptions = week?.history ?? []
 
   useEffect(() => {
@@ -249,6 +274,16 @@ export default function ProjectManagePage() {
     enabled: !!editTaskId,
   })
 
+  useEffect(() => {
+    if (!editTaskId || !taskDetail) return
+    const id =
+      taskDrawerFocus === 'detail' ? 'tm-task-drawer-info' : 'tm-task-drawer-progress'
+    const t = window.setTimeout(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 80)
+    return () => window.clearTimeout(t)
+  }, [editTaskId, taskDetail, taskDrawerFocus])
+
   /** 本周 Task 周进度（周报口径；未填则后端返回 Action 平均推荐值） */
   const { data: taskWeekProgress } = useQuery({
     queryKey: ['tm-task-week-progress', editTaskId, week?.week_key || ''],
@@ -285,24 +320,30 @@ export default function ProjectManagePage() {
     onError: (e: any) => message.error(e?.response?.data?.detail || '失败'),
   })
 
-  const archiveProjectMut = useMutation({
-    mutationFn: (id: string) => testManageApi.archiveProject(id),
+  const archiveTaskMut = useMutation({
+    mutationFn: (id: string) => testManageApi.archiveTask(id),
     onSuccess: () => {
-      message.success('项目已归档（列表默认不再显示）')
-      setProjectId(undefined)
+      message.success('Task 已归档（看板不再显示）')
+      if (editTaskId) {
+        setEditTaskId(null)
+        setTaskInfoEditing(false)
+      }
       invalidate()
     },
-    onError: (e: any) => message.error(e?.response?.data?.detail || '归档失败'),
+    onError: (e: any) => message.error(e?.response?.data?.detail || '归档 Task 失败'),
   })
 
-  const deleteProjectMut = useMutation({
-    mutationFn: (id: string) => testManageApi.deleteProject(id),
+  const deleteTaskMut = useMutation({
+    mutationFn: (id: string) => testManageApi.deleteTask(id),
     onSuccess: () => {
-      message.success('项目已永久删除')
-      setProjectId(undefined)
+      message.success('Task 已永久删除')
+      if (editTaskId) {
+        setEditTaskId(null)
+        setTaskInfoEditing(false)
+      }
       invalidate()
     },
-    onError: (e: any) => message.error(e?.response?.data?.detail || '删除失败'),
+    onError: (e: any) => message.error(e?.response?.data?.detail || '删除 Task 失败'),
   })
 
   const createDomainMut = useMutation({
@@ -335,6 +376,7 @@ export default function ProjectManagePage() {
       setTaskSaveTip(tip)
       message.success(tip)
       setTaskFormEpoch((n) => n + 1)
+      setTaskInfoEditing(false)
       invalidate()
     },
     onError: (e: any) => {
@@ -555,28 +597,17 @@ export default function ProjectManagePage() {
         ) : null}
 
         <Space wrap style={{ marginBottom: 16 }}>
-          <div className="tm-board-scope" role="tablist" aria-label="Task 归属">
-            {(
-              [
-                { key: 'mine' as const, label: '我的 Task', count: boardScopeCounts.mine },
-                { key: 'other' as const, label: '其他 Task', count: boardScopeCounts.other },
-                { key: 'all' as const, label: '全部', count: boardScopeCounts.all },
-              ]
-            ).map((opt) => (
-              <button
-                key={opt.key}
-                type="button"
-                role="tab"
-                aria-selected={boardTaskScope === opt.key}
-                className={`tm-board-scope__chip${boardTaskScope === opt.key ? ' tm-board-scope__chip--on' : ''}`}
-                onClick={() => setBoardTaskScope(opt.key)}
-                data-testid={`tm-scope-${opt.key}`}
-              >
-                {opt.label}
-                <span className="tm-board-scope__n">{opt.count}</span>
-              </button>
-            ))}
-          </div>
+          <Select
+            style={{ minWidth: 160 }}
+            value={boardTaskScope}
+            onChange={setBoardTaskScope}
+            options={[
+              { value: 'mine', label: `我的 Task（${boardScopeCounts.mine}）` },
+              { value: 'other', label: `其他 Task（${boardScopeCounts.other}）` },
+              { value: 'all', label: `全部（${boardScopeCounts.all}）` },
+            ]}
+            data-testid="tm-scope-select"
+          />
           <Select
             allowClear
             placeholder="按项目筛选"
@@ -587,69 +618,37 @@ export default function ProjectManagePage() {
             data-testid="tm-project-filter"
           />
           {tmAdmin && !viewingHistory && (
-            <>
-              <Button
-                icon={<PlusOutlined />}
-                onClick={() => setProjectModal(true)}
-                data-testid="tm-btn-new-project"
-              >
-                新建项目
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: 'project',
+                    label: '项目',
+                  },
+                  {
+                    key: 'domain',
+                    label: '领域',
+                    disabled: !projectId,
+                  },
+                  {
+                    key: 'task',
+                    label: 'Task',
+                  },
+                ],
+                onClick: ({ key }) => {
+                  if (key === 'project') setProjectModal(true)
+                  if (key === 'domain') setDomainModal(true)
+                  if (key === 'task') {
+                    if (!projectId && projects[0]) setProjectId(projects[0].id)
+                    setTaskModal(true)
+                  }
+                },
+              }}
+            >
+              <Button type="primary" icon={<PlusOutlined />} data-testid="tm-btn-create-menu">
+                新建 <DownOutlined />
               </Button>
-              <Button
-                disabled={!projectId}
-                onClick={() => setDomainModal(true)}
-                data-testid="tm-btn-new-domain"
-              >
-                新建领域
-              </Button>
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                data-testid="tm-btn-new-task"
-                onClick={() => {
-                  if (!projectId && projects[0]) setProjectId(projects[0].id)
-                  setTaskModal(true)
-                }}
-              >
-                新建 Task
-              </Button>
-              <Button
-                disabled={!projectId || archiveProjectMut.isPending}
-                onClick={() => {
-                  const p = projects.find((x) => x.id === projectId)
-                  if (!p) return
-                  Modal.confirm({
-                    title: `归档项目「${p.name}」？`,
-                    content: '归档后默认列表不再显示；数据保留，可通过接口恢复为 active。',
-                    okText: '归档',
-                    onOk: () => archiveProjectMut.mutateAsync(p.id),
-                  })
-                }}
-                data-testid="tm-btn-archive-project"
-              >
-                归档项目
-              </Button>
-              <Button
-                danger
-                icon={<DeleteOutlined />}
-                disabled={!projectId || deleteProjectMut.isPending}
-                onClick={() => {
-                  const p = projects.find((x) => x.id === projectId)
-                  if (!p) return
-                  Modal.confirm({
-                    title: `永久删除项目「${p.name}」？`,
-                    content:
-                      '将删除该项目下全部领域、Task、Action 及日更等数据，且不可恢复。建错项目时再用。',
-                    okText: '永久删除',
-                    okType: 'danger',
-                    onOk: () => deleteProjectMut.mutateAsync(p.id),
-                  })
-                }}
-                data-testid="tm-btn-delete-project"
-              >
-                删除项目
-              </Button>
-            </>
+            </Dropdown>
           )}
         </Space>
 
@@ -681,12 +680,33 @@ export default function ProjectManagePage() {
                 })}
                 userName={userName}
                 onOpenAction={(id) => setDetailActionId(id)}
-                onEditTask={() => {
+                onEditTask={(focus) => {
                   setTaskSaveTip(null)
+                  setTaskDrawerFocus(focus)
+                  setTaskInfoEditing(false)
                   setEditTaskId(bt.task.id)
                 }}
                 onAddAction={() => setActionModalTask(bt.task)}
                 onPublishAction={(id) => publishActionMut.mutate(id)}
+                onArchiveTask={() => {
+                  modal.confirm({
+                    title: `归档 Task「${bt.task.title}」？`,
+                    content: '归档后看板默认不再显示；下属 Action 仍保留在库中。',
+                    okText: '归档',
+                    onOk: () => archiveTaskMut.mutateAsync(bt.task.id),
+                  })
+                }}
+                onDeleteTask={() => {
+                  modal.confirm({
+                    title: `永久删除 Task「${bt.task.title}」？`,
+                    content: '将删除该 Task 下全部 Action、日更等数据，且不可恢复。',
+                    okText: '永久删除',
+                    okType: 'danger',
+                    onOk: () => deleteTaskMut.mutateAsync(bt.task.id),
+                  })
+                }}
+                archiveLoading={archiveTaskMut.isPending}
+                deleteLoading={deleteTaskMut.isPending}
               />
             ))}
           </div>
@@ -968,13 +988,15 @@ export default function ProjectManagePage() {
         </Form>
       </Modal>
 
-      {/* 编辑 Task */}
+      {/* Task 抽屉：主操作写本周进度；基本信息默认只读，小按钮进入编辑 */}
       <Drawer
         title={taskDetail?.title || 'Task'}
         open={!!editTaskId}
         onClose={() => {
           setEditTaskId(null)
           setTaskSaveTip(null)
+          setTaskInfoEditing(false)
+          setTaskDrawerFocus('progress')
         }}
         width={480}
         destroyOnClose
@@ -996,18 +1018,18 @@ export default function ProjectManagePage() {
                 data-testid="tm-task-save-tip"
               />
             ) : null}
-            <Tag color={STATUS_LABEL[taskDetail.status]?.color}>
-              {STATUS_LABEL[taskDetail.status]?.text}
-            </Tag>
-            <Text type="secondary">
-              {taskDetail.project_name} / {taskDetail.domain_name} · 负责人{' '}
-              {userName(taskDetail.lead_id)}
-            </Text>
+
             {!viewingHistory && taskWeekProgress ? (
               <Card
+                id="tm-task-drawer-progress"
                 size="small"
                 title="本周 Task 进度（周报）"
                 data-testid="tm-task-week-progress"
+                style={
+                  taskDrawerFocus === 'progress'
+                    ? { outline: '2px solid #1677ff', outlineOffset: 2 }
+                    : undefined
+                }
               >
                 {!taskWeekProgress.progress_is_manual ? (
                   <Alert
@@ -1040,7 +1062,12 @@ export default function ProjectManagePage() {
                       rules={[{ required: true, message: '请填写进度' }]}
                       extra={`推荐填 Action 平均 ${taskWeekProgress.recommended_progress}%；请在周结束前填写`}
                     >
-                      <InputNumber min={0} max={100} style={{ width: '100%' }} data-testid="tm-task-week-progress-input" />
+                      <InputNumber
+                        min={0}
+                        max={100}
+                        style={{ width: '100%' }}
+                        data-testid="tm-task-week-progress-input"
+                      />
                     </Form.Item>
                     <Form.Item name="note" label="备注（可选）">
                       <Input placeholder="周进度说明" maxLength={500} />
@@ -1067,84 +1094,152 @@ export default function ProjectManagePage() {
                 )}
               </Card>
             ) : null}
-            {taskDetail.can_edit ? (
-              <Form
-                key={`${taskDetail.id}-${taskFormEpoch}`}
-                layout="vertical"
-                initialValues={{
-                  title: taskDetail.title,
-                  requirement: taskDetail.requirement,
-                  lead_id: Number(taskDetail.lead_id),
-                  tester_ids: (taskDetail.tester_ids || []).map(Number),
-                  status: taskDetail.status,
-                  change_summary: '',
-                }}
-                onFinish={(v) =>
-                  updateTaskMut.mutate({
-                    id: taskDetail.id,
-                    data: {
-                      title: v.title,
-                      requirement: v.requirement,
-                      lead_id: Number(v.lead_id),
-                      tester_ids: (v.tester_ids || []).map((x: number | string) => Number(x)),
-                      status: v.status,
-                      change_summary: v.change_summary,
-                    },
-                  })
-                }
-              >
-                <Form.Item name="title" label="标题" rules={[{ required: true }]}>
-                  <Input />
-                </Form.Item>
-                <Form.Item name="requirement" label={`需求内容（最多 ${TASK_REQUIREMENT_MAX_CHARS} 字）`}>
-                  <TextArea rows={4} maxLength={TASK_REQUIREMENT_MAX_CHARS} showCount />
-                </Form.Item>
-                <Form.Item
-                  name="status"
-                  label="Task 状态"
-                  extra="进行中可加本周 Action；已完成不可再加"
+
+            <Card
+              id="tm-task-drawer-info"
+              size="small"
+              title="Task 信息"
+              data-testid="tm-task-info"
+              style={
+                taskDrawerFocus === 'detail'
+                  ? { outline: '2px solid #1677ff', outlineOffset: 2 }
+                  : undefined
+              }
+              extra={
+                taskDetail.can_edit && !viewingHistory && !taskInfoEditing ? (
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<EditOutlined />}
+                    onClick={() => setTaskInfoEditing(true)}
+                    data-testid="tm-task-info-edit"
+                  >
+                    编辑
+                  </Button>
+                ) : null
+              }
+            >
+              {taskDetail.can_edit && taskInfoEditing ? (
+                <Form
+                  key={`${taskDetail.id}-${taskFormEpoch}`}
+                  layout="vertical"
+                  initialValues={{
+                    title: taskDetail.title,
+                    requirement: taskDetail.requirement,
+                    lead_id: Number(taskDetail.lead_id),
+                    tester_ids: (taskDetail.tester_ids || []).map(Number),
+                    status: taskDetail.status,
+                    change_summary: '',
+                  }}
+                  onFinish={(v) =>
+                    updateTaskMut.mutate({
+                      id: taskDetail.id,
+                      data: {
+                        title: v.title,
+                        requirement: v.requirement,
+                        lead_id: Number(v.lead_id),
+                        tester_ids: (v.tester_ids || []).map((x: number | string) => Number(x)),
+                        status: v.status,
+                        change_summary: v.change_summary,
+                      },
+                    })
+                  }
                 >
-                  <Select
-                    data-testid="tm-task-status"
-                    options={[
-                      { value: 'published', label: '进行中' },
-                      { value: 'done', label: '已完成' },
-                    ]}
-                  />
-                </Form.Item>
-                <Form.Item name="lead_id" label="测试负责人">
-                  <Select
-                    options={userOptions}
-                    showSearch
-                    optionFilterProp="label"
-                    loading={usersLoading}
-                  />
-                </Form.Item>
-                <Form.Item name="tester_ids" label="测试人员">
-                  <Select
-                    mode="multiple"
-                    options={userOptions}
-                    showSearch
-                    optionFilterProp="label"
-                    loading={usersLoading}
-                  />
-                </Form.Item>
-                <Form.Item name="change_summary" label="变更说明（写入更新日志）">
-                  <Input placeholder="本次改了什么" />
-                </Form.Item>
-                <Button
-                  type="primary"
-                  htmlType="submit"
-                  block
-                  loading={updateTaskMut.isPending}
-                  data-testid="tm-task-save"
+                  <Form.Item name="title" label="标题" rules={[{ required: true }]}>
+                    <Input />
+                  </Form.Item>
+                  <Form.Item
+                    name="requirement"
+                    label={`需求内容（最多 ${TASK_REQUIREMENT_MAX_CHARS} 字）`}
+                  >
+                    <TextArea rows={4} maxLength={TASK_REQUIREMENT_MAX_CHARS} showCount />
+                  </Form.Item>
+                  <Form.Item
+                    name="status"
+                    label="Task 状态"
+                    extra="进行中可加本周 Action；已完成不可再加"
+                  >
+                    <Select
+                      data-testid="tm-task-status"
+                      options={[
+                        { value: 'published', label: '进行中' },
+                        { value: 'done', label: '已完成' },
+                      ]}
+                    />
+                  </Form.Item>
+                  <Form.Item name="lead_id" label="测试负责人">
+                    <Select
+                      options={userOptions}
+                      showSearch
+                      optionFilterProp="label"
+                      loading={usersLoading}
+                    />
+                  </Form.Item>
+                  <Form.Item name="tester_ids" label="测试人员">
+                    <Select
+                      mode="multiple"
+                      options={userOptions}
+                      showSearch
+                      optionFilterProp="label"
+                      loading={usersLoading}
+                    />
+                  </Form.Item>
+                  <Form.Item name="change_summary" label="变更说明（写入更新日志）">
+                    <Input placeholder="本次改了什么" />
+                  </Form.Item>
+                  <Space style={{ width: '100%' }} direction="vertical">
+                    <Button
+                      type="primary"
+                      htmlType="submit"
+                      block
+                      loading={updateTaskMut.isPending}
+                      data-testid="tm-task-save"
+                    >
+                      保存
+                    </Button>
+                    <Button
+                      block
+                      onClick={() => setTaskInfoEditing(false)}
+                      data-testid="tm-task-info-cancel"
+                    >
+                      取消编辑
+                    </Button>
+                  </Space>
+                </Form>
+              ) : (
+                <Descriptions
+                  size="small"
+                  column={1}
+                  labelStyle={{ width: 88, color: 'rgba(0,0,0,0.45)' }}
                 >
-                  保存
-                </Button>
-              </Form>
-            ) : (
-              <Paragraph style={{ whiteSpace: 'pre-wrap' }}>{taskDetail.requirement}</Paragraph>
-            )}
+                  <Descriptions.Item label="状态">
+                    <Tag color={STATUS_LABEL[taskDetail.status]?.color}>
+                      {STATUS_LABEL[taskDetail.status]?.text}
+                    </Tag>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="项目/领域">
+                    {taskDetail.project_name} / {taskDetail.domain_name}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="负责人">
+                    {userName(taskDetail.lead_id)}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="测试人员">
+                    {(taskDetail.tester_ids || []).length
+                      ? (taskDetail.tester_ids || []).map((id) => userName(Number(id))).join('、')
+                      : '—'}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="需求">
+                    <Paragraph
+                      style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}
+                      type={taskDetail.requirement ? undefined : 'secondary'}
+                    >
+                      {taskDetail.requirement?.trim() || '（无）'}
+                    </Paragraph>
+                  </Descriptions.Item>
+                </Descriptions>
+              )}
+            </Card>
+
             {taskDetail.update_logs?.length > 0 && (
               <div>
                 <Text strong>更新历史</Text>
@@ -1163,7 +1258,7 @@ export default function ProjectManagePage() {
                 {cloneCandidates.length === 0 ? (
                   <Text type="secondary">上周无可复制条目</Text>
                 ) : (
-                    <Space direction="vertical" style={{ width: '100%' }} size={8}>
+                  <Space direction="vertical" style={{ width: '100%' }} size={8}>
                     <Button
                       type="primary"
                       icon={<CopyOutlined />}
@@ -1176,27 +1271,23 @@ export default function ProjectManagePage() {
                     </Button>
                     {cloneCandidates.map((c) => (
                       <div key={c.id} className="tm-clone-row">
-                        <Button type="link" size="small" onClick={() => setPreviewClone(c)}>
+                        <Button
+                          type="link"
+                          size="small"
+                          onClick={() => setPreviewClone(c)}
+                          title="点击查看详情"
+                        >
                           {c.title}
                         </Button>
-                        <Space size={4}>
-                          <Button
-                            size="small"
-                            icon={<EyeOutlined />}
-                            onClick={() => setPreviewClone(c)}
-                          >
-                            查看
-                          </Button>
-                          <Button
-                            size="small"
-                            type="primary"
-                            icon={<CopyOutlined />}
-                            loading={cloneMut.isPending}
-                            onClick={() => cloneMut.mutate(c.id)}
-                          >
-                            复制
-                          </Button>
-                        </Space>
+                        <Button
+                          size="small"
+                          type="primary"
+                          icon={<CopyOutlined />}
+                          loading={cloneMut.isPending}
+                          onClick={() => cloneMut.mutate(c.id)}
+                        >
+                          复制
+                        </Button>
                       </div>
                     ))}
                   </Space>
@@ -1245,23 +1336,23 @@ export default function ProjectManagePage() {
             <div className="tm-clone-list">
               {cloneCandidates.map((c) => (
                 <div key={c.id} className="tm-clone-row">
-                  <Button type="link" size="small" onClick={() => setPreviewClone(c)}>
+                  <Button
+                    type="link"
+                    size="small"
+                    onClick={() => setPreviewClone(c)}
+                    title="点击查看详情"
+                  >
                     {c.title}
                   </Button>
-                  <Space size={4}>
-                    <Button size="small" icon={<EyeOutlined />} onClick={() => setPreviewClone(c)}>
-                      查看
-                    </Button>
-                    <Button
-                      size="small"
-                      type="primary"
-                      icon={<CopyOutlined />}
-                      loading={cloneMut.isPending}
-                      onClick={() => cloneMut.mutate(c.id)}
-                    >
-                      复制
-                    </Button>
-                  </Space>
+                  <Button
+                    size="small"
+                    type="primary"
+                    icon={<CopyOutlined />}
+                    loading={cloneMut.isPending}
+                    onClick={() => cloneMut.mutate(c.id)}
+                  >
+                    复制
+                  </Button>
                 </div>
               ))}
             </div>
@@ -1383,12 +1474,36 @@ function BoardTaskCard(props: {
   highlightEmpty?: boolean
   userName: (id: number) => string
   onOpenAction: (id: string) => void
-  onEditTask: () => void
+  onEditTask: (focus: 'progress' | 'detail') => void
   onAddAction: () => void
   onPublishAction: (id: string) => void
+  onArchiveTask: () => void
+  onDeleteTask: () => void
+  archiveLoading?: boolean
+  deleteLoading?: boolean
 }) {
   const { bt, userName, readOnly, highlightEmpty } = props
   const st = STATUS_LABEL[bt.task.status] || { color: 'default', text: bt.task.status }
+  const taskMenuItems: MenuProps['items'] = [
+    { key: 'detail', label: '详情' },
+    ...(!readOnly && bt.task.can_edit
+      ? [
+          { key: 'progress', label: '进度' },
+          {
+            key: 'archive',
+            label: '归档',
+            disabled: !!props.archiveLoading,
+          },
+          {
+            key: 'delete',
+            label: '删除',
+            danger: true,
+            icon: <DeleteOutlined />,
+            disabled: !!props.deleteLoading,
+          },
+        ]
+      : []),
+  ]
   return (
     <Card
       className={`tm-board-task${highlightEmpty ? ' tm-board-task--empty' : ''}`}
@@ -1410,29 +1525,39 @@ function BoardTaskCard(props: {
       }
       extra={
         <Space direction="vertical" size={0} style={{ alignItems: 'flex-end' }}>
-          <Space>
+          <Space wrap>
             <Text type="secondary">{bt.week_progress_avg}%</Text>
-            {!readOnly && bt.task.can_edit && (
-              <>
-                <Button size="small" onClick={props.onEditTask} data-testid="tm-btn-edit-task">
-                  Task
-                </Button>
-                {shouldShowAddActionButton({
-                  readOnly: !!readOnly,
-                  canEdit: !!bt.task.can_edit,
-                  canAddAction: !!bt.task.can_add_action,
-                }) ? (
-                  <Button
-                    size="small"
-                    type="primary"
-                    onClick={props.onAddAction}
-                    data-testid="tm-btn-add-action"
-                  >
-                    + Action
-                  </Button>
-                ) : null}
-              </>
-            )}
+            <Dropdown
+              menu={{
+                items: taskMenuItems,
+                onClick: ({ key }) => {
+                  if (key === 'detail') props.onEditTask('detail')
+                  if (key === 'progress') props.onEditTask('progress')
+                  if (key === 'archive') props.onArchiveTask()
+                  if (key === 'delete') props.onDeleteTask()
+                },
+              }}
+            >
+              <Button size="small" data-testid="tm-btn-task-menu">
+                操作 <DownOutlined />
+              </Button>
+            </Dropdown>
+            {!readOnly &&
+            bt.task.can_edit &&
+            shouldShowAddActionButton({
+              readOnly: !!readOnly,
+              canEdit: !!bt.task.can_edit,
+              canAddAction: !!bt.task.can_add_action,
+            }) ? (
+              <Button
+                size="small"
+                type="primary"
+                onClick={props.onAddAction}
+                data-testid="tm-btn-add-action"
+              >
+                + Action
+              </Button>
+            ) : null}
           </Space>
           {bt.progress_is_manual === false ? (
             <Text type="warning" style={{ fontSize: 12 }} data-testid="tm-task-progress-tip">
@@ -1703,7 +1828,7 @@ function ActionDetailDrawer(props: {
       title={d?.title || 'Action'}
       open={props.open}
       onClose={props.onClose}
-      width={480}
+      width={560}
       destroyOnClose
     >
       <div data-testid="tm-drawer-action">
@@ -1900,13 +2025,16 @@ function ActionDetailDrawer(props: {
           {canDaily && (
             <Card
               size="small"
-              title="日更（仅本 Action 负责人或管理员）"
+              title="日更"
               extra={
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  仅当天 · 说明必填 · 进度不倒退 · 19:50 截止
+                  仅当天 · 19:50 截止
                 </Text>
               }
             >
+              <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
+                仅本 Action 负责人或管理员可填写；说明必填；进度不可倒退
+              </Paragraph>
               <Form
                 layout="vertical"
                 initialValues={{
@@ -1948,13 +2076,10 @@ function ActionDetailDrawer(props: {
                   name="progress_note"
                   label="进度说明"
                   rules={[
-                    { required: true, message: '进度说明必填' },
                     {
-                      validator: async (_, v) => {
-                        if (!String(v || '').trim()) {
-                          throw new Error('进度说明必填')
-                        }
-                      },
+                      required: true,
+                      whitespace: true,
+                      message: '进度说明必填',
                     },
                   ]}
                 >

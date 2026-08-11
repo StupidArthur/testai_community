@@ -93,6 +93,17 @@ class ParagraphUpdate(BaseModel):
     skip_reason: str | None = None
 
 
+class BatchReviewActionRequest(BaseModel):
+    """批量设置本任务全部段落的入库操作。"""
+
+    review_action: Literal["add", "supersede", "coexist", "skip"]
+
+
+class BatchReviewActionResult(BaseModel):
+    updated_count: int
+    review_action: str
+
+
 class CleanJobOut(BaseModel):
     id: str
     kb_id: str

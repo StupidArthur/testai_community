@@ -93,6 +93,13 @@ export const dataCleaningApi = {
     }>,
   ) => apiClient.patch<ParagraphUnit>(`/data-cleaning/jobs/${jobId}/paragraphs/${paragraphId}`, data),
 
+  /** 批量设置本任务全部段落的入库操作 */
+  batchReviewAction: (jobId: string, review_action: string) =>
+    apiClient.post<{ updated_count: number; review_action: string }>(
+      `/data-cleaning/jobs/${jobId}/batch-review-action`,
+      { review_action },
+    ),
+
   approveJob: (jobId: string, paragraphIds?: string[], timeoutMs = 300_000) =>
     apiClient.post<{ approved_count: number; skipped_count: number; ku_ids: string[] }>(
       `/data-cleaning/jobs/${jobId}/approve`,

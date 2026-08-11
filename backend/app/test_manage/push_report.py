@@ -1,5 +1,5 @@
 """
-测试任务企微推送：开放风险采集、与上次快照对比、消息组装；日报偏 Action、周报偏 Task；单条 ≤4096，超长确定性缩短+硬截断（不调 AI）。
+测试任务钉钉推送：开放风险采集、与上次快照对比、消息组装；日报偏 Action、周报偏 Task；单条 ≤4096，超长确定性缩短+硬截断（不调 AI）。
 """
 from __future__ import annotations
 
@@ -27,11 +27,38 @@ from app.test_manage.config import (
     WECOM_WEEKLY_TASK_ROWS_SOFT_MAX,
     now_tm,
 )
-from app.test_manage.models import TmAction, TmDomain, TmPushSnapshot, TmTask
+from app.test_manage.models import TmAction, TmDomain, TmPushSnapshot, TmTask, TmWeekPeriod
 from app.test_manage.service import _latest_progress
 from app.test_manage.week import current_week_start, daily_context_week_start, week_end, week_key
 
 log = logging.getLogger("app.test_manage.push")
+
+
+def _resolve_report_week(
+    db: Session,
+    *,
+    week_start: datetime | None = None,
+    week_key_s: str | None = None,
+) -> tuple[datetime, datetime, str]:
+    """
+    解析推送用周窗口。
+
+    优先 week_key_s（与看板 tm_week_periods / Action.week_key 一致）；
+    否则用 week_start 推导；再否则经典当前周。
+    """
+    if week_key_s:
+        key = week_key_s
+        row = db.query(TmWeekPeriod).filter(TmWeekPeriod.week_key == key).first()
+        if row:
+            return row.week_start, row.week_end, row.week_key
+        ws = week_start or current_week_start()
+        return ws, week_end(ws), key
+    ws = week_start or daily_context_week_start()
+    key = week_key(ws)
+    row = db.query(TmWeekPeriod).filter(TmWeekPeriod.week_key == key).first()
+    if row:
+        return row.week_start, row.week_end, row.week_key
+    return ws, week_end(ws), key
 
 
 @dataclass
@@ -168,15 +195,18 @@ def _user_name_map(db: Session, user_ids: set[int]) -> dict[int, str]:
     return out
 
 
-def collect_open_risks(db: Session, *, week_start: datetime | None = None) -> dict[str, OpenRisk]:
+def collect_open_risks(
+    db: Session,
+    *,
+    week_start: datetime | None = None,
+    week_key_s: str | None = None,
+) -> dict[str, OpenRisk]:
     """
     全项目：汇报周「进行中」Action 中，最新日更仍带 risk_blocker 的条目。
 
-    默认 week_start = daily_context_week_start（周三全天仍用刚结束周）。
-    已完成 / 已取消 / 草稿不计入开放风险（完成态遗留风险文案不再刷屏）。
+    优先 week_key_s（与看板活动周一致）；已完成 / 已取消 / 草稿不计入开放风险。
     """
-    ws = week_start or daily_context_week_start()
-    key = week_key(ws)
+    _ws, _we, key = _resolve_report_week(db, week_start=week_start, week_key_s=week_key_s)
     actions = (
         db.query(TmAction)
         .options(
@@ -214,10 +244,14 @@ def collect_open_risks(db: Session, *, week_start: datetime | None = None) -> di
     return out
 
 
-def collect_progress_summary(db: Session, *, week_start: datetime | None = None) -> ProgressSummary:
+def collect_progress_summary(
+    db: Session,
+    *,
+    week_start: datetime | None = None,
+    week_key_s: str | None = None,
+) -> ProgressSummary:
     """全项目本周短进展（与看板 summary 口径一致）。"""
-    ws = week_start or current_week_start()
-    key = week_key(ws)
+    ws, we, key = _resolve_report_week(db, week_start=week_start, week_key_s=week_key_s)
     actions = (
         db.query(TmAction)
         .options(joinedload(TmAction.daily_updates))
@@ -246,7 +280,7 @@ def collect_progress_summary(db: Session, *, week_start: datetime | None = None)
     return ProgressSummary(
         week_key=key,
         week_start=ws,
-        week_end=week_end(ws),
+        week_end=we,
         task_count=len(task_ids),
         action_count=len(actions),
         progress_avg=avg,
@@ -262,13 +296,13 @@ def collect_today_action_lines(
     *,
     today: date,
     week_start: datetime | None = None,
+    week_key_s: str | None = None,
 ) -> list[TodayActionLine]:
     """
     日报专用：汇报周内、今日有日更的 Action（Action 粒度）。
     按负责人姓名、领域、标题排序。
     """
-    ws = week_start or daily_context_week_start()
-    key = week_key(ws)
+    _ws, _we, key = _resolve_report_week(db, week_start=week_start, week_key_s=week_key_s)
     actions = (
         db.query(TmAction)
         .options(
@@ -311,11 +345,13 @@ def collect_today_action_lines(
 
 
 def collect_task_progress_rows(
-    db: Session, *, week_start: datetime | None = None
+    db: Session,
+    *,
+    week_start: datetime | None = None,
+    week_key_s: str | None = None,
 ) -> list[TaskProgressRow]:
     """周报专用：本周有 Action 的 Task 汇总（Task 粒度）。"""
-    ws = week_start or current_week_start()
-    key = week_key(ws)
+    _ws, _we, key = _resolve_report_week(db, week_start=week_start, week_key_s=week_key_s)
     actions = (
         db.query(TmAction)
         .options(
@@ -479,9 +515,29 @@ def _fmt_day(d: date | datetime) -> str:
     return d.strftime("%m-%d")
 
 
+def daily_report_heading(today: date) -> str:
+    """日报钉钉标题 / 正文首行：【TPT测试日报-MM-DD】。"""
+    return f"【TPT测试日报-{_fmt_day(today)}】"
+
+
+def weekly_report_heading() -> str:
+    """周报钉钉标题 / 正文首行：【TPT测试周报】。"""
+    return "【TPT测试周报】"
+
+
+# 钉钉 markdown 着色（对齐企微 info=绿 / comment=灰 / warning=橙）
+# 色号须用双引号，PC 与手机端才都能显示颜色
+_DINGTALK_FONT_COLORS = {
+    "info": "#00B578",
+    "comment": "#8C8C8C",
+    "warning": "#FF9200",
+}
+
+
 def _font(color: str, text: str) -> str:
-    """企微 markdown 仅支持 info / comment / warning 三种颜色。"""
-    return f'<font color="{color}">{text}</font>'
+    """钉钉 font 着色；语义与企微 info/comment/warning 对齐。"""
+    hex_color = _DINGTALK_FONT_COLORS.get(color, _DINGTALK_FONT_COLORS["comment"])
+    return f'<font color="{hex_color}">{text or ""}</font>'
 
 
 def _progress_tone(percent: int) -> str:
@@ -746,7 +802,7 @@ def build_daily_markdown(
     )
 
     parts: list[str] = [
-        "### 【测试日报】TestAI",
+        f"### {daily_report_heading(today)}",
         f"> {_font('comment', f'{_fmt_day(today)} · Action 日报')}",
         "",
     ]
@@ -759,7 +815,7 @@ def build_daily_markdown(
                 "",
                 "**🔹 Action 速览**",
                 (
-                    f"> 汇报周 Action {_font('info', str(summary.action_count))}　"
+                    f"> 本周 Action {_font('info', str(summary.action_count))}　"
                     f"今日日更 {_font('info', str(len(lines)))}　"
                     f"当前有风险 {_font('warning' if summary.risk_action_count else 'info', str(summary.risk_action_count))}"
                 ),
@@ -877,7 +933,7 @@ def build_weekly_markdown(
     risk_color = "warning" if risk_task_n > 0 else "info"
 
     parts: list[str] = [
-        "### 📋 【测试周报】TestAI",
+        f"### 📋 {weekly_report_heading()}",
         f"> 🗓️ {_fmt_week_span(summary.week_start, summary.week_end)}",
         "",
         (

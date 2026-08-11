@@ -27,6 +27,10 @@ const ACTION_OPTIONS = [
   { value: 'skip', label: '跳过不入库' },
 ]
 
+const ACTION_LABEL: Record<string, string> = Object.fromEntries(
+  ACTION_OPTIONS.map((o) => [o.value, o.label]),
+)
+
 function relationTag(relation: string) {
   const map: Record<string, { color: string; label: string }> = {
     contradiction: { color: 'red', label: '逻辑冲突' },
@@ -44,6 +48,7 @@ export default function CleanJobReviewPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState<Record<string, string>>({})
+  const [batchAction, setBatchAction] = useState<string>('add')
 
   const { data: job, isLoading } = useQuery({
     queryKey: ['clean-job', jobId],
@@ -63,6 +68,15 @@ export default function CleanJobReviewPage() {
       queryClient.invalidateQueries({ queryKey: ['clean-job', jobId] })
     },
     onError: (err: any) => message.error(err.response?.data?.detail || '保存失败'),
+  })
+
+  const batchActionMutation = useMutation({
+    mutationFn: (action: string) => dataCleaningApi.batchReviewAction(jobId!, action),
+    onSuccess: (res) => {
+      message.success(`已将 ${res.data.updated_count} 段统一设为「${ACTION_LABEL[res.data.review_action] || res.data.review_action}」`)
+      queryClient.invalidateQueries({ queryKey: ['clean-job', jobId] })
+    },
+    onError: (err: any) => message.error(err.response?.data?.detail || '批量修改失败'),
   })
 
   const approveMutation = useMutation({
@@ -117,7 +131,7 @@ export default function CleanJobReviewPage() {
         <Space wrap>
           <Text strong>{p.section_path || `段落 ${p.seq + 1}`}</Text>
           {hasConflict && <Tag color="red" icon={<WarningOutlined />}>冲突</Tag>}
-          <Tag>{p.review_action}</Tag>
+          <Tag>{ACTION_LABEL[p.review_action] || p.review_action}</Tag>
         </Space>
       ),
       children: (
@@ -145,7 +159,7 @@ export default function CleanJobReviewPage() {
               }
             />
           )}
-          <Text type="secondary" style={{ fontSize: 12 }}>精华（可编辑）</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>正文（可编辑）</Text>
           <Input.TextArea
             rows={6}
             value={essence}
@@ -221,6 +235,21 @@ export default function CleanJobReviewPage() {
                 message={`${conflictCount} 个段落存在逻辑冲突，请为每段选择操作后再批准入库`}
               />
             )}
+            <Space wrap style={{ marginBottom: 12 }}>
+              <span>批量入库操作：</span>
+              <Select
+                style={{ width: 220 }}
+                value={batchAction}
+                options={ACTION_OPTIONS}
+                onChange={setBatchAction}
+              />
+              <Button
+                loading={batchActionMutation.isPending}
+                onClick={() => batchActionMutation.mutate(batchAction)}
+              >
+                应用到全部段落
+              </Button>
+            </Space>
             <Button
               type="primary"
               icon={<CheckOutlined />}

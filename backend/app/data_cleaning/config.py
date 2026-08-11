@@ -30,6 +30,9 @@ ANCHOR_VECTOR_REVIEW_THRESHOLD = 0.65
 ALIGN_RECALL_MAX_DISTANCE = 0.55
 ALIGN_MIN_CONFIDENCE = 0.7
 
+# False：入库不调用 LLM 提炼精华/库内对齐；待审正文=规则清洗后的原文
+CLEAN_USE_LLM_ESSENCE = False
+
 DOC_TYPES = ("prd", "performance_report", "mixed", "general")
 
 RAW_SUBDIR = "raw"
@@ -40,4 +43,5 @@ __all__ = [
     "MAX_PARAGRAPHS_PER_JOB",
     "MIN_PARAGRAPH_CHARS",
     "DOC_TYPES",
+    "CLEAN_USE_LLM_ESSENCE",
 ]

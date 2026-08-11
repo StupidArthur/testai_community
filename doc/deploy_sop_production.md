@@ -85,8 +85,9 @@ cd D:\deploy\testai_community_prod\backend
 ```env
 ENV=production
 BACKEND_PORT=48011
-WECOM_PUSH_ENABLED=false
-WECOM_WEBHOOK_URL=（生产机器人地址）
+DINGTALK_PUSH_ENABLED=false
+DINGTALK_KEYWORD=msg
+DINGTALK_WEBHOOK_URL=（钉钉机器人 https://oapi.dingtalk.com/robot/send?access_token=...）
 DATABASE_URL=sqlite:///./database_prod.sqlite
 ```
 
@@ -178,4 +179,4 @@ cd D:\deploy\testai_community_prod\backend\scripts
 | 机器 | 职责 |
 |------|------|
 | 开发机 | 写代码、自测、commit/push、build dist；**禁用**企微计划任务 |
-| 生产机 | git pull、覆盖 dist、跑计划任务扛网站与企微；`WECOM_PUSH_ENABLED=false` |
+| 生产机 | git pull、覆盖 dist、跑计划任务扛网站与钉钉推送；`DINGTALK_PUSH_ENABLED=false` |

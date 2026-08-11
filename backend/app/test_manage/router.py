@@ -214,6 +214,26 @@ def api_update_task(
     return svc.update_task(db, current_user, task_id, data)
 
 
+@router.post("/tasks/{task_id}/archive", response_model=TaskOut)
+def api_archive_task(
+    task_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """归档 Task（看板隐藏，数据保留）。"""
+    return svc.archive_task(db, current_user, task_id)
+
+
+@router.delete("/tasks/{task_id}", status_code=204)
+def api_delete_task(
+    task_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """永久删除 Task 及其下属 Action。"""
+    svc.delete_task(db, current_user, task_id)
+
+
 @router.get("/actions/mine", response_model=list[ActionOut])
 def api_mine(
     db: Session = Depends(get_db),

@@ -91,7 +91,7 @@ TestAI Community 将原 **Skill Hub（技能管理）** 与 **Recorder Translate
 | TM-01 | Project → Domain → Task → Action（默认周三 18:00 周界，**周结束可配**；**切周日日更/日报仍属上一汇报周**）；大屏「已完成」**仅 Task.status=done/cancelled**；Task 周进度周结束前手填，未填回退 Action 平均并提示 | P0 ✅ |
 | TM-02 | Task 需求/负责人/人员；可更新+日志；Action 草稿可改（含负责人），**发布后字段全锁（本周负责人不可改派）**；Admin/Manager 或 Task lead **当前周内随时**可建 Action；Action 延续链路可查 | P0 ✅ |
 | TM-03 | 日更仅 Action 负责人或 Admin/Manager；**说明去空白后非空（无最少字数）、进度不倒退、仅当天、19:50锁定**；切周日写上一汇报周；更正时间线；看板 Action 卡片风险≤3行 | P0 ✅ |
-| TM-06 | 企微群日报/周报：**日报每天发送**（短进展+风险，无风险也发）；Admin/Manager 可手动；日报 **17:12** + **20:00～20:04**（幂等）；周报一律 **周结束 + 15 分钟**（周报幂等默认关）；日更截止 **19:50**；**推荐 Windows 计划任务**（`WECOM_PUSH_ENABLED=false` 防重复） | P1 ✅ |
+| TM-06 | 钉钉群日报/周报：**日报每天发送**（短进展+风险，无风险也发）；Admin/Manager 可手动；日报 **17:12** + **20:00～20:04**（幂等）；周报一律 **周结束 + 15 分钟**；日更截止 **19:50**；**推荐 Windows 计划任务**（`DINGTALK_PUSH_ENABLED=false` 防重复） | P1 ✅ |
 | TM-04 | 测试管理员 Manager（manager/123456） | P0 ✅ |
 | TM-05 | Action 负责人仅可选 Task lead+测试人员；测试内容≤1000；**环境≤300**；需求≤5000 | P0 ✅ |
 | TM-07 | Action 状态机：draft→published；published→done；**done 终态不可重开**；**不支持取消**；完成不可日更；**标记完成须最新日更进度=100%** | P0 ✅ |
@@ -115,8 +115,8 @@ TestAI Community 将原 **Skill Hub（技能管理）** 与 **Recorder Translate
 | ID | 需求 | 优先级 |
 |----|------|--------|
 | DC-01 | 上传长文档创建清洗任务；选择目标知识库、文档类型、产品/版本/环境 | P1 |
-| DC-02 | 自动切分、LLM 提炼精华、锚点匹配、库内冲突检测 | P1 |
-| DC-03 | 人工审核段落；批准后才写入知识库（Knowledge Unit + Chroma） | P1 |
+| DC-02 | 规则删噪与切段；默认不 LLM 提炼精华、不做库内 LLM 对齐；待审正文=原文 | P1 |
+| DC-03 | 人工审核正文；批准后才写入知识库（Knowledge Unit + Chroma） | P1 |
 | DC-04 | 冲突段落须选择 supersede/coexist/skip；superseded KU 不参与 RAG | P1 |
 | DC-05 | Admin 维护锚点词典；启动种子基础功能树 | P2 |
 
@@ -156,6 +156,22 @@ TestAI Community 将原 **Skill Hub（技能管理）** 与 **Recorder Translate
 | **日志** | 应用入口统一配置日志格式 |
 | **过程文件** | 上传/结果存磁盘；任务元数据持久化到 DB |
 | **并发** | 翻译任务默认单并发；多 worker 部署需额外设计 |
+
+---
+
+## 4.5 RAG Pipeline（规则清洗入库，开发中）
+
+独立包 `rag_pipeline/`：手册类文档经 **零 LLM 入库** Pipeline 切分为 chunk 写入向量库。
+
+| ID | 需求 | 优先级 |
+|----|------|--------|
+| RAGP-01 | 入库全流程禁止 LLM 生成内容；仅允许规则删噪 | P0 |
+| RAGP-02 | chunk `raw_text` 与原文逐字一致（允许空白差异下的杜撰检测） | P0 |
+| RAGP-03 | 阶段零～五：转换/清洗/解析/切分/标注/质检去重（零 LLM 生成） | P0（独立包已完成） |
+| RAGP-06 | 网页清洗入库简易接入：正文=原文，关闭 LLM 精华/对齐 | P0（已完成） |
+| RAGP-05 | 提问时才调用 LLM；回答须基于检索原文，实体校验失败回退原文 | P0（已完成） |
+
+详见 `doc/rag_pipeline.md`。
 
 ---
 

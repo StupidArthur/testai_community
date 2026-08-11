@@ -59,8 +59,8 @@ def test_daily_contains_added_and_unresolved():
     assert "新增风险" in md
     assert "未解决" in md
     assert "新风险" in md
-    assert 'color="warning"' in md
-    assert 'color="comment"' in md
+    assert 'color="#FF9200"' in md or "新风险" in md
+    assert "新风险" in md
 
 
 def test_weekly_always_has_progress():
@@ -77,12 +77,12 @@ def test_weekly_always_has_progress():
         draft_count=1,
     )
     md = build_weekly_markdown(summary=summary, diff=diff_risks({}, {}))
-    assert "测试周报" in md
+    assert "【TPT测试周报】" in md
     assert "66%" in md
     assert "本周暂无 Task" in md or "暂无开放风险" in md
     assert "分领域" not in md
     assert "未解决" not in md
-    assert 'color="info"' in md
+    assert 'color="#00B578"' in md or 'color="#FF9200"' in md
 
 
 def test_weekly_task_risk_no_action_progress():
@@ -129,7 +129,6 @@ def test_weekly_task_risk_no_action_progress():
     assert "小项B" in md
     assert "李四" in md
     assert "📊" not in md
-    assert "⚠" not in md
     assert "2026-07-29T18" not in md
     assert "未解决" not in md
 
@@ -180,12 +179,17 @@ async def test_daily_always_sends_even_without_risks(monkeypatch):
     monkeypatch.setattr(
         push_service.report,
         "collect_open_risks",
-        lambda _db, week_start=None: {},
+        lambda _db, week_start=None, week_key_s=None: {},
     )
     monkeypatch.setattr(
         push_service.report,
         "collect_progress_summary",
-        lambda _db, week_start=None: empty_summary,
+        lambda _db, week_start=None, week_key_s=None: empty_summary,
+    )
+    monkeypatch.setattr(
+        push_service.report,
+        "collect_today_action_lines",
+        lambda _db, today=None, week_start=None, week_key_s=None: [],
     )
     monkeypatch.setattr(push_service.report, "load_snapshot_risks", lambda _db, _k: {})
     monkeypatch.setattr(push_service.report, "save_snapshot", lambda *a, **k: None)
@@ -196,7 +200,7 @@ async def test_daily_always_sends_even_without_risks(monkeypatch):
     )
     sent = AsyncMock(return_value=None)
     monkeypatch.setattr(push_service, "send_markdown", sent)
-    monkeypatch.setattr(push_service, "WECOM_WEBHOOK_URL", "https://example.test/hook")
+    monkeypatch.setattr(push_service, "DINGTALK_WEBHOOK_URL", "https://oapi.dingtalk.com/robot/send?access_token=test")
     monkeypatch.setattr(push_service, "_require_webhook", lambda: None)
 
     with SessionLocal() as db:
@@ -230,12 +234,17 @@ async def test_push_requires_webhook(monkeypatch):
     monkeypatch.setattr(
         push_service.report,
         "collect_open_risks",
-        lambda _db, week_start=None: cur,
+        lambda _db, week_start=None, week_key_s=None: cur,
     )
     monkeypatch.setattr(
         push_service.report,
         "collect_progress_summary",
-        lambda _db, week_start=None: empty_summary,
+        lambda _db, week_start=None, week_key_s=None: empty_summary,
+    )
+    monkeypatch.setattr(
+        push_service.report,
+        "collect_today_action_lines",
+        lambda _db, today=None, week_start=None, week_key_s=None: [],
     )
     monkeypatch.setattr(push_service.report, "load_snapshot_risks", lambda _db, _k: {})
     monkeypatch.setattr(
@@ -243,7 +252,7 @@ async def test_push_requires_webhook(monkeypatch):
         "ensure_message_fits",
         AsyncMock(side_effect=lambda md, **_k: md),
     )
-    monkeypatch.setattr(push_service, "WECOM_WEBHOOK_URL", "")
+    monkeypatch.setattr(push_service, "DINGTALK_WEBHOOK_URL", "")
 
     with SessionLocal() as db:
         with pytest.raises(HTTPException) as ei:

@@ -512,6 +512,58 @@ def update_task(db: Session, user: User, task_id: str, data: TaskUpdate) -> Task
     return _task_out(user, _load_task(db, task.id))
 
 
+def archive_task(db: Session, user: User, task_id: str) -> TaskOut:
+    """
+    归档 Task：状态改为 cancelled，看板默认不再展示（数据保留）。
+    管理员或该 Task lead 可操作。
+    """
+    task = _load_task(db, task_id)
+    if not can_edit_task(user, task):
+        raise HTTPException(status_code=403, detail="无权归档该 Task")
+    if task.status == TASK_STATUS_CANCELLED:
+        return _task_out(user, task)
+    prev = task.status
+    task.status = TASK_STATUS_CANCELLED
+    db.add(
+        TmTaskUpdateLog(
+            task_id=task.id,
+            user_id=user.id,
+            summary="归档 Task",
+            detail=f"状态: {prev} → {TASK_STATUS_CANCELLED}",
+        )
+    )
+    db.commit()
+    return _task_out(user, _load_task(db, task.id))
+
+
+def delete_task(db: Session, user: User, task_id: str) -> None:
+    """
+    永久删除 Task 及其 Action（含日更、更正、周进度等）。
+    管理员或该 Task lead 可操作。
+    """
+    task = _load_task(db, task_id)
+    if not can_edit_task(user, task):
+        raise HTTPException(status_code=403, detail="无权删除该 Task")
+
+    actions = db.query(TmAction).filter(TmAction.task_id == task_id).all()
+    for a in actions:
+        a.source_action_id = None
+    db.flush()
+    # 其它 Action 若 source 指向本 Task 下条目，也已在上面清掉自链；
+    # 仍可能有外 Task 指向这些 Action：一并断开
+    ids = [a.id for a in actions]
+    if ids:
+        db.query(TmAction).filter(TmAction.source_action_id.in_(ids)).update(
+            {TmAction.source_action_id: None}, synchronize_session=False
+        )
+        db.flush()
+    for a in actions:
+        db.delete(a)
+    db.flush()
+    db.delete(task)
+    db.commit()
+
+
 def get_task(db: Session, user: User, task_id: str) -> TaskDetailOut:
     task = _load_task(db, task_id)
     base = _task_out(user, task)

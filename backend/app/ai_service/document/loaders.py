@@ -41,6 +41,65 @@ def _read_markdown(path: Path) -> tuple[str, list[Path]]:
     return text, image_paths
 
 
+def _iter_docx_blocks(doc):
+    """按文档 body 顺序产出 Paragraph / Table（保留表格位置）。"""
+    from docx.oxml.ns import qn
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    body = doc.element.body
+    for child in body.iterchildren():
+        if child.tag == qn("w:p"):
+            yield Paragraph(child, doc)
+        elif child.tag == qn("w:tbl"):
+            yield Table(child, doc)
+
+
+def _paragraph_to_text(paragraph) -> str:
+    """段落转文本；列表样式补 `- ` / `1. ` 前缀便于后续切分。"""
+    text = (paragraph.text or "").strip()
+    if not text:
+        return ""
+    style_name = ""
+    try:
+        style_name = (paragraph.style.name or "") if paragraph.style else ""
+    except Exception:  # noqa: BLE001
+        style_name = ""
+    lower = style_name.lower()
+    if "list bullet" in lower or "bullet" in lower:
+        if not text.startswith(("-", "*", "+")):
+            text = f"- {text}"
+    elif "list number" in lower or "number" in lower:
+        if not re.match(r"^\d+\.", text):
+            text = f"1. {text}"
+    return text
+
+
+def _table_to_markdown(table) -> str:
+    """Word 表格转为标准 Markdown 表格（整表一块）。"""
+    rows: list[list[str]] = []
+    for row in table.rows:
+        cells: list[str] = []
+        for cell in row.cells:
+            cell_text = (cell.text or "").strip().replace("\n", " ")
+            cells.append(cell_text)
+        # 合并因合并单元格导致的重复相邻格
+        deduped: list[str] = []
+        for c in cells:
+            if deduped and deduped[-1] == c:
+                continue
+            deduped.append(c)
+        if any(deduped):
+            rows.append(deduped)
+    if not rows:
+        return ""
+    width = max(len(r) for r in rows)
+    norm = [r + [""] * (width - len(r)) for r in rows]
+    lines = ["| " + " | ".join(r) + " |" for r in norm]
+    sep = "| " + " | ".join(["---"] * width) + " |"
+    return "\n".join([lines[0], sep, *lines[1:]])
+
+
 def _read_docx(path: Path) -> tuple[str, list[Path]]:
     """读取 docx 段落文字并导出内嵌图片到临时目录。"""
     from docx import Document  # python-docx
@@ -63,14 +122,20 @@ def _read_docx(path: Path) -> tuple[str, list[Path]]:
             ) from exc
         doc = Document(str(repaired))
 
-    paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-    # 表格文字一并纳入，避免「正文在表里」时切分结果为空
-    for table in doc.tables:
-        for row in table.rows:
-            cells = [c.text.strip() for c in row.cells if c.text and c.text.strip()]
-            if cells:
-                paragraphs.append(" | ".join(cells))
-    text = "\n\n".join(paragraphs)
+    blocks: list[str] = []
+    for block in _iter_docx_blocks(doc):
+        from docx.table import Table
+        from docx.text.paragraph import Paragraph
+
+        if isinstance(block, Paragraph):
+            t = _paragraph_to_text(block)
+            if t:
+                blocks.append(t)
+        elif isinstance(block, Table):
+            md = _table_to_markdown(block)
+            if md:
+                blocks.append(md)
+    text = "\n\n".join(blocks)
 
     image_paths: list[Path] = []
     tmp_dir = Path(tempfile.mkdtemp(prefix="kb_docx_img_"))

@@ -36,14 +36,14 @@ def main() -> None:
     mod.seed()
 
     async def _push() -> None:
-        from app.platform.config import WECOM_WEBHOOK_URL
+        from app.platform.config import DINGTALK_WEBHOOK_URL
         from app.platform.database import SessionLocal
         from app.test_manage import push_service as push_svc
         from app.test_manage.config import PUSH_TRIGGER_MANUAL
 
-        print(f"\n== push wecom webhook_set={bool(WECOM_WEBHOOK_URL)} ==")
-        if not WECOM_WEBHOOK_URL:
-            print("ERROR: WECOM_WEBHOOK_URL 未配置，无法真发")
+        print(f"\n== push dingtalk webhook_set={bool(DINGTALK_WEBHOOK_URL)} ==")
+        if not DINGTALK_WEBHOOK_URL:
+            print("ERROR: DINGTALK_WEBHOOK_URL 未配置，无法真发")
             return
         db = SessionLocal()
         try:

@@ -130,7 +130,7 @@ export default function CleanJobListPage({
             <FilterOutlined style={{ color: 'var(--color-primary)', marginRight: 8 }} />
             数据清洗
           </Title>
-          <Text type="secondary">入库前质检：提炼精华、检测冲突，确认后写入知识库</Text>
+          <Text type="secondary">规则清洗切段，确认正文后写入知识库（不改写原文）</Text>
         </div>
         <Space>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>

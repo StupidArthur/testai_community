@@ -321,44 +321,31 @@ export default function WeekScreenTab(props: {
       </section>
 
       <div className="tm-screen__filters">
-        <div className="tm-screen__focus-chips" role="tablist" aria-label="明细筛选">
-          {(
-            [
-              { label: '需关注', value: 'focus' },
-              { label: '全部', value: 'all' },
-              { label: '已完成', value: 'done' },
-            ] as const
-          ).map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              role="tab"
-              aria-selected={focus === opt.value}
-              className={`tm-screen__chip${focus === opt.value ? ' tm-screen__chip--on' : ''}`}
-              onClick={() => setFocus(opt.value)}
-              data-testid={`tm-screen-focus-${opt.value}`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-        <Space size={6} wrap className="tm-screen__domain-chips">
-          {domains.map((d) => (
-            <button
-              key={d}
-              type="button"
-              className={`tm-screen__chip${domain === d ? ' tm-screen__chip--on' : ''}`}
-              onClick={() => setDomain(d)}
-            >
-              {d}
-            </button>
-          ))}
+        <Space size={8} wrap>
+          <Select
+            style={{ minWidth: 120 }}
+            value={focus}
+            onChange={setFocus}
+            options={[
+              { value: 'focus', label: '需关注' },
+              { value: 'all', label: '全部' },
+              { value: 'done', label: '已完成' },
+            ]}
+            data-testid="tm-screen-focus-select"
+          />
+          <Select
+            style={{ minWidth: 140 }}
+            value={domain}
+            onChange={setDomain}
+            options={domains.map((d) => ({ value: d, label: d }))}
+            data-testid="tm-screen-domain-select"
+          />
+          {focus === 'focus' && hiddenDoneCount > 0 ? (
+            <Button type="link" size="small" onClick={() => setFocus('done')}>
+              另有 {hiddenDoneCount} 个已完成/挂起 · 查看
+            </Button>
+          ) : null}
         </Space>
-        {focus === 'focus' && hiddenDoneCount > 0 && (
-          <button type="button" className="tm-screen__more-done" onClick={() => setFocus('done')}>
-            另有 {hiddenDoneCount} 个已完成/挂起 · 查看
-          </button>
-        )}
       </div>
 
       <div className="tm-screen__body">

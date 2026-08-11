@@ -42,9 +42,10 @@ ENV=production
 SECRET_KEY=一长串随机字符
 BACKEND_PORT=48011
 DATABASE_URL=sqlite:///./database_prod.sqlite
-WECOM_PUSH_ENABLED=false
+DINGTALK_PUSH_ENABLED=false
+DINGTALK_KEYWORD=msg
 MINIMAX_API_KEY=你的key
-WECOM_WEBHOOK_URL=你的webhook
+DINGTALK_WEBHOOK_URL=你的钉钉webhook
 ```
 
 ---
@@ -175,7 +176,7 @@ cd /d D:\deploy\testai_community_prod\backend\scripts
 powershell -ExecutionPolicy Bypass -File .\install_wecom_scheduled_tasks.ps1
 ```
 
-生产 `.env`：`WECOM_PUSH_ENABLED=false`。开发机企微任务保持禁用。
+生产 `.env`：`DINGTALK_PUSH_ENABLED=false`。开发机钉钉/推送任务保持禁用。
 ---
 
 ## 5. 禁止事项
@@ -195,4 +196,4 @@ powershell -ExecutionPolicy Bypass -File .\install_wecom_scheduled_tasks.ps1
 - [ ] 防火墙规则 `TestAI-48011` 存在  
 - [ ] 启动方式是计划任务 `TestAI-Backend`（`run_prod.py`），**不依赖**开着的 PowerShell  
 - [ ] 企微计划任务只在生产机：`TestAI-WeCom-Daily` / `Weekly` / `KeepAwake`  
-- [ ] 生产 `.env`：`WECOM_PUSH_ENABLED=false`  
+- [ ] 生产 `.env`：`DINGTALK_PUSH_ENABLED=false`  

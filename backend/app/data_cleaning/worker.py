@@ -14,8 +14,10 @@ from app.ai_service.document.loaders import load_document_text_and_images
 from app.data_cleaning.align import align_essence_with_kb, default_review_action
 from app.data_cleaning.anchor import match_anchors_for_text, pick_anchor_ids
 from app.data_cleaning.config import (
+    CLEAN_USE_LLM_ESSENCE,
     JOB_PROCESS_TIMEOUT_SEC,
     MAX_CONCURRENT_CLEAN_JOBS,
+    MAX_PARAGRAPH_RAW_CHARS,
     MIN_PARAGRAPH_CHARS,
     PARAGRAPH_CONCURRENCY,
     QUEUE_TICK_SEC,
@@ -24,6 +26,7 @@ from app.data_cleaning.config import (
 from app.data_cleaning.extract import extract_paragraph_essence
 from app.data_cleaning.ingest import register_clean_source_document
 from app.data_cleaning.models import CleanJob, ParagraphUnit
+from app.data_cleaning.noise import clean_noise
 from app.data_cleaning.splitter import SectionSlice, split_plain_text_to_sections
 from app.data_cleaning.utils import dumps_json
 from app.platform.database import SessionLocal
@@ -162,7 +165,8 @@ async def _process_job(job_id: str) -> None:
         text, _images, load_warnings = load_document_text_and_images(path)
         if load_warnings:
             log.warning("clean job %s load warnings: %s", job.id, load_warnings)
-        plain = text or ""
+        # 规则删噪后再切段（不改写正文文字）
+        plain = clean_noise(text or "")
         slices = split_plain_text_to_sections(plain)
         if not slices:
             msg = (
@@ -196,42 +200,50 @@ async def _process_job(job_id: str) -> None:
 
         async def _process_slice(sl: SectionSlice) -> None:
             async with sem:
-                extracted = await extract_paragraph_essence(
-                    sl.raw_text,
-                    doc_type=job.doc_type,
-                    product=job.product or "",
-                    version=job.version or "",
-                    environment=job.environment or "",
-                )
-                essence = extracted["essence"]
-                db_local = SessionLocal()
-                try:
-                    candidates = await match_anchors_for_text(
-                        db_local, sl.raw_text + "\n" + essence
+                raw_body = (sl.raw_text or "")[:MAX_PARAGRAPH_RAW_CHARS]
+                scope: dict = {}
+                if job.product:
+                    scope["product"] = job.product
+                if job.version:
+                    scope["version"] = job.version
+                if job.environment:
+                    scope["environment"] = job.environment
+
+                # 默认：零 LLM——待入库正文即原文；可选开关恢复旧精华/对齐
+                if CLEAN_USE_LLM_ESSENCE:
+                    extracted = await extract_paragraph_essence(
+                        raw_body,
+                        doc_type=job.doc_type,
+                        product=job.product or "",
+                        version=job.version or "",
+                        environment=job.environment or "",
                     )
-                    anchor_ids = pick_anchor_ids(candidates)
-                    scope = extracted.get("scope") or {}
-                    if job.product:
-                        scope.setdefault("product", job.product)
-                    if job.version:
-                        scope.setdefault("version", job.version)
-                    if job.environment:
-                        scope.setdefault("environment", job.environment)
-                    # 词典未命中时，用 LLM 提炼的主题标签写入 scope（不对用户暴露）
+                    essence = str(extracted.get("essence") or raw_body).strip() or raw_body
                     labels = [
                         str(x).strip()
                         for x in (extracted.get("anchor_labels") or [])
                         if str(x).strip()
                     ][:3]
+                    scope_extra = extracted.get("scope") or {}
+                    if isinstance(scope_extra, dict):
+                        for k, v in scope_extra.items():
+                            scope.setdefault(k, v)
                     if labels and "topics" not in scope:
                         scope["topics"] = labels
-                    if not anchor_ids and labels:
-                        # 元数据用首个主题作软锚点 id，便于排查；非用户词典
+                else:
+                    essence = raw_body
+                    labels = []
+
+                db_local = SessionLocal()
+                try:
+                    candidates = await match_anchors_for_text(db_local, raw_body)
+                    anchor_ids = pick_anchor_ids(candidates)
+                    if CLEAN_USE_LLM_ESSENCE and not anchor_ids and labels:
                         soft_id = "topic:" + labels[0][:64]
                         anchor_ids = [soft_id]
 
                     alignments: list[dict] = []
-                    if essence:
+                    if CLEAN_USE_LLM_ESSENCE and essence:
                         alignments = await align_essence_with_kb(
                             job.kb_id,
                             essence,
@@ -246,7 +258,7 @@ async def _process_job(job_id: str) -> None:
                         job_id=job.id,
                         seq=sl.seq,
                         section_path=sl.section_path,
-                        raw_text=sl.raw_text[:12000],
+                        raw_text=raw_body,
                         essence_markdown=essence,
                         anchor_ids_json=dumps_json(anchor_ids),
                         suggested_anchors_json=dumps_json(candidates),
@@ -274,6 +286,11 @@ async def _process_job(job_id: str) -> None:
         job.error = None
         job.updated_at = datetime.utcnow()
         db.commit()
-        log.info("clean job ready job=%s paragraphs=%s", job.id, len(slices))
+        log.info(
+            "clean job ready job=%s paragraphs=%s llm_essence=%s",
+            job.id,
+            len(slices),
+            CLEAN_USE_LLM_ESSENCE,
+        )
     finally:
         db.close()

@@ -1,5 +1,5 @@
 """
-测试任务企微推送编排：日报 / 周报发送、幂等、dry_run。
+测试任务群推送编排：日报 / 周报发送、幂等、dry_run（钉钉机器人）。
 """
 from __future__ import annotations
 
@@ -12,9 +12,9 @@ from sqlalchemy.orm import Session
 
 from app.auth.models import User, UserRole
 from app.platform.config import (
-    WECOM_PUSH_IDEMPOTENCY_ENABLED,
-    WECOM_WEBHOOK_URL,
-    WECOM_WEEKLY_IDEMPOTENCY_ENABLED,
+    DINGTALK_PUSH_IDEMPOTENCY_ENABLED,
+    DINGTALK_WEBHOOK_URL,
+    DINGTALK_WEEKLY_IDEMPOTENCY_ENABLED,
 )
 from app.test_manage.config import (
     PUSH_TRIGGER_MANUAL,
@@ -25,8 +25,8 @@ from app.test_manage.config import (
 )
 from app.test_manage.models import TmPushRun
 from app.test_manage import push_report as report
-from app.test_manage.wecom_client import send_markdown
-from app.test_manage.week import current_week_start, daily_context_week_start
+from app.test_manage.period import get_daily_context_period
+from app.test_manage.dingtalk_client import send_markdown
 
 log = logging.getLogger("app.test_manage.push")
 
@@ -56,9 +56,9 @@ def assert_can_push(user: User) -> None:
 def _already_sent(db: Session, kind: str, period_key: str) -> bool:
     """仅「真正发送成功」占坑；skipped 空跑不阻断当日后续推送。
 
-    WECOM_PUSH_IDEMPOTENCY_ENABLED=false 时始终视为未发送（可重复推）。
+    DINGTALK_PUSH_IDEMPOTENCY_ENABLED=false 时始终视为未发送（可重复推）。
     """
-    if not WECOM_PUSH_IDEMPOTENCY_ENABLED:
+    if not DINGTALK_PUSH_IDEMPOTENCY_ENABLED:
         return False
     row = (
         db.query(TmPushRun)
@@ -73,10 +73,10 @@ def _already_sent(db: Session, kind: str, period_key: str) -> bool:
 
 
 def _require_webhook() -> None:
-    if not (WECOM_WEBHOOK_URL or "").strip():
+    if not (DINGTALK_WEBHOOK_URL or "").strip():
         raise HTTPException(
             status_code=400,
-            detail="未配置 WECOM_WEBHOOK_URL，无法推送（可用 dry_run 预览）",
+            detail="未配置 DINGTALK_WEBHOOK_URL，无法推送（可用 dry_run 预览）",
         )
 
 
@@ -123,7 +123,8 @@ async def push_daily(
     """
     日报：偏 Action + 当前风险（今日日更进展 + 开放风险）；无风险也每天发送。
 
-    汇报周取 daily_context_week_start（周三全天仍用刚结束周）。
+    汇报周取库内日更上下文周 get_daily_context_period（与看板活动周一致，
+    避免经典周三 week_key 与自定义 week_end 开窗不一致导致汇总为 0）。
     force=True：忽略「本日已推送」幂等（调试用）。
     """
     day = today or now_tm().date()
@@ -143,10 +144,14 @@ async def push_daily(
             reason="本日已推送过",
         )
 
-    ws = daily_context_week_start()
-    current = report.collect_open_risks(db, week_start=ws)
-    summary = report.collect_progress_summary(db, week_start=ws)
-    action_lines = report.collect_today_action_lines(db, today=day, week_start=ws)
+    ctx = get_daily_context_period(db)
+    ws = ctx.week_start
+    wk = ctx.week_key
+    current = report.collect_open_risks(db, week_start=ws, week_key_s=wk)
+    summary = report.collect_progress_summary(db, week_start=ws, week_key_s=wk)
+    action_lines = report.collect_today_action_lines(
+        db, today=day, week_start=ws, week_key_s=wk
+    )
     previous = report.load_snapshot_risks(db, REPORT_KIND_DAILY)
     diff = report.diff_risks(previous, current)
     markdown = await report.fit_daily_markdown(
@@ -170,7 +175,11 @@ async def push_daily(
         )
 
     _require_webhook()
-    await send_markdown(WECOM_WEBHOOK_URL, markdown)
+    await send_markdown(
+        DINGTALK_WEBHOOK_URL,
+        markdown,
+        title=report.daily_report_heading(day),
+    )
     report.save_snapshot(
         db,
         report_kind=REPORT_KIND_DAILY,
@@ -212,14 +221,15 @@ async def push_weekly(
     """
     周报：偏 Task + 整体进度 + 风险（Task 列表 / 分领域 / 风险 Task 视角）。
 
-    周归属与日报一致用 daily_context_week_start：周三切周(18:00)后补跑仍汇报
-    「刚结束的一周」，避免 StartWhenAvailable 晚启动落到空的新周。
+    周归属与日报一致：用库内 get_daily_context_period（与看板同一 week_key）。
     """
-    ws = daily_context_week_start()
-    period = report.weekly_period_key(ws)
-    # 周报幂等由 WECOM_WEEKLY_IDEMPOTENCY_ENABLED 单独控制（默认关，可同周重发）
+    ctx = get_daily_context_period(db)
+    ws = ctx.week_start
+    wk = ctx.week_key
+    period = wk  # 幂等键与业务周键一致
+    # 周报幂等由 DINGTALK_WEEKLY_IDEMPOTENCY_ENABLED 单独控制
     if (
-        WECOM_WEEKLY_IDEMPOTENCY_ENABLED
+        DINGTALK_WEEKLY_IDEMPOTENCY_ENABLED
         and not force
         and not dry_run
         and _already_sent(db, REPORT_KIND_WEEKLY, period)
@@ -238,9 +248,9 @@ async def push_weekly(
             reason="本周已推送过",
         )
 
-    summary = report.collect_progress_summary(db, week_start=ws)
-    current = report.collect_open_risks(db, week_start=ws)
-    task_rows = report.collect_task_progress_rows(db, week_start=ws)
+    summary = report.collect_progress_summary(db, week_start=ws, week_key_s=wk)
+    current = report.collect_open_risks(db, week_start=ws, week_key_s=wk)
+    task_rows = report.collect_task_progress_rows(db, week_start=ws, week_key_s=wk)
     previous = report.load_snapshot_risks(db, REPORT_KIND_WEEKLY)
     diff = report.diff_risks(previous, current)
     markdown = await report.fit_weekly_markdown(
@@ -264,7 +274,9 @@ async def push_weekly(
         )
 
     _require_webhook()
-    await send_markdown(WECOM_WEBHOOK_URL, markdown)
+    await send_markdown(
+        DINGTALK_WEBHOOK_URL, markdown, title=report.weekly_report_heading()
+    )
     report.save_snapshot(
         db,
         report_kind=REPORT_KIND_WEEKLY,
@@ -307,7 +319,7 @@ def push_status(db: Session) -> dict:
         .all()
     )
     return {
-        "webhook_configured": bool(WECOM_WEBHOOK_URL),
+        "webhook_configured": bool(DINGTALK_WEBHOOK_URL),
         "snapshots": [
             {
                 "report_kind": s.report_kind,

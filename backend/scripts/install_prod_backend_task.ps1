@@ -139,4 +139,4 @@ Write-Host ("  2) Open http://10.30.144.64:" + $Port + " from another PC")
 Write-Host "  3) If down, read backend_keepalive.log"
 Write-Host ""
 Write-Host ("Stop:  powershell -ExecutionPolicy Bypass -File .\stop_prod_backend_task.ps1")
-Write-Host "WeCom: .\install_wecom_scheduled_tasks.ps1  and set WECOM_PUSH_ENABLED=false"
+Write-Host "DingTalk: .\install_wecom_scheduled_tasks.ps1  and set DINGTALK_PUSH_ENABLED=false"

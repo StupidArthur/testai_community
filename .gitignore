@@ -28,6 +28,7 @@ backend/database_test.sqlite
 
 # ====== Test runtime data ======
 backend/tests/.data/
+rag_pipeline/.data/
 
 # ====== Environment variables（勿提交密钥） ======
 .env

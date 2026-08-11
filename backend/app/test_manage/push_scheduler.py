@@ -1,5 +1,5 @@
 """
-企微日报/周报定时调度：进程内 asyncio 轮询（默认每 60s）。
+钉钉日报/周报定时调度：进程内 asyncio 轮询（默认每 60s）。
 
 周报发送时刻 = 当前/结束周的 week_end + 15 分钟（见 period.compute_weekly_push_at）。
 """
@@ -9,15 +9,15 @@ import asyncio
 import logging
 
 from app.platform.config import (
-    WECOM_DAILY_PUSH_HOUR,
-    WECOM_DAILY_PUSH_MINUTE,
-    WECOM_PUSH_ENABLED,
-    WECOM_WEBHOOK_URL,
+    DINGTALK_DAILY_PUSH_HOUR,
+    DINGTALK_DAILY_PUSH_MINUTE,
+    DINGTALK_PUSH_ENABLED,
+    DINGTALK_WEBHOOK_URL,
 )
 from app.platform.database import SessionLocal
 from app.test_manage.config import (
     PUSH_TRIGGER_SCHEDULE,
-    WECOM_SCHEDULER_POLL_SECONDS,
+    PUSH_SCHEDULER_POLL_SECONDS,
     now_tm,
 )
 from app.test_manage import push_service as push_svc
@@ -51,19 +51,19 @@ def _should_send_weekly(now, push_at) -> bool:
 
 
 async def _tick_once() -> None:
-    if not WECOM_PUSH_ENABLED:
+    if not DINGTALK_PUSH_ENABLED:
         return
-    if not WECOM_WEBHOOK_URL:
+    if not DINGTALK_WEBHOOK_URL:
         return
 
     now = now_tm()
     db = SessionLocal()
     try:
         if (
-            now.hour > WECOM_DAILY_PUSH_HOUR
+            now.hour > DINGTALK_DAILY_PUSH_HOUR
             or (
-                now.hour == WECOM_DAILY_PUSH_HOUR
-                and now.minute >= WECOM_DAILY_PUSH_MINUTE
+                now.hour == DINGTALK_DAILY_PUSH_HOUR
+                and now.minute >= DINGTALK_DAILY_PUSH_MINUTE
             )
         ):
             from app.test_manage import push_report as report
@@ -120,15 +120,15 @@ async def _tick_once() -> None:
 
 async def _loop() -> None:
     log.info(
-        "wecom push scheduler started (daily %02d:%02d, weekly=from week_end rule, poll=%ss)",
-        WECOM_DAILY_PUSH_HOUR,
-        WECOM_DAILY_PUSH_MINUTE,
-        WECOM_SCHEDULER_POLL_SECONDS,
+        "dingtalk push scheduler started (daily %02d:%02d, weekly=from week_end rule, poll=%ss)",
+        DINGTALK_DAILY_PUSH_HOUR,
+        DINGTALK_DAILY_PUSH_MINUTE,
+        PUSH_SCHEDULER_POLL_SECONDS,
     )
     while not _stop.is_set():
         await _tick_once()
         try:
-            await asyncio.wait_for(_stop.wait(), timeout=WECOM_SCHEDULER_POLL_SECONDS)
+            await asyncio.wait_for(_stop.wait(), timeout=PUSH_SCHEDULER_POLL_SECONDS)
         except asyncio.TimeoutError:
             continue
 
@@ -138,10 +138,10 @@ async def start_scheduler() -> None:
     _stop.clear()
     if _task and not _task.done():
         return
-    if not WECOM_PUSH_ENABLED:
-        log.info("wecom push scheduler disabled (WECOM_PUSH_ENABLED=false)")
+    if not DINGTALK_PUSH_ENABLED:
+        log.info("dingtalk push scheduler disabled (DINGTALK_PUSH_ENABLED=false)")
         return
-    _task = asyncio.create_task(_loop(), name="tm-wecom-push-scheduler")
+    _task = asyncio.create_task(_loop(), name="tm-dingtalk-push-scheduler")
 
 
 async def stop_scheduler() -> None:
@@ -154,4 +154,4 @@ async def stop_scheduler() -> None:
         except asyncio.CancelledError:
             pass
     _task = None
-    log.info("wecom push scheduler stopped")
+    log.info("dingtalk push scheduler stopped")

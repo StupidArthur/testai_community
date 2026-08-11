@@ -4,7 +4,8 @@
 > 状态：**一期已实现（Domain → Task → Action）**  
 > 模块：`backend/app/test_manage/` · `frontend/src/test_manage/`  
 > 入口：顶栏/门户「项目管理」→ `/projects` · API `/api/test-manage`  
-> **产品使用说明（谁填什么、日更/周报、界面操作）**：[test_manage_product_guide.md](./test_manage_product_guide.md)
+> **产品使用说明（谁填什么、日更/周报、界面操作）**：[test_manage_product_guide.md](./test_manage_product_guide.md)  
+> 页内为简略版；完整版经 `frontend/public/docs/test_manage_product_guide.md` 提供下载（与上文档同源，改规则时两边一起改）。
 
 ---
 
@@ -105,7 +106,8 @@ Project（组织容器，如 TPT V2.1；创建维度 + 看板可选筛选）
 ## 6. 看板（项目管理首页）
 
 - 默认 Tab「**本周大屏**」：领导汇报视图——KPI、周×Task 明细（**每条非草稿 Action 均展示子行，含仅 1 条**）、风险聚焦侧栏、全屏汇报；支持 **本周 / 历史**（历史下拉最多 10 周，只读）。**草稿 Action 不进入大屏**（KPI/明细均不含；仅草稿的 Task 整行隐藏；工作台仍可见草稿）。Task 进度列：手填优先；未手填时提示「未手填 Task 进度」，数值为 Action 平均。  
-- 「工作台」：同一周切换；历史周隐藏新建入口；可看周报预计发送时刻；Admin/Manager 可改周结束。  
+- 「工作台」：同一周切换；历史周隐藏新建入口；可看周报预计发送时刻；Admin/Manager 可改周结束。筛选用下拉（scope / 项目）；管理员「新建」下拉；Task 卡「操作」下拉（详情 / 进度 / 归档 / 删除）。**仅支持复制上周 Action**（同 Task、上一业务周 → 本周草稿；单条 / 一键全部；点标题预览）。
+- 大屏明细筛选（需关注 / 全部 / 已完成、领域）亦为下拉，减少 chip 占位。  
   - 筛选条在双栏上方；左右面板标题与内容区顶对齐、等高；明细默认「需关注」，多 Action 折叠，表体定高滚动。  
   - **KPI 分两行**：Task / Action 维度各自统计；Action「均进度」= 算术平均（旁侧文案只反映进度，不绑风险）；「有风险」仅计 **进行中** Action。明细「负责人」：**Task 测试负责人在前**，多人「甲 等N人」。  
 - Tab「工作台」：创建 Project/Domain/Task/Action、卡片操作与日更入口；Task 抽屉填**本周进度**；Action 抽屉看**延续历史**。  
@@ -114,17 +116,20 @@ Project（组织容器，如 TPT V2.1；创建维度 + 看板可选筛选）
 
 ---
 
-## 6b. 企微群推送（日报 / 周报）
+## 6b. 钉钉群推送（日报 / 周报）
 
-基于日更「开放风险」快照对比（R1），推送到企业微信群机器人。
+基于日更「开放风险」快照对比（R1），推送到钉钉群机器人。
+
+**周归属**：汇总按库表 `tm_week_periods` 的活动周 `week_key`（`get_daily_context_period`），与看板 Action 一致；勿仅用经典「周三 17:00」推算，否则自定义 `week_end` 后会出现「看板有数据、推送汇总为 0」。
 
 | 项 | 说明 |
 |----|------|
-| 配置 | `.env`：`WECOM_WEBHOOK_URL`、`WECOM_PUSH_ENABLED`；可选 `WECOM_DAILY_PUSH_*` / `WECOM_WEEKLY_PUSH_*` |
-| 定时（推荐） | Windows 计划任务 + keep-awake；单条 ≤4096，超长先 AI 再砍行；用计划任务时 `WECOM_PUSH_ENABLED=false` |
-| 幂等开关 | `WECOM_PUSH_IDEMPOTENCY_ENABLED`（日报）；`WECOM_WEEKLY_IDEMPOTENCY_ENABLED`（周报，默认 **true** 同周只发一次；调试可设 false）；计划任务亦可 `TM_PUSH_FORCE=1` |
+| 配置 | `.env`：`DINGTALK_WEBHOOK_URL`、`DINGTALK_KEYWORD=msg`、`DINGTALK_PUSH_ENABLED`；可选 `DINGTALK_DAILY_PUSH_*` |
+| 定时（推荐） | Windows 计划任务 + keep-awake；单条 ≤4096；用计划任务时 `DINGTALK_PUSH_ENABLED=false`；任务用 `-WindowStyle Hidden` **不弹黑窗**（改后需重装计划任务） |
+| 半小时联调（临时） | 生产：`install_halfhour_push_test.cmd`（10:00–21:00 半小时，整点日报/半点周报，`FORCE=1`，禁用原 Daily/Weekly）；测完 `restore_normal_push_schedule.cmd` 并恢复幂等 `true`。入口仍走 `wecom_push_daily/weekly.ps1`，与 20:00 同路径 |
+| 幂等开关 | `DINGTALK_PUSH_IDEMPOTENCY_ENABLED`（日报）；`DINGTALK_WEEKLY_IDEMPOTENCY_ENABLED`（周报，默认 **true** 同周只发一次；调试可设 false）；计划任务亦可 `TM_PUSH_FORCE=1` |
 | 日报 | Action 视角；每天 1 条 |
-| 周报 | Task 视角；**优先用手填 Task 周进度**，未填用 Action 平均；风险挂在 Task 下并标注 Action+负责人；Task 仅进行中可加 Action；**本周 0 Action 的 Task 不计入周报/日报 KPI 的 task_count**（看板仍标红空卡片） |
+| 周报 | Task 视角；标题 **`【TPT测试周报】`**；**优先用手填 Task 周进度**，未填用 Action 平均；风险挂在 Task 下并标注 Action+负责人；Task 仅进行中可加 Action；**本周 0 Action 的 Task 不计入周报/日报 KPI 的 task_count**（看板仍标红空卡片） |
 | 需关注 | 开放风险或进行中 Action；**不含纯草稿**；大屏明细亦不展示草稿 Action |
 | 切周 | 工作台标红无 Action 的 Task；负责人「复制上周 / 新建」 |
 | 已解决 / 不计开放风险 | 最新日更 `risk_blocker` 为空；或 Action 已 **完成/草稿**（及历史取消；完成态遗留风险文案不再进日报与大屏） |
