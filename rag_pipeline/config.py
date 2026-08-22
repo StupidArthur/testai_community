@@ -27,5 +27,5 @@ OLLAMA_EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL") or "bge-m3:latest"
 OLLAMA_CHAT_MODEL = os.environ.get("OLLAMA_CHAT_MODEL") or "qwen2.5:7b"
 
 # 检索
-RETRIEVE_TOP_K = 10
+RETRIEVE_TOP_K = 15
 DOC_SUMMARY_PREFILTER_LIMIT = 20

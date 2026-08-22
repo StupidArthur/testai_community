@@ -58,7 +58,7 @@ flowchart TB
 | GET | `/api/auth/current-user` | JWT | 当前用户信息 |
 | GET | `/api/auth/user-list` | Admin | 用户列表 |
 | PUT | `/api/auth/password` | JWT | 修改自己的密码 |
-| POST | `/api/auth/{user_id}/reset-password` | Admin | 重置他人密码 |
+| POST | `/api/auth/{user_id}/reset-password` | Admin | 为指定用户更改密码 |
 | DELETE | `/api/auth/{user_id}` | Admin | 删除用户 |
 
 ---

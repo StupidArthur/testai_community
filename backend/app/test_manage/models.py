@@ -6,6 +6,7 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import (
+    Boolean,
     Column,
     Date,
     DateTime,
@@ -21,6 +22,7 @@ from sqlalchemy.orm import relationship
 from app.platform.database import Base
 from app.test_manage.config import (
     PROJECT_STATUS_ACTIVE,
+    REQ_STAGE_DEFAULT,
     STATUS_DRAFT,
     TASK_STATUS_DRAFT,
 )
@@ -71,7 +73,7 @@ class TmDomain(Base):
 
 
 class TmTask(Base):
-    """主题任务：需求内容 + 测试负责人 + 测试人员。"""
+    """主题任务：需求内容 + 测试负责人 + 测试人员 + 需求进展。"""
 
     __tablename__ = "tm_tasks"
 
@@ -84,6 +86,13 @@ class TmTask(Base):
     requirement = Column(Text, nullable=False, default="")
     lead_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     status = Column(String, nullable=False, default=TASK_STATUS_DRAFT, index=True)
+    # 需求进展（整需求生命周期）；测试状态见 status
+    req_stage = Column(String, nullable=False, default=REQ_STAGE_DEFAULT, index=True)
+    expected_handover_at = Column(Date, nullable=True)  # 待提测：预计提测
+    actual_handover_at = Column(Date, nullable=True)  # 待测试：实际提测
+    test_started_at = Column(Date, nullable=True)  # 测试中：开始
+    expected_test_end_at = Column(Date, nullable=True)  # 测试中：预计结束
+    test_ended_at = Column(Date, nullable=True)  # 测试完成：实际结束
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     published_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -209,7 +218,9 @@ class TmDailyUpdate(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     report_date = Column(Date, nullable=False)
     progress_percent = Column(Integer, nullable=False, default=0)
+    # 风险说明（原阻塞文案字段名保留）；是否阻塞由 is_blocking 单独标记
     risk_blocker = Column(Text, nullable=False, default="")
+    is_blocking = Column(Boolean, nullable=False, default=False)
     progress_note = Column(Text, nullable=False, default="")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
@@ -299,3 +310,27 @@ class TmTaskWeekProgress(Base):
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class TmTaskStageSnapshot(Base):
+    """
+    历史周需求进展快照：切周时固化，历史大屏读快照而非当前阶段。
+    """
+
+    __tablename__ = "tm_task_stage_snapshots"
+    __table_args__ = (
+        UniqueConstraint("task_id", "week_key", name="uq_tm_task_stage_snapshot"),
+    )
+
+    id = Column(String, primary_key=True, default=_new_uuid)
+    task_id = Column(
+        String, ForeignKey("tm_tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    week_key = Column(String, nullable=False, index=True)
+    req_stage = Column(String, nullable=False, default=REQ_STAGE_DEFAULT, index=True)
+    expected_handover_at = Column(Date, nullable=True)
+    actual_handover_at = Column(Date, nullable=True)
+    test_started_at = Column(Date, nullable=True)
+    expected_test_end_at = Column(Date, nullable=True)
+    test_ended_at = Column(Date, nullable=True)
+    captured_at = Column(DateTime(timezone=True), server_default=func.now())

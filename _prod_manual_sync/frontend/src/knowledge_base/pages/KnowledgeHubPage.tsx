@@ -248,10 +248,6 @@ export default function KnowledgeHubPage() {
           },
         ]}
       />
-
-      <Text type="secondary" className="knowledge-hub-page__footer" data-testid="kb-hub-credit">
-        designed by @yuzechao
-      </Text>
     </div>
   )
 }

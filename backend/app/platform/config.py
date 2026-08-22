@@ -113,7 +113,7 @@ KB_MAX_DOCS_PER_KB = _int_env("KB_MAX_DOCS_PER_KB", 100)
 KB_MAX_CONCURRENT_JOBS = _int_env("KB_MAX_CONCURRENT_JOBS", 2)
 KB_CHUNK_SIZE = _int_env("KB_CHUNK_SIZE", 800)
 KB_CHUNK_OVERLAP = _int_env("KB_CHUNK_OVERLAP", 120)
-KB_RAG_TOP_K = _int_env("KB_RAG_TOP_K", 10)
+KB_RAG_TOP_K = _int_env("KB_RAG_TOP_K", 15)
 
 # ==================== LibreOffice（.doc 转换） ====================
 
@@ -183,7 +183,14 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./database.sqlite")
 DINGTALK_WEBHOOK_URL = os.getenv("DINGTALK_WEBHOOK_URL", "").strip()
 # 自定义机器人安全关键词（须与钉钉后台一致）
 DINGTALK_KEYWORD = os.getenv("DINGTALK_KEYWORD", "msg").strip() or "msg"
-# 默认开启定时轮询；未配置 webhook 时定时任务会跳过实际发送
+# 企业内部应用机器人（OpenAPI）：优先于 Webhook；可发高清截图（media 上传）
+DINGTALK_APP_KEY = os.getenv("DINGTALK_APP_KEY", "").strip()
+DINGTALK_APP_SECRET = os.getenv("DINGTALK_APP_SECRET", "").strip()
+DINGTALK_ROBOT_CODE = (
+    os.getenv("DINGTALK_ROBOT_CODE", "").strip() or DINGTALK_APP_KEY
+)
+DINGTALK_OPEN_CONVERSATION_ID = os.getenv("DINGTALK_OPEN_CONVERSATION_ID", "").strip()
+# 默认开启定时轮询；未配置 webhook/OpenAPI 时定时任务会跳过实际发送
 DINGTALK_PUSH_ENABLED = os.getenv("DINGTALK_PUSH_ENABLED", "true").strip().lower() in (
     "1",
     "true",
@@ -198,6 +205,21 @@ DINGTALK_PUSH_IDEMPOTENCY_ENABLED = os.getenv(
 DINGTALK_WEEKLY_IDEMPOTENCY_ENABLED = os.getenv(
     "DINGTALK_WEEKLY_IDEMPOTENCY_ENABLED", "true"
 ).strip().lower() in ("1", "true", "yes", "on")
+
+
+def dingtalk_openapi_ready() -> bool:
+    """应用机器人发群所需四项是否齐全。"""
+    return bool(
+        DINGTALK_APP_KEY
+        and DINGTALK_APP_SECRET
+        and DINGTALK_ROBOT_CODE
+        and DINGTALK_OPEN_CONVERSATION_ID
+    )
+
+
+def dingtalk_push_channel_ready() -> bool:
+    """Webhook 或 OpenAPI 任一可用即可推送。"""
+    return bool(DINGTALK_WEBHOOK_URL) or dingtalk_openapi_ready()
 
 
 def _opt_int_env(name: str, default: int) -> int:

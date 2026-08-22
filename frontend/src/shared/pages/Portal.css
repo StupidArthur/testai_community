@@ -179,12 +179,6 @@
   line-height: 1.4;
 }
 
-.portal__credit {
-  margin-top: 24px !important;
-  font-size: 12px;
-  text-align: center;
-}
-
 @media (max-width: 720px) {
   .portal__hero {
     flex-direction: column;

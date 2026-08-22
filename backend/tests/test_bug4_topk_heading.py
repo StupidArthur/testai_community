@@ -15,7 +15,7 @@ _SIX = ("模拟", "控制", "优化", "预测", "评估", "统计")
 
 
 def test_bug4_top_k_default_at_least_10() -> None:
-    assert KB_RAG_TOP_K >= 10
+    assert KB_RAG_TOP_K >= 15
 
 
 def test_bug4_heading_binds_following_paragraph() -> None:

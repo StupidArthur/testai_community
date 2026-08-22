@@ -13,8 +13,11 @@ from dataclasses import dataclass
 
 from .config import MAX_PARAGRAPHS_PER_JOB, MIN_PARAGRAPH_CHARS
 
-# 段落软上限（字）；列表块/表格可超限不拆
+# 段落软上限（字）；列表块/表格/并列层级块可超限不拆
 CHUNK_SOFT_LIMIT = 500
+
+# 并列「xx层」短标题：至少出现这么多次则整段不硬切
+PARALLEL_LAYER_TITLE_MIN = 3
 
 _RE_MD_HEADING = re.compile(r"^(#{1,6})\s+(.+)$")
 _RE_NUM_HEADING = re.compile(r"^(?P<num>\d+(?:\.\d+)+)\.?\s*(?P<title>\S.*)?$")
@@ -26,7 +29,8 @@ _RE_CN_ENUM = re.compile(
 )
 _RE_TABLE_ROW = re.compile(r"^\s*\|.+\|\s*$")
 _RE_TABLE_SEP = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$")
-
+_RE_LAYER_TITLE = re.compile(r"^.{2,36}层$")
+_RE_LAYER_EN = re.compile(r"Layer\)?\s*$", re.I)
 
 @dataclass
 class SectionSlice:
@@ -70,6 +74,32 @@ def _is_list_item(line: str) -> bool:
     if _RE_CN_ENUM.match(s):
         return True
     return False
+
+
+def _is_layer_title_line(line: str) -> bool:
+    """短行「xxx层」或英文 Layer 标题，用于识别并列架构层级。"""
+    s = line.strip()
+    if not s or _is_heading(s):
+        return False
+    if len(s) <= 40 and _RE_LAYER_TITLE.match(s):
+        return True
+    if len(s) <= 80 and _RE_LAYER_EN.search(s) and ("（" in s or "(" in s):
+        return True
+    return False
+
+
+def _is_parallel_structure_block(text: str) -> bool:
+    """
+    同一章节内连续描述多个并列层级/模块时，禁止按字数硬切。
+    """
+    layer_hits = 0
+    for line in (text or "").split("\n"):
+        s = line.strip()
+        if not s:
+            continue
+        if _is_layer_title_line(s) or _is_list_item(s):
+            layer_hits += 1
+    return layer_hits >= PARALLEL_LAYER_TITLE_MIN
 
 
 def _is_table_row(line: str) -> bool:
@@ -163,10 +193,14 @@ def _consume_list_block(lines: list[str], start: int) -> tuple[str, int]:
 
 
 def _split_oversized_plain(text: str, limit: int) -> list[str]:
-    """普通段落超限按空行/句号切；不用于列表/表格。"""
+    """普通段落超限按空行/句号切；并列层级/列表语义块不切。"""
     text = text.strip()
+    if not text:
+        return []
+    if _is_parallel_structure_block(text):
+        return [text]
     if len(text) <= limit:
-        return [text] if text else []
+        return [text]
     parts: list[str] = []
     remaining = text
     while len(remaining) > limit:
@@ -186,6 +220,64 @@ def _split_oversized_plain(text: str, limit: int) -> list[str]:
     if remaining:
         parts.append(remaining)
     return parts
+
+
+def _coalesce_heading_sections(units: list[dict]) -> list[dict]:
+    """
+    将「标题 + 同路径后续正文」合并为整节，再决定是否软切。
+    表格保持独立；并列层级整节不硬切。
+    """
+    out: list[dict] = []
+    i = 0
+    while i < len(units):
+        u = units[i]
+        if u.get("is_heading"):
+            parts = [u["raw_text"]]
+            path = u["section_path"]
+            level = u.get("heading_level") or 0
+            is_list = False
+            j = i + 1
+            while j < len(units) and not units[j].get("is_heading"):
+                if units[j].get("is_table"):
+                    break
+                parts.append(units[j]["raw_text"])
+                is_list = is_list or bool(units[j].get("is_list_block"))
+                j += 1
+            body = "\n\n".join(p for p in parts if p and str(p).strip()).strip()
+            atomic = is_list or _is_parallel_structure_block(body)
+            if atomic:
+                out.append(
+                    {
+                        "raw_text": body,
+                        "section_path": path,
+                        "is_table": False,
+                        "is_list_block": True,
+                        "heading_level": level,
+                    }
+                )
+            else:
+                for piece in _split_oversized_plain(body, CHUNK_SOFT_LIMIT):
+                    out.append(
+                        {
+                            "raw_text": piece,
+                            "section_path": path,
+                            "is_table": False,
+                            "is_list_block": False,
+                            "heading_level": level,
+                        }
+                    )
+            i = j
+            continue
+        out.append(
+            {
+                "raw_text": u.get("raw_text") or "",
+                "section_path": u.get("section_path") or "正文",
+                "is_table": bool(u.get("is_table")),
+                "is_list_block": bool(u.get("is_list_block")),
+            }
+        )
+        i += 1
+    return out
 
 
 def split_plain_text_to_sections(text: str) -> list[SectionSlice]:
@@ -263,31 +355,23 @@ def split_plain_text_to_sections(text: str) -> list[SectionSlice]:
             i += 1
             continue
 
-        # 列表块：≥2 行
+        # 列表块：≥2 行（不在此合并标题；留给 coalesce）
         run = _count_list_run(lines, i)
         if run >= 2:
             block, i = _consume_list_block(lines, i)
             if pending_lead:
                 block = pending_lead + "\n\n" + block
                 pending_lead = None
-            # 若上一 unit 是标题，绑到标题
-            if units and units[-1].get("is_heading"):
-                h = units.pop()
-                block = h["raw_text"] + "\n\n" + block
-                path = h["section_path"]
-            else:
-                path = " > ".join(stack) or "正文"
             units.append(
                 {
                     "raw_text": block,
-                    "section_path": path,
+                    "section_path": " > ".join(stack) or "正文",
                     "is_table": False,
                     "is_list_block": True,
                 }
             )
             continue
 
-        # 单行列表：当作普通段
         # 普通段落：若下一非空是列表块，则作前导
         j = i + 1
         while j < len(lines) and not lines[j].strip():
@@ -298,38 +382,19 @@ def split_plain_text_to_sections(text: str) -> list[SectionSlice]:
             continue
 
         flush_lead()
-        # 绑标题
-        if units and units[-1].get("is_heading"):
-            h = units.pop()
-            merged = h["raw_text"] + "\n\n" + stripped
-            for piece in _split_oversized_plain(merged, CHUNK_SOFT_LIMIT):
-                units.append(
-                    {
-                        "raw_text": piece,
-                        "section_path": h["section_path"],
-                        "is_table": False,
-                        "is_list_block": False,
-                    }
-                )
-            i += 1
-            continue
-
-        for piece in _split_oversized_plain(stripped, CHUNK_SOFT_LIMIT):
-            units.append(
-                {
-                    "raw_text": piece,
-                    "section_path": " > ".join(stack) or "正文",
-                    "is_table": False,
-                    "is_list_block": False,
-                }
-            )
+        # 正文暂存，整节软切交给 coalesce（避免过早按 500 字切断并列层级）
+        units.append(
+            {
+                "raw_text": stripped,
+                "section_path": " > ".join(stack) or "正文",
+                "is_table": False,
+                "is_list_block": False,
+            }
+        )
         i += 1
 
     flush_lead()
-    # 残留孤立标题
-    for u in units:
-        u.pop("is_heading", None)
-        u.pop("heading_level", None)
+    units = _coalesce_heading_sections(units)
 
     slices: list[SectionSlice] = []
     seq = 0
@@ -338,7 +403,6 @@ def split_plain_text_to_sections(text: str) -> list[SectionSlice]:
         if not raw:
             continue
         is_atomic = bool(u.get("is_list_block") or u.get("is_table"))
-        # 标题绑定块以标题行开头（# 或编号）——同样视为结构块，不做过短丢弃
         looks_headed = _is_heading(raw.split("\n", 1)[0].strip())
         if not is_atomic and not looks_headed and len(raw) < MIN_PARAGRAPH_CHARS:
             if slices and slices[-1].section_path == u["section_path"] and not slices[-1].is_list_block and not slices[-1].is_table:
@@ -376,7 +440,6 @@ def split_plain_text_to_sections(text: str) -> list[SectionSlice]:
             )
     elif not slices and text.strip():
         slices.append(SectionSlice(seq=0, section_path="全文", raw_text=text[:12000]))
-    # 重编号
     for i, s in enumerate(slices):
         s.seq = i
     return slices

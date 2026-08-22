@@ -131,8 +131,17 @@ def can_edit_task(user: User, task: TmTask) -> bool:
 
 
 def can_add_action_to_task(task: TmTask) -> bool:
-    """仅「进行中」Task 可新建 / 复制本周 Action；已完成不可。"""
-    return task.status in TASK_STATUSES_ALLOW_ACTION
+    """仅「测试中」且测试状态为进行中的 Task 可新建 / 复制本周 Action。"""
+    from app.test_manage.req_stage import can_add_action_for_req_stage
+
+    if task.status not in TASK_STATUSES_ALLOW_ACTION:
+        return False
+    return can_add_action_for_req_stage(getattr(task, "req_stage", None))
+
+
+def can_edit_req_stage(user: User) -> bool:
+    """需求进展与提测/测试时间：仅 Admin / Manager。"""
+    return is_tm_admin(user)
 
 
 def can_view_all(user: User) -> bool:
@@ -152,6 +161,64 @@ def _history_week_label(ws: datetime, we: datetime) -> str:
     return (
         f"{ws.strftime('%m-%d %H:%M')} → {we.strftime('%m-%d %H:%M')} · {week_key(ws)}"
     )
+
+
+def snapshot_task_stages_for_week(db: Session, week_key_s: str) -> int:
+    """
+    固化指定周的需求进展快照（切周时调用）。
+    已存在同 week_key+task_id 则覆盖。
+    """
+    from app.test_manage.config import REQ_STAGE_DEFAULT, TASK_STATUS_CANCELLED
+    from app.test_manage.models import TmTaskStageSnapshot
+
+    tasks = (
+        db.query(TmTask)
+        .filter(TmTask.status != TASK_STATUS_CANCELLED)
+        .all()
+    )
+    existing = {
+        (r.task_id, r.week_key): r
+        for r in db.query(TmTaskStageSnapshot)
+        .filter(TmTaskStageSnapshot.week_key == week_key_s)
+        .all()
+    }
+    n = 0
+    for task in tasks:
+        key = (task.id, week_key_s)
+        row = existing.get(key)
+        if row is None:
+            row = TmTaskStageSnapshot(task_id=task.id, week_key=week_key_s)
+            db.add(row)
+        row.req_stage = getattr(task, "req_stage", None) or REQ_STAGE_DEFAULT
+        row.expected_handover_at = task.expected_handover_at
+        row.actual_handover_at = task.actual_handover_at
+        row.test_started_at = task.test_started_at
+        row.expected_test_end_at = task.expected_test_end_at
+        row.test_ended_at = task.test_ended_at
+        n += 1
+    db.flush()
+    return n
+
+
+def _stage_snapshots_map(db: Session, week_key_s: str) -> dict[str, dict]:
+    from app.test_manage.models import TmTaskStageSnapshot
+
+    rows = (
+        db.query(TmTaskStageSnapshot)
+        .filter(TmTaskStageSnapshot.week_key == week_key_s)
+        .all()
+    )
+    return {
+        r.task_id: {
+            "req_stage": r.req_stage,
+            "expected_handover_at": r.expected_handover_at,
+            "actual_handover_at": r.actual_handover_at,
+            "test_started_at": r.test_started_at,
+            "expected_test_end_at": r.expected_test_end_at,
+            "test_ended_at": r.test_ended_at,
+        }
+        for r in rows
+    }
 
 
 def list_history_week_options(
@@ -196,16 +263,33 @@ def list_history_week_options(
     return out
 
 
-def get_week_info(db: Session, user: User) -> WeekInfoOut:
+def get_week_info(db: Session, user: User | None, *, public: bool = False) -> WeekInfoOut:
     period = get_or_create_active_period(db)
     db.commit()
+    can_set = False if public or user is None else is_tm_admin(user)
     return WeekInfoOut(
         week_start=period.week_start,
         week_end=period.week_end,
         week_key=period.week_key,
         weekly_push_at=compute_weekly_push_at(period.week_end),
-        can_set_week_end=is_tm_admin(user),
+        can_set_week_end=can_set,
         history=list_history_week_options(db),
+    )
+
+
+def get_public_board(
+    db: Session,
+    *,
+    week_start: datetime | None = None,
+    project_id: str | None = None,
+) -> BoardOut:
+    """免鉴权只读大屏数据（权限字段全 false）。"""
+    return get_board(
+        db,
+        user=None,
+        week_start=week_start,
+        project_id=project_id,
+        public=True,
     )
 
 
@@ -248,7 +332,7 @@ def _assert_writable_action_week(action: TmAction) -> None:
         )
 
 
-def list_assignable_users(db: Session, user: User) -> list[UserBrief]:
+def list_assignable_users(db: Session, user: User | None = None) -> list[UserBrief]:
     """登录用户可读简要用户列表（id/username/real_name），用于指派负责人/测试人员。"""
     _ = user
     rows = (
@@ -396,13 +480,47 @@ def _load_task(db: Session, task_id: str) -> TmTask:
     return task
 
 
-def _task_out(user: User, task: TmTask) -> TaskOut:
+def _task_out(
+    user: User | None,
+    task: TmTask,
+    *,
+    force_readonly: bool = False,
+    stage_override: dict | None = None,
+) -> TaskOut:
+    from app.test_manage.config import REQ_STAGE_DEFAULT
+    from app.test_manage.req_stage import (
+        normalize_req_stage,
+        stage_node_date_summary,
+    )
+
     project_name = None
     domain_name = None
     if task.domain:
         domain_name = task.domain.name
         if task.domain.project:
             project_name = task.domain.project.name
+    readonly = force_readonly or user is None
+    ov = stage_override or {}
+    req_stage = normalize_req_stage(ov.get("req_stage", getattr(task, "req_stage", None)))
+    expected_handover_at = ov.get(
+        "expected_handover_at", getattr(task, "expected_handover_at", None)
+    )
+    actual_handover_at = ov.get(
+        "actual_handover_at", getattr(task, "actual_handover_at", None)
+    )
+    test_started_at = ov.get("test_started_at", getattr(task, "test_started_at", None))
+    expected_test_end_at = ov.get(
+        "expected_test_end_at", getattr(task, "expected_test_end_at", None)
+    )
+    test_ended_at = ov.get("test_ended_at", getattr(task, "test_ended_at", None))
+    summary = stage_node_date_summary(
+        stage=req_stage,
+        expected_handover_at=expected_handover_at,
+        actual_handover_at=actual_handover_at,
+        test_started_at=test_started_at,
+        expected_test_end_at=expected_test_end_at,
+        test_ended_at=test_ended_at,
+    )
     return TaskOut(
         id=task.id,
         project_id=task.project_id,
@@ -412,14 +530,22 @@ def _task_out(user: User, task: TmTask) -> TaskOut:
         lead_id=task.lead_id,
         tester_ids=_tester_ids(task),
         status=task.status,
+        req_stage=req_stage or REQ_STAGE_DEFAULT,
+        expected_handover_at=expected_handover_at,
+        actual_handover_at=actual_handover_at,
+        test_started_at=test_started_at,
+        expected_test_end_at=expected_test_end_at,
+        test_ended_at=test_ended_at,
+        stage_summary=summary,
         created_by=task.created_by,
         published_at=task.published_at,
         created_at=task.created_at,
         updated_at=task.updated_at,
         project_name=project_name,
         domain_name=domain_name,
-        can_edit=can_edit_task(user, task),
-        can_add_action=can_add_action_to_task(task),
+        can_edit=False if readonly else can_edit_task(user, task),
+        can_edit_req_stage=False if readonly else can_edit_req_stage(user),
+        can_add_action=False if readonly else can_add_action_to_task(task),
     )
 
 
@@ -455,6 +581,31 @@ def create_task(db: Session, user: User, data: TaskCreate) -> TaskOut:
         created_by=user.id,
         published_at=now_tm(),
     )
+    from app.test_manage.config import REQ_STAGE_DEFAULT
+    from app.test_manage.req_stage import (
+        normalize_req_stage,
+        sync_test_status_for_stage,
+        validate_req_stage_payload,
+    )
+
+    stage = normalize_req_stage(data.req_stage or REQ_STAGE_DEFAULT)
+    validate_req_stage_payload(
+        stage=stage,
+        expected_handover_at=data.expected_handover_at,
+        actual_handover_at=data.actual_handover_at,
+        test_started_at=data.test_started_at,
+        expected_test_end_at=data.expected_test_end_at,
+        test_ended_at=data.test_ended_at,
+    )
+    task.req_stage = stage
+    task.expected_handover_at = data.expected_handover_at
+    task.actual_handover_at = data.actual_handover_at
+    task.test_started_at = data.test_started_at
+    task.expected_test_end_at = data.expected_test_end_at
+    task.test_ended_at = data.test_ended_at
+    synced = sync_test_status_for_stage(stage)
+    if synced:
+        task.status = synced
     db.add(task)
     db.flush()
     _set_testers(db, task, tester_ids)
@@ -486,16 +637,91 @@ def update_task(db: Session, user: User, task_id: str, data: TaskUpdate) -> Task
         changes.append(f"测试人员: {data.tester_ids}")
 
     if data.status is not None:
+        from app.test_manage.config import REQ_STAGES_SHOW_TEST_STATUS
+        from app.test_manage.req_stage import normalize_req_stage
+
+        cur_stage = normalize_req_stage(getattr(task, "req_stage", None))
+        if cur_stage not in REQ_STAGES_SHOW_TEST_STATUS and data.status != task.status:
+            raise HTTPException(
+                status_code=400,
+                detail="仅「测试中 / 测试完成」可改测试状态；请先由 Manager 调整需求进展",
+            )
         if data.status not in TASK_STATUSES_USER:
             raise HTTPException(
                 status_code=400,
-                detail="Task 状态仅支持：进行中(published)、已完成(done)",
+                detail="测试状态仅支持：进行中(published)、已完成(done)",
             )
         if data.status != task.status:
-            changes.append(f"状态: {task.status} → {data.status}")
+            changes.append(f"测试状态: {task.status} → {data.status}")
             task.status = data.status
             if data.status == TASK_STATUS_PUBLISHED and not task.published_at:
                 task.published_at = now_tm()
+
+    # 需求进展（仅 Admin/Manager）
+    stage_fields_touched = any(
+        getattr(data, name) is not None
+        for name in (
+            "req_stage",
+            "expected_handover_at",
+            "actual_handover_at",
+            "test_started_at",
+            "expected_test_end_at",
+            "test_ended_at",
+        )
+    )
+    if stage_fields_touched:
+        if not can_edit_req_stage(user):
+            raise HTTPException(status_code=403, detail="仅 Admin/Manager 可改需求进展与提测时间")
+        from app.test_manage.req_stage import (
+            normalize_req_stage,
+            sync_test_status_for_stage,
+            validate_req_stage_payload,
+        )
+
+        new_stage = (
+            normalize_req_stage(data.req_stage)
+            if data.req_stage is not None
+            else normalize_req_stage(getattr(task, "req_stage", None))
+        )
+        new_exp_h = (
+            data.expected_handover_at
+            if data.expected_handover_at is not None
+            else task.expected_handover_at
+        )
+        new_act_h = (
+            data.actual_handover_at
+            if data.actual_handover_at is not None
+            else task.actual_handover_at
+        )
+        new_start = (
+            data.test_started_at if data.test_started_at is not None else task.test_started_at
+        )
+        new_exp_end = (
+            data.expected_test_end_at
+            if data.expected_test_end_at is not None
+            else task.expected_test_end_at
+        )
+        new_end = data.test_ended_at if data.test_ended_at is not None else task.test_ended_at
+        validate_req_stage_payload(
+            stage=new_stage,
+            expected_handover_at=new_exp_h,
+            actual_handover_at=new_act_h,
+            test_started_at=new_start,
+            expected_test_end_at=new_exp_end,
+            test_ended_at=new_end,
+        )
+        if new_stage != getattr(task, "req_stage", None):
+            changes.append(f"需求进展: {task.req_stage} → {new_stage}")
+        task.req_stage = new_stage
+        task.expected_handover_at = new_exp_h
+        task.actual_handover_at = new_act_h
+        task.test_started_at = new_start
+        task.expected_test_end_at = new_exp_end
+        task.test_ended_at = new_end
+        synced = sync_test_status_for_stage(new_stage)
+        if synced and task.status != TASK_STATUS_CANCELLED and task.status != synced:
+            changes.append(f"测试状态随需求进展同步: {task.status} → {synced}")
+            task.status = synced
 
     if was_published and changes:
         summary = (data.change_summary or "").strip() or "；".join(changes)[:200]
@@ -620,15 +846,16 @@ def _load_action(db: Session, action_id: str) -> TmAction:
     return action
 
 
-def _latest_progress(action: TmAction) -> tuple[int, str]:
+def _latest_progress(action: TmAction) -> tuple[int, str, bool]:
     """
-    进度与风险均取「最新一条」日更（按 report_date、再按更新时间）。
+    进度 / 风险文案 / 是否阻塞 —— 均取「最新一条」日更。
 
-    已解决语义：最新日更的 risk_blocker 为空 → 风险已清除（不再沿用历史风险文案）。
+    风险已清除：最新日更 risk_blocker 为空。
+    开放阻塞：有风险文案且 is_blocking=True（才进日报 / 阻塞 KPI）。
     """
     updates = list(action.daily_updates or [])
     if not updates:
-        return 0, ""
+        return 0, "", False
 
     def _sort_key(u: TmDailyUpdate) -> tuple:
         ts = u.updated_at or u.created_at or datetime.min
@@ -637,7 +864,16 @@ def _latest_progress(action: TmAction) -> tuple[int, str]:
     latest = max(updates, key=_sort_key)
     progress = int(latest.progress_percent)
     risk = (latest.risk_blocker or "").strip()
-    return progress, risk
+    is_blocking = bool(getattr(latest, "is_blocking", False)) and bool(risk)
+    return progress, risk, is_blocking
+
+
+def _has_daily_on(action: TmAction, day: date) -> bool:
+    """Action 在指定自然日是否已有日更。"""
+    for u in action.daily_updates or []:
+        if u.report_date == day:
+            return True
+    return False
 
 
 # Action 合法状态转移：不可取消；done 为终态不可重开
@@ -669,7 +905,7 @@ def _ensure_action_status_transition(current: str, target: str) -> None:
 
 def _ensure_progress_for_done(action: TmAction) -> None:
     """标记完成前校验：最新日更进度须达到 ACTION_DONE_MIN_PROGRESS。"""
-    progress, _ = _latest_progress(action)
+    progress, _risk, _blocking = _latest_progress(action)
     if progress < ACTION_DONE_MIN_PROGRESS:
         raise HTTPException(
             status_code=400,
@@ -774,7 +1010,7 @@ def _validate_daily_payload(action: TmAction, data: DailyUpdateUpsert) -> tuple[
     if not note:
         raise HTTPException(status_code=400, detail="进度说明必填")
 
-    prev_progress, _ = _latest_progress(action)
+    prev_progress, _risk, _blocking = _latest_progress(action)
     if data.progress_percent < prev_progress:
         raise HTTPException(
             status_code=400,
@@ -799,8 +1035,13 @@ def _can_correct(user: User, action: TmAction) -> bool:
     return action.owner_id == user.id
 
 
-def _action_out(user: User, action: TmAction) -> ActionOut:
-    progress, risk = _latest_progress(action)
+def _action_out(
+    user: User | None,
+    action: TmAction,
+    *,
+    force_readonly: bool = False,
+) -> ActionOut:
+    progress, risk, is_blocking = _latest_progress(action)
     task = action.task
     project_name = domain_name = task_title = None
     if task:
@@ -809,6 +1050,7 @@ def _action_out(user: User, action: TmAction) -> ActionOut:
             domain_name = task.domain.name
             if task.domain.project:
                 project_name = task.domain.project.name
+    readonly = force_readonly or user is None
     return ActionOut(
         id=action.id,
         task_id=action.task_id,
@@ -829,15 +1071,30 @@ def _action_out(user: User, action: TmAction) -> ActionOut:
         updated_at=action.updated_at,
         progress_percent=progress,
         latest_risk=risk,
+        latest_is_blocking=is_blocking,
+        has_daily_today=_has_daily_on(action, today_tm()),
         task_title=task_title,
         project_name=project_name,
         domain_name=domain_name,
-        can_edit_fields=_can_edit_action_fields(user, action),
-        can_change_status=_can_change_action_status(user, action),
-        can_mark_done=_can_mark_action_done(user, action, progress),
-        can_daily=_can_daily(user, action),
-        can_correct=_can_correct(user, action),
+        can_edit_fields=False if readonly else _can_edit_action_fields(user, action),
+        can_change_status=False if readonly else _can_change_action_status(user, action),
+        can_mark_done=False if readonly else _can_mark_action_done(user, action, progress),
+        can_daily=False if readonly else _can_daily(user, action),
+        can_correct=False if readonly else _can_correct(user, action),
     )
+
+
+def _sort_action_outs(actions: list[ActionOut]) -> list[ActionOut]:
+    """
+    Action 卡片列表顺序：进行中且今日未日更优先，同组按创建时间升序。
+    """
+
+    def _key(a: ActionOut) -> tuple[int, datetime, str]:
+        missing = 0 if (a.status == STATUS_PUBLISHED and not a.has_daily_today) else 1
+        created = a.created_at or datetime.min
+        return (missing, created, a.id)
+
+    return sorted(actions, key=_key)
 
 
 def _publish_action(db: Session, action: TmAction) -> None:
@@ -853,7 +1110,14 @@ def create_action(db: Session, user: User, data: ActionCreate) -> ActionOut:
     if not can_add_action_to_task(task):
         if task.status == TASK_STATUS_DONE:
             raise HTTPException(status_code=400, detail="已完成的 Task 不能再创建 Action")
-        raise HTTPException(status_code=400, detail="仅进行中的 Task 可创建 Action")
+        from app.test_manage.req_stage import can_add_action_for_req_stage, req_stage_label
+
+        if not can_add_action_for_req_stage(getattr(task, "req_stage", None)):
+            raise HTTPException(
+                status_code=400,
+                detail=f"仅「测试中」可创建 Action（当前需求进展：{req_stage_label(task.req_stage)}）",
+            )
+        raise HTTPException(status_code=400, detail="仅测试进行中的 Task 可创建 Action")
     if not can_edit_task(user, task):
         raise HTTPException(status_code=403, detail="仅测试管理员或该 Task 负责人可创建 Action")
 
@@ -997,14 +1261,17 @@ def upsert_daily_update(
         row.user_id = user.id
         row.progress_percent = progress
         row.risk_blocker = (data.risk_blocker or "").strip()
+        row.is_blocking = bool(data.is_blocking) and bool(row.risk_blocker)
         row.progress_note = note
     else:
+        risk_txt = (data.risk_blocker or "").strip()
         row = TmDailyUpdate(
             action_id=action_id,
             user_id=user.id,
             report_date=report_date,
             progress_percent=progress,
-            risk_blocker=(data.risk_blocker or "").strip(),
+            risk_blocker=risk_txt,
+            is_blocking=bool(data.is_blocking) and bool(risk_txt),
             progress_note=note,
         )
         db.add(row)
@@ -1047,7 +1314,7 @@ def list_mine_actions(db: Session, user: User) -> list[ActionOut]:
         .filter(TmAction.week_key == wk)
     )
     rows = q.order_by(TmAction.week_start.desc()).all()
-    return [_action_out(user, a) for a in rows]
+    return _sort_action_outs([_action_out(user, a) for a in rows])
 
 
 def list_clone_candidates(db: Session, user: User, task_id: str) -> list[ActionOut]:
@@ -1110,6 +1377,8 @@ def _resolve_task_week_progress(
 def get_task_week_progress(
     db: Session, user: User, task_id: str, *, week_key_s: str | None = None
 ) -> TaskWeekProgressOut:
+    from app.test_manage.req_stage import can_add_action_for_req_stage
+
     task = _load_task(db, task_id)
     period = get_or_create_active_period(db)
     key = week_key_s or period.week_key
@@ -1141,7 +1410,11 @@ def get_task_week_progress(
         note=(row.note if row else "") or "",
         updated_by=row.updated_by if row else None,
         updated_at=row.updated_at if row else None,
-        can_edit=can_edit_task(user, task) and key in _writable_week_keys(db),
+        can_edit=(
+            can_edit_task(user, task)
+            and key in _writable_week_keys(db)
+            and can_add_action_for_req_stage(getattr(task, "req_stage", None))
+        ),
     )
 
 
@@ -1151,6 +1424,13 @@ def upsert_task_week_progress(
     task = _load_task(db, task_id)
     if not can_edit_task(user, task):
         raise HTTPException(status_code=403, detail="仅测试管理员或 Task 测试负责人可填写周进度")
+    from app.test_manage.req_stage import can_add_action_for_req_stage, req_stage_label
+
+    if not can_add_action_for_req_stage(getattr(task, "req_stage", None)):
+        raise HTTPException(
+            status_code=400,
+            detail=f"仅「测试中」可填写本周 Task 进度（当前需求进展：{req_stage_label(task.req_stage)}）",
+        )
     period = get_or_create_active_period(db)
     if period.week_key not in _writable_week_keys(db):
         raise HTTPException(status_code=400, detail="历史周不可填写 Task 进度")
@@ -1215,7 +1495,7 @@ def get_action_lineage(db: Session, user: User, action_id: str) -> ActionLineage
 
     segments: list[ActionLineageSegmentOut] = []
     for a in chain:
-        progress, _ = _latest_progress(a)
+        progress, _risk, _blocking = _latest_progress(a)
         risks: list[str] = []
         for du in sorted(
             a.daily_updates or [],
@@ -1245,13 +1525,17 @@ def get_action_lineage(db: Session, user: User, action_id: str) -> ActionLineage
 
 def get_board(
     db: Session,
-    user: User,
+    user: User | None,
     *,
     week_start: datetime | None = None,
     project_id: str | None = None,
+    public: bool = False,
 ) -> BoardOut:
-    """周 × Task 看板（项目管理首页）。全员可读。"""
-    _ = can_view_all(user)
+    """周 × Task 看板（项目管理首页）。全员可读；public=True 时免鉴权只读。"""
+    if not public:
+        if user is None:
+            raise HTTPException(status_code=401, detail="未登录")
+        _ = can_view_all(user)
     active = get_or_create_active_period(db)
     if week_start is not None:
         key = week_key(week_start)
@@ -1296,21 +1580,33 @@ def get_board(
         if tid not in tasks:
             tasks[tid] = _load_task(db, tid)
 
+    viewing_history = key != active.week_key
+    stage_map = _stage_snapshots_map(db, key) if viewing_history else {}
+
     board_tasks: list[BoardTaskOut] = []
     for tid, task in sorted(tasks.items(), key=lambda x: x[1].title):
         acts = by_task.get(tid, [])
-        act_outs = [_action_out(user, a) for a in acts]
+        act_outs = _sort_action_outs(
+            [_action_out(user, a, force_readonly=public) for a in acts]
+        )
         risks = [
             x.latest_risk
             for x in act_outs
-            if x.status == STATUS_PUBLISHED and (x.latest_risk or "").strip()
+            if x.status == STATUS_PUBLISHED
+            and bool(x.latest_is_blocking)
+            and (x.latest_risk or "").strip()
         ]
         display, recommended, manual = _resolve_task_week_progress(
             db, task_id=tid, week_key_s=key, act_outs=act_outs
         )
         board_tasks.append(
             BoardTaskOut(
-                task=_task_out(user, task),
+                task=_task_out(
+                    user,
+                    task,
+                    force_readonly=public,
+                    stage_override=stage_map.get(tid),
+                ),
                 actions=act_outs,
                 week_progress_avg=display,
                 progress_is_manual=manual,
@@ -1319,11 +1615,11 @@ def get_board(
             )
         )
 
-    viewing_history = key != active.week_key
     if viewing_history:
         board_tasks = [b for b in board_tasks if b.actions]
 
-    if not viewing_history and not is_tm_admin(user):
+    # 公开大屏 / Admin：展示全量；普通用户仍过滤无 Action 且与自己无关的空 Task
+    if not viewing_history and not public and user is not None and not is_tm_admin(user):
         board_tasks = [
             b
             for b in board_tasks
@@ -1336,7 +1632,7 @@ def get_board(
     risk_n = sum(
         1
         for a in all_actions
-        if a.status == STATUS_PUBLISHED and (a.latest_risk or "").strip()
+        if a.status == STATUS_PUBLISHED and bool(a.latest_is_blocking)
     )
     progress_avg = (
         int(round(sum(b.week_progress_avg for b in board_tasks) / len(board_tasks)))

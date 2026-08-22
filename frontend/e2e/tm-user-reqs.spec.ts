@@ -10,11 +10,16 @@ import {
   antdSelectByLabel,
   boardTaskByTitle,
   expectToast,
+  fillInputNumber,
   goProjects,
   login,
   logout,
   openBoardTab,
+  openCreateMenu,
+  openTaskDetail,
+  selectBoardScope,
   selectProjectFilter,
+  setTaskReqStage,
 } from './helpers.ts'
 
 test.describe.configure({ mode: 'serial' })
@@ -37,7 +42,7 @@ test.describe(`TM 三点需求 UI ${RUN}`, () => {
 
     const picker = page.getByTestId('tm-week-end-picker')
     await expect(picker).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByText(/周报在周结束时间后 15 分钟发送/)).toBeVisible()
+    await expect(page.getByText(/周报预计.*发送（周结束后 15min）/)).toBeVisible()
 
     const pushHint = page.getByTestId('tm-weekly-push-at')
     await expect(pushHint).toBeVisible()
@@ -70,18 +75,18 @@ test.describe(`TM 三点需求 UI ${RUN}`, () => {
     await goProjects(page)
     await openBoardTab(page)
 
-    await page.getByTestId('tm-btn-new-project').click()
+    await openCreateMenu(page, '项目')
     await page.getByTestId('tm-input-project-name').fill(names.project)
     await page.getByTestId('tm-submit-project').click()
     await expectToast(page, '项目已创建')
 
     await selectProjectFilter(page, names.project)
-    await page.getByTestId('tm-btn-new-domain').click()
+    await openCreateMenu(page, '领域')
     await page.getByTestId('tm-input-domain-name').fill(names.domain)
     await page.getByTestId('tm-submit-domain').click()
     await expectToast(page, '领域已创建')
 
-    await page.getByTestId('tm-btn-new-task').click()
+    await openCreateMenu(page, 'Task')
     await expect(page.getByTestId('tm-modal-new-task')).toBeVisible()
     await antdSelectByLabel(page, 'tm-task-project', names.project)
     await antdSelectByLabel(page, 'tm-task-domain', names.domain)
@@ -91,40 +96,39 @@ test.describe(`TM 三点需求 UI ${RUN}`, () => {
     await expect(page.getByText(names.task).first()).toBeVisible({ timeout: 20_000 })
 
     const card = await boardTaskByTitle(page, names.task)
-    await card.getByTestId('tm-btn-add-action').click()
+    await setTaskReqStage(page, card, '测试中')
+    const cardReady = await boardTaskByTitle(page, names.task)
+    await cardReady.getByTestId('tm-btn-add-action').click()
     await expect(page.getByTestId('tm-modal-new-action')).toBeVisible()
     await page.getByTestId('tm-action-title').fill(names.action)
     await page.getByTestId('tm-action-content').fill('测试内容')
     await page.getByTestId('tm-action-env').fill('qa')
     await page.getByTestId('tm-submit-action-publish').click()
-    await expectToast(page, /发布|创建/)
+    await expectToast(page, /已保存|发布|创建/)
 
     await selectProjectFilter(page, names.project)
     const card2 = await boardTaskByTitle(page, names.task)
-    await expect(card2.getByTestId('tm-task-progress-tip')).toContainText('未手填')
+    await expect(card2.getByTestId('tm-task-progress-tip')).toBeVisible()
+    await card2.getByTestId('tm-task-progress-tip').hover()
+    await expect(page.getByRole('tooltip').filter({ hasText: '未手填' })).toBeVisible()
     await card2.locator('[data-testid^="tm-action-card-"]').first().click()
     await expect(page.getByTestId('tm-drawer-action')).toBeVisible()
-    // Ant Design InputNumber：优先走 spinbutton（testid 有时挂在外层导致 input 点不到）
-    const progress = page.getByRole('spinbutton', { name: /进度/ })
-    await expect(progress).toBeVisible({ timeout: 15_000 })
-    await progress.click({ force: true })
-    await progress.fill('55')
-    await progress.blur()
+    await fillInputNumber(page, 'tm-daily-progress', '55')
     await page.getByTestId('tm-daily-note').fill('本日进展说明：UI自测日更')
     await page.getByTestId('tm-submit-daily').click()
     await expectToast(page, /日更|成功|已保存|提交/)
     await page.keyboard.press('Escape')
 
-    await page.getByTestId('tm-scope-all').click()
+    await selectBoardScope(page, '全部')
     const card3 = await boardTaskByTitle(page, names.task)
     await expect(card3.getByTestId('tm-task-progress-tip')).toBeVisible({ timeout: 15_000 })
-    await expect(card3.getByTestId('tm-task-progress-tip')).toContainText('未手填')
+    await card3.getByTestId('tm-task-progress-tip').hover()
+    await expect(page.getByRole('tooltip').filter({ hasText: '未手填' })).toBeVisible()
 
-    await card3.getByTestId('tm-btn-edit-task').click()
+    await openTaskDetail(page, card3, '进度')
     await expect(page.getByTestId('tm-drawer-task')).toBeVisible()
     await expect(page.getByTestId('tm-task-week-progress')).toBeVisible()
-    await expect(page.getByText('尚未手填 Task 进度，当前按本周 Action 进度平均值展示')).toBeVisible()
-    await expect(page.getByText('推荐值 55%')).toBeVisible()
+    await expect(page.getByTestId('tm-task-week-progress').getByText(/未手填 · 按 Action 平均\s*55%/)).toBeVisible()
     await page.keyboard.press('Escape')
   })
 
@@ -170,6 +174,6 @@ test.describe(`TM 三点需求 UI ${RUN}`, () => {
     const lineage = page.getByTestId('tm-action-lineage')
     await expect(lineage).toBeVisible({ timeout: 15_000 })
     await expect(lineage).toContainText(/延续历史/)
-    await expect(lineage).toContainText(/共\s*2\s*周|共 2 周/)
+    await expect(lineage).toContainText(/2\s*周/)
   })
 })

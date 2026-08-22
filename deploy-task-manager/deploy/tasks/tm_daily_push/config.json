@@ -1,0 +1,9 @@
+{
+  "trigger": "0 20 * * 1-5",
+  "display_name": "TestAI 测试日报（调64）",
+  "timeout": 600,
+  "webhook": {
+    "url": "",
+    "keyword": ""
+  }
+}

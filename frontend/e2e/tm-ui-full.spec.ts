@@ -17,9 +17,13 @@ import {
   goProjects,
   login,
   openBoardTab,
+  openCreateMenu,
   openMineTab,
   openScreenTab,
+  openTaskDetail,
+  selectBoardScope,
   selectProjectFilter,
+  setTaskReqStage,
 } from './helpers.ts'
 
 test.describe.configure({ mode: 'serial' })
@@ -102,16 +106,15 @@ test.describe(`TM UI E2E ${RUN}`, () => {
     await login(page, 'manager', PASS)
     await goProjects(page)
     await openBoardTab(page)
-    await expect(page.getByTestId('tm-btn-new-project')).toBeVisible()
-    await expect(page.getByTestId('tm-btn-new-task')).toBeVisible()
+    await expect(page.getByTestId('tm-btn-create-menu')).toBeVisible()
 
-    await page.getByTestId('tm-btn-new-project').click()
+    await openCreateMenu(page, '项目')
     await page.getByTestId('tm-input-project-name').fill(names.project)
     await page.getByTestId('tm-submit-project').click()
     await expectToast(page, '项目已创建')
 
     await selectProjectFilter(page, names.project)
-    await page.getByTestId('tm-btn-new-domain').click()
+    await openCreateMenu(page, '领域')
     await page.getByTestId('tm-input-domain-name').fill(names.domain)
     await page.getByTestId('tm-submit-domain').click()
     await expectToast(page, '领域已创建')
@@ -122,9 +125,9 @@ test.describe(`TM UI E2E ${RUN}`, () => {
     await goProjects(page)
     await openBoardTab(page)
     await selectProjectFilter(page, names.project)
-    await page.getByTestId('tm-scope-all').click()
+    await selectBoardScope(page, '全部')
 
-    await page.getByTestId('tm-btn-new-task').click()
+    await openCreateMenu(page, 'Task')
     await expect(page.getByTestId('tm-modal-new-task')).toBeVisible()
     await antdSelectByLabel(page, 'tm-task-project', names.project)
     await antdSelectByLabel(page, 'tm-task-domain', names.domain)
@@ -136,7 +139,9 @@ test.describe(`TM UI E2E ${RUN}`, () => {
 
     const card = await boardTaskByTitle(page, names.task)
     await expect(card).toBeVisible()
-    await expect(card.getByTestId('tm-empty-action-tag')).toBeVisible()
+    // 默认待开发：不可 +Action，也不再标红「本周无 Action」（仅测试中可建 Action 时高亮）
+    await expect(card.getByTestId('tm-btn-add-action')).toHaveCount(0)
+    await expect(card.getByTestId('tm-empty-action-tag')).toHaveCount(0)
   })
 
   test('06 Manager：再建空 Task / 待完成 Task', async ({ page }) => {
@@ -144,10 +149,10 @@ test.describe(`TM UI E2E ${RUN}`, () => {
     await goProjects(page)
     await openBoardTab(page)
     await selectProjectFilter(page, names.project)
-    await page.getByTestId('tm-scope-all').click()
+    await selectBoardScope(page, '全部')
 
     for (const title of [names.taskEmpty, names.taskDone]) {
-      await page.getByTestId('tm-btn-new-task').click()
+      await openCreateMenu(page, 'Task')
       await antdSelectByLabel(page, 'tm-task-project', names.project)
       await antdSelectByLabel(page, 'tm-task-domain', names.domain)
       await page.getByTestId('tm-task-title').fill(title)
@@ -161,10 +166,9 @@ test.describe(`TM UI E2E ${RUN}`, () => {
     await login(page, users.stranger.username)
     await goProjects(page)
     await openBoardTab(page)
-    await expect(page.getByTestId('tm-btn-new-project')).toHaveCount(0)
-    await expect(page.getByTestId('tm-btn-new-task')).toHaveCount(0)
+    await expect(page.getByTestId('tm-btn-create-menu')).toHaveCount(0)
     await selectProjectFilter(page, names.project)
-    await page.getByTestId('tm-scope-all').click()
+    await selectBoardScope(page, '全部')
     await expect(page.getByText(names.taskEmpty)).toHaveCount(0)
   })
 
@@ -173,11 +177,11 @@ test.describe(`TM UI E2E ${RUN}`, () => {
     await goProjects(page)
     await openBoardTab(page)
     await selectProjectFilter(page, names.project)
-    await page.getByTestId('tm-scope-all').click()
+    await selectBoardScope(page, '全部')
 
     const card = await boardTaskByTitle(page, names.task)
-    await card.getByTestId('tm-btn-edit-task').click()
-    await expect(page.getByTestId('tm-drawer-task')).toBeVisible()
+    await openTaskDetail(page, card)
+    await page.getByTestId('tm-task-info-edit').click()
     await page.getByLabel(/需求内容/).fill('Manager 更新后的需求')
     await page.getByLabel(/变更说明/).fill('E2E 改需求')
     await page.getByTestId('tm-task-save').click()
@@ -185,15 +189,17 @@ test.describe(`TM UI E2E ${RUN}`, () => {
     await expectToast(page, /已保存|测试负责人/)
   })
 
-  test('09 Manager：+Action 保存并发布', async ({ page }) => {
+  test('09 Manager：切到测试中后 +Action 保存并发布', async ({ page }) => {
     await login(page, 'manager', PASS)
     await goProjects(page)
     await openBoardTab(page)
     await selectProjectFilter(page, names.project)
-    await page.getByTestId('tm-scope-all').click()
+    await selectBoardScope(page, '全部')
 
     const card = await boardTaskByTitle(page, names.task)
-    await card.getByTestId('tm-btn-add-action').click()
+    await setTaskReqStage(page, card, '测试中')
+    const cardReady = await boardTaskByTitle(page, names.task)
+    await cardReady.getByTestId('tm-btn-add-action').click()
     await expect(page.getByTestId('tm-modal-new-action')).toBeVisible()
     await page.getByTestId('tm-action-title').fill(names.actionDraft)
     await page.getByTestId('tm-action-content').fill('草稿内容')
@@ -207,7 +213,7 @@ test.describe(`TM UI E2E ${RUN}`, () => {
     await goProjects(page)
     await openBoardTab(page)
     await selectProjectFilter(page, names.project)
-    await page.getByTestId('tm-scope-all').click()
+    await selectBoardScope(page, '全部')
 
     const card = await boardTaskByTitle(page, names.task)
     await card.getByTestId('tm-btn-add-action').click()
@@ -222,7 +228,7 @@ test.describe(`TM UI E2E ${RUN}`, () => {
     await goProjects(page)
     await openBoardTab(page)
     await selectProjectFilter(page, names.project)
-    await page.getByTestId('tm-scope-all').click()
+    await selectBoardScope(page, '全部')
 
     const card = await boardTaskByTitle(page, names.task)
     await card.getByTestId('tm-btn-add-action').click()
@@ -236,7 +242,7 @@ test.describe(`TM UI E2E ${RUN}`, () => {
     await goProjects(page)
     await openBoardTab(page)
     await selectProjectFilter(page, names.project)
-    await page.getByTestId('tm-scope-all').click()
+    await selectBoardScope(page, '全部')
 
     await page.locator('.tm-action-card').filter({ hasText: names.actionPub }).first().click()
     await expect(page.getByTestId('tm-drawer-action')).toBeVisible()
@@ -249,8 +255,8 @@ test.describe(`TM UI E2E ${RUN}`, () => {
     await page.getByTestId('tm-submit-daily').click()
     await expectToast(page, '日更已保存')
 
-    // 真实 UI：减号禁用 + 文案提示（下调走「更正说明」；后端倒退拦截由 pytest 覆盖）
-    await expect(page.getByText(/不可低于当前\s*30%/)).toBeVisible()
+    // 真实 UI：减号禁用 + 「≥ 当前 N%」；下调走「更正说明」；后端倒退拦截由 pytest 覆盖
+    await expect(page.getByText(/≥\s*当前\s*30%/)).toBeVisible()
     await expect(
       page.getByRole('button', { name: 'Decrease Value' }),
     ).toBeDisabled()
@@ -268,7 +274,7 @@ test.describe(`TM UI E2E ${RUN}`, () => {
     await goProjects(page)
     await openBoardTab(page)
     await selectProjectFilter(page, names.project)
-    await page.getByTestId('tm-scope-all').click()
+    await selectBoardScope(page, '全部')
 
     await page.locator('.tm-action-card').filter({ hasText: names.actionPub }).first().click()
     await page.getByTestId('tm-correction-note').fill('Manager 更正一条')
@@ -286,7 +292,7 @@ test.describe(`TM UI E2E ${RUN}`, () => {
     await goProjects(page)
     await openBoardTab(page)
     await selectProjectFilter(page, names.project)
-    await page.getByTestId('tm-scope-all').click()
+    await selectBoardScope(page, '全部')
 
     // 非参与者可能看不到空关联；若看得到卡片则无 +Action
     const card = page.locator('.tm-board-task').filter({ hasText: names.task })
@@ -316,58 +322,48 @@ test.describe(`TM UI E2E ${RUN}`, () => {
 
     const boardTitle = page.getByTestId('tm-board-task-title').filter({ hasText: names.task })
 
-    await page.getByTestId('tm-scope-mine').click()
+    await selectBoardScope(page, '我的')
     await expect(boardTitle).toBeVisible()
 
-    await page.getByTestId('tm-scope-other').click()
+    await selectBoardScope(page, '其他')
     await expect(boardTitle).toHaveCount(0)
 
-    await page.getByTestId('tm-scope-all').click()
+    await selectBoardScope(page, '全部')
     await expect(boardTitle).toBeVisible()
   })
 
-  test('17 大屏：chip / 风险面板 / 项目筛选', async ({ page }) => {
+  test('17 大屏：关注范围 / 需求进展 / 全屏 / 周切换', async ({ page }) => {
     await login(page, 'manager', PASS)
     await goProjects(page)
     await openScreenTab(page)
     await expect(page.getByTestId('tm-screen')).toBeVisible()
-    await page.getByTestId('tm-screen-focus-all').click()
-    await page.getByTestId('tm-screen-focus-focus').click()
-    await page.getByTestId('tm-screen-focus-done').click()
-    await page.getByTestId('tm-screen-focus-all').click()
-    await expect(page.getByTestId('tm-screen-risk-panel')).toBeVisible()
+    // 默认「今日」无关注范围；切到本周后再验筛选
+    await page.getByTestId('tm-screen-week-current').click()
+    const focus = page.getByTestId('tm-screen-focus-select')
+    if (!(await focus.isVisible())) {
+      await page.getByTestId('tm-screen-more-toggle').click()
+      await expect(page.getByTestId('tm-screen-more-filters')).toBeVisible()
+    }
+    await expect(focus).toBeVisible()
+    await expect(page.getByTestId('tm-screen-req-stage')).toBeVisible()
     await expect(page.getByTestId('tm-screen-fullscreen')).toBeVisible()
-    // 周切换（大屏内）
     await page.getByTestId('tm-screen-week-history').click()
-    await expect(page.getByText(/历史周为只读快照/)).toBeVisible()
+    await expect(page.getByText('历史周进度与风险总览')).toBeVisible()
+    await page.getByTestId('tm-screen-week-current').click()
+    await page.getByTestId('tm-screen-week-pipeline').click()
+    await expect(page.getByText('需求进展总览')).toBeVisible()
     await page.getByTestId('tm-screen-week-current').click()
   })
 
-  test('18 Manager：Task 标完成 → 无 +Action', async ({ page }) => {
+  test('18 Manager：Task 标测试完成 → 无 +Action', async ({ page }) => {
     await login(page, 'manager', PASS)
     await goProjects(page)
     await openBoardTab(page)
     await selectProjectFilter(page, names.project)
-    await page.getByTestId('tm-scope-all').click()
+    await selectBoardScope(page, '全部')
 
     const card = await boardTaskByTitle(page, names.taskDone)
-    await card.getByTestId('tm-btn-edit-task').click()
-    await expect(page.getByTestId('tm-drawer-task')).toBeVisible()
-
-    // 抽屉内 Select 易被判出视口：键盘打开下拉更稳
-    const status = page.getByRole('combobox', { name: 'Task 状态' })
-    await status.focus()
-    await status.press('Enter')
-    const dropdown = page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').last()
-    await expect(dropdown).toBeVisible()
-    await dropdown.locator('.ant-select-item-option-content').filter({ hasText: '已完成' }).click()
-
-    await page.getByLabel(/变更说明/).fill('E2E done')
-    await page.getByTestId('tm-task-save').click()
-    await expectToast(page, /已保存|更新/)
-
-    await page.locator('.ant-drawer-open .ant-drawer-close').click()
-    await expect(page.getByTestId('tm-drawer-task')).toHaveCount(0)
+    await setTaskReqStage(page, card, '测试完成', '测试结束时间')
 
     const card2 = await boardTaskByTitle(page, names.taskDone)
     await expect(card2.getByTestId('tm-btn-add-action')).toHaveCount(0)
@@ -378,7 +374,7 @@ test.describe(`TM UI E2E ${RUN}`, () => {
     await goProjects(page)
     await openBoardTab(page)
     await selectProjectFilter(page, names.project)
-    await page.getByTestId('tm-scope-all').click()
+    await selectBoardScope(page, '全部')
 
     await page.locator('.tm-action-card').filter({ hasText: names.actionPub }).first().click()
     const progress = page.getByRole('spinbutton', { name: /进度/ })
@@ -396,7 +392,7 @@ test.describe(`TM UI E2E ${RUN}`, () => {
     await openBoardTab(page)
     await page.getByTestId('tm-board-week-history').click()
     await expect(page.getByText('历史周只读，编辑请切回本周')).toBeVisible()
-    await expect(page.getByTestId('tm-btn-new-project')).toHaveCount(0)
+    await expect(page.getByTestId('tm-btn-create-menu')).toHaveCount(0)
     await page.getByTestId('tm-board-week-current').click()
   })
 
@@ -406,7 +402,7 @@ test.describe(`TM UI E2E ${RUN}`, () => {
     await openBoardTab(page)
     await page.getByTestId('tm-board-week-current').click()
     await selectProjectFilter(page, names.project)
-    await page.getByTestId('tm-scope-all').click()
+    await selectBoardScope(page, '全部')
     await expect(page.getByTestId('tm-board-task-title').filter({ hasText: names.task })).toBeVisible()
     await expect(page.locator('.tm-action-card').filter({ hasText: names.actionPub }).first()).toBeVisible()
   })

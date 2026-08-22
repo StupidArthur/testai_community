@@ -7,11 +7,57 @@ import {
   emptyActionDescription,
   filterBoardTasksByScope,
   formatTaskSaveTip,
+  pickDefaultProjectId,
   shouldHighlightEmptyTask,
   shouldShowAddActionButton,
+  sortActionCardsForList,
   taskParticipantUsers,
   toScreenBoardTasks,
 } from './boardUi'
+
+describe('sortActionCardsForList', () => {
+  it('未日更优先，同组按创建时间升序', () => {
+    const sorted = sortActionCardsForList([
+      {
+        id: 'done-old',
+        status: 'done',
+        has_daily_today: false,
+        created_at: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'miss-new',
+        status: 'published',
+        has_daily_today: false,
+        created_at: '2026-01-03T00:00:00Z',
+      },
+      {
+        id: 'ok-mid',
+        status: 'published',
+        has_daily_today: true,
+        created_at: '2026-01-02T00:00:00Z',
+      },
+      {
+        id: 'miss-old',
+        status: 'published',
+        has_daily_today: false,
+        created_at: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'draft',
+        status: 'draft',
+        has_daily_today: false,
+        created_at: '2026-01-01T12:00:00Z',
+      },
+    ])
+    expect(sorted.map((a) => a.id)).toEqual([
+      'miss-old',
+      'miss-new',
+      'done-old',
+      'draft',
+      'ok-mid',
+    ])
+  })
+})
 
 describe('shouldHighlightEmptyTask', () => {
   it('当前周空且可加 Action → 标红', () => {
@@ -159,5 +205,26 @@ describe('toScreenBoardTasks', () => {
     const out = toScreenBoardTasks([{ ...base, actions: [] }])
     expect(out).toHaveLength(1)
     expect(out[0].actions).toEqual([])
+  })
+})
+
+describe('pickDefaultProjectId', () => {
+  it('优先选名称含 TPT 且最新创建', () => {
+    const id = pickDefaultProjectId([
+      { id: 'old-tpt', name: 'TPT-A', created_at: '2024-01-01T00:00:00Z' },
+      { id: 'new-tpt', name: 'tpt-B', created_at: '2025-06-01T00:00:00Z' },
+      { id: 'other', name: 'Other', created_at: '2026-01-01T00:00:00Z' },
+    ])
+    expect(id).toBe('new-tpt')
+  })
+  it('无 TPT 时取最新创建', () => {
+    const id = pickDefaultProjectId([
+      { id: 'a', name: 'Alpha', created_at: '2024-01-01T00:00:00Z' },
+      { id: 'b', name: 'Beta', created_at: '2025-01-01T00:00:00Z' },
+    ])
+    expect(id).toBe('b')
+  })
+  it('空列表返回 undefined', () => {
+    expect(pickDefaultProjectId([])).toBeUndefined()
   })
 })

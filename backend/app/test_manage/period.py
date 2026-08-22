@@ -95,6 +95,14 @@ def get_or_create_active_period(
         .first()
     )
     if last:
+        # 切周：先固化上一周需求进展快照，再开新窗
+        try:
+            from app.test_manage.service import snapshot_task_stages_for_week
+
+            snapshot_task_stages_for_week(db, last.week_key)
+        except Exception:  # noqa: BLE001
+            # 快照失败不阻断开周
+            pass
         ws = _as_local(last.week_end)
         we = ws + timedelta(days=7)
     else:

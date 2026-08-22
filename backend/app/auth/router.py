@@ -128,17 +128,13 @@ def reset_password(
     db: Session = Depends(get_db),
     _admin: User = Depends(RequireRole(["Admin"])),
 ):
+    """Admin 为指定用户设置新密码（用户管理「更改密码」）。"""
     target = db.query(User).filter(User.id == user_id).first()
     if not target:
         raise HTTPException(status_code=404, detail="用户不存在")
-    if target.role == UserRole.Admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="不能重置其他管理员的密码",
-        )
     target.password_hash = hash_password(data.new_password)
     db.commit()
-    return {"message": "密码已重置"}
+    return {"message": "密码已更改"}
 
 
 @router.delete("/{user_id}")

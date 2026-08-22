@@ -70,9 +70,18 @@ class MiniMaxProvider(LLMProvider):
                     max_tokens=max_tokens,
                     extra_body=extra_body,
                 )
-                content = completion.choices[0].message.content
+                msg = completion.choices[0].message
+                content = msg.content
                 if not content:
-                    raise ValueError("AI 返回空结果")
+                    # MiniMax + reasoning_split 时偶发 content 为空、思考占满 token
+                    extra = getattr(msg, "model_extra", None) or {}
+                    reasoning = extra.get("reasoning_content") if isinstance(extra, dict) else None
+                    if not reasoning:
+                        reasoning = getattr(msg, "reasoning_content", None)
+                    raise ValueError(
+                        "AI 返回空结果"
+                        + (f"（有 reasoning 长度 {len(reasoning)}）" if reasoning else "")
+                    )
                 return content
             except Exception as e:
                 last_error = e

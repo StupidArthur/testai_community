@@ -93,6 +93,49 @@ class TestUserManagement:
         )
         assert r3.status_code == 200
 
+    def test_admin_can_change_user_password(self, client, admin_token, eng_token):
+        """用户管理「更改密码」：Admin 可为任意用户设置新密码。"""
+        users = client.get("/api/auth/user-list", headers={"Authorization": f"Bearer {admin_token}"}).json()
+        eng = next(u for u in users if u["username"] == "eng_test")
+        r = client.post(
+            f"/api/auth/{eng['id']}/reset-password",
+            json={"new_password": "changed_by_admin"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert r.status_code == 200
+        assert r.json()["message"] == "密码已更改"
+        assert client.post("/api/auth/login", json={"username": "eng_test", "password": "changed_by_admin"}).status_code == 200
+        # 改回，避免影响其它用例
+        client.post(
+            f"/api/auth/{eng['id']}/reset-password",
+            json={"new_password": "eng123456"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+    def test_admin_can_change_admin_password(self, client, admin_token):
+        """原先会 403「不能重置其他管理员的密码」，含改自己也会被拦。"""
+        from app.auth.service import hash_password
+        from app.platform.database import SessionLocal
+        from app.auth.models import User
+
+        users = client.get("/api/auth/user-list", headers={"Authorization": f"Bearer {admin_token}"}).json()
+        admin = next(u for u in users if u["username"] == "admin")
+        r = client.post(
+            f"/api/auth/{admin['id']}/reset-password",
+            json={"new_password": "admin12"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert r.status_code == 200, r.text
+        assert client.post("/api/auth/login", json={"username": "admin", "password": "admin12"}).status_code == 200
+        # 恢复默认口令，避免影响同 session 其它用例（默认 admin 仅 5 位，接口要求 ≥6）
+        db = SessionLocal()
+        try:
+            row = db.query(User).filter(User.id == admin["id"]).first()
+            row.password_hash = hash_password("admin")
+            db.commit()
+        finally:
+            db.close()
+
 
 class TestTicketMechanism:
     def test_create_ticket(self, client, admin_token):

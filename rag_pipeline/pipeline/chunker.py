@@ -24,10 +24,20 @@ def _make_chunk_text(chapter_path: str, raw_text: str) -> str:
 
 
 def _split_oversized_paragraph(text: str, limit: int) -> list[str]:
-    """普通段落超限切分；列表/表格不得调用本函数。"""
+    """普通段落超限切分；列表/表格/并列层级块不得调用本函数拆开。"""
     text = text.strip()
+    if not text:
+        return []
+    # 并列「xx层」描述整段保留
+    layer_hits = sum(
+        1
+        for line in text.split("\n")
+        if (s := line.strip()) and len(s) <= 40 and s.endswith("层")
+    )
+    if layer_hits >= 3:
+        return [text]
     if len(text) <= limit:
-        return [text] if text else []
+        return [text]
 
     parts: list[str] = []
     remaining = text

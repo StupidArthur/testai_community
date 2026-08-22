@@ -111,7 +111,7 @@ def test_latest_progress_cleared_risk_is_resolved():
         updated_at=datetime(2026, 7, 21, 10, 0),
     )
     action = TmAction(id="a", daily_updates=[older, newer])
-    progress, risk = _latest_progress(action)
+    progress, risk, _blocking = _latest_progress(action)
     assert progress == 80
     assert risk == "", f"期望已解决为空，实际仍为: {risk!r}"
 
@@ -563,6 +563,65 @@ def test_mine_excludes_previous_week_and_cancelled(client, auth_headers, eng_hea
 
 
 # ── 清空风险后看板/详情应已解决（端到端，期望失败则暴露 bug）──
+
+
+def test_daily_is_blocking_roundtrip_on_board(client, auth_headers, eng_headers):
+    """勾选是否阻塞后，看板 latest_is_blocking / risks 必须为真。"""
+    users = _users(client, auth_headers)
+    pid, did = _seed_pd(client, auth_headers, "P-is-blocking")
+    task = _seed_task(client, auth_headers, pid, did, users["eng_test"]["id"])
+    r = client.post(
+        "/api/test-manage/actions",
+        json={
+            "task_id": task["id"],
+            "title": "阻塞勾选",
+            "owner_id": users["eng_test"]["id"],
+            "publish": True,
+        },
+        headers=eng_headers,
+    )
+    aid = r.json()["id"]
+
+    r = client.put(
+        f"/api/test-manage/actions/{aid}/daily-updates",
+        json={
+            "progress_percent": 30,
+            "risk_blocker": "环境不可用",
+            "is_blocking": True,
+            "progress_note": "本日进展说明已填写完毕",
+        },
+        headers=eng_headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["is_blocking"] is True
+
+    r = client.get(f"/api/test-manage/actions/{aid}", headers=eng_headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["latest_risk"] == "环境不可用"
+    assert body["latest_is_blocking"] is True
+
+    board = client.get("/api/test-manage/board", headers=auth_headers)
+    assert board.status_code == 200
+    actions = [a for t in board.json()["tasks"] for a in t["actions"] if a["id"] == aid]
+    assert len(actions) == 1
+    assert actions[0]["latest_is_blocking"] is True
+    assert board.json()["summary"]["risk_action_count"] >= 1
+
+    # 仅有风险文案、未勾选 → 不算开放阻塞
+    r = client.put(
+        f"/api/test-manage/actions/{aid}/daily-updates",
+        json={
+            "progress_percent": 40,
+            "risk_blocker": "仍有风险但非阻塞",
+            "is_blocking": False,
+            "progress_note": "本日进展说明已填写完毕",
+        },
+        headers=eng_headers,
+    )
+    assert r.status_code == 200, r.text
+    r = client.get(f"/api/test-manage/actions/{aid}", headers=eng_headers)
+    assert r.json()["latest_is_blocking"] is False
 
 
 def test_clear_risk_on_newer_daily_resolves_on_board(client, auth_headers, eng_headers):

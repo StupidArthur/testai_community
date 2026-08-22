@@ -12,7 +12,7 @@ from app.platform.config import (
     DINGTALK_DAILY_PUSH_HOUR,
     DINGTALK_DAILY_PUSH_MINUTE,
     DINGTALK_PUSH_ENABLED,
-    DINGTALK_WEBHOOK_URL,
+    dingtalk_push_channel_ready,
 )
 from app.platform.database import SessionLocal
 from app.test_manage.config import (
@@ -53,7 +53,7 @@ def _should_send_weekly(now, push_at) -> bool:
 async def _tick_once() -> None:
     if not DINGTALK_PUSH_ENABLED:
         return
-    if not DINGTALK_WEBHOOK_URL:
+    if not dingtalk_push_channel_ready():
         return
 
     now = now_tm()

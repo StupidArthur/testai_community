@@ -18,6 +18,7 @@ import ToolDetailPage from './tool_hub/pages/ToolDetailPage'
 import KnowledgeHubPage from './knowledge_base/pages/KnowledgeHubPage'
 import CleanJobReviewPage from './data_cleaning/pages/CleanJobReviewPage'
 import ProjectManagePage from './test_manage/pages/ProjectManagePage'
+import PublicScreenPage from './test_manage/pages/PublicScreenPage'
 import { refreshCurrentUser, isAdmin } from './shared/hooks/useAuth'
 
 function decodeJWTPayload(token: string): Record<string, unknown> | null {
@@ -94,6 +95,10 @@ export const router = createBrowserRouter([
   {
     path: '/login',
     element: <GuestRoute><Login /></GuestRoute>,
+  },
+  {
+    path: '/tm-screen',
+    element: <PublicScreenPage />,
   },
   {
     path: '/',

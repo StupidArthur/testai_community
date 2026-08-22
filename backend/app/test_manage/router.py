@@ -53,6 +53,34 @@ def api_week(
     return svc.get_week_info(db, current_user)
 
 
+@router.get("/public/week", response_model=WeekInfoOut)
+def api_public_week(db: Session = Depends(get_db)):
+    """免鉴权：公开大屏用的周窗口与历史列表。"""
+    return svc.get_week_info(db, None, public=True)
+
+
+@router.get("/public/projects", response_model=list[ProjectOut])
+def api_public_projects(db: Session = Depends(get_db)):
+    """免鉴权：活跃项目列表（只读大屏筛选）。"""
+    return svc.list_projects(db, include_archived=False)
+
+
+@router.get("/public/users", response_model=list[UserBrief])
+def api_public_users(db: Session = Depends(get_db)):
+    """免鉴权：用户显示名（大屏负责人列）。"""
+    return svc.list_assignable_users(db)
+
+
+@router.get("/public/board", response_model=BoardOut)
+def api_public_board(
+    week_start: datetime | None = None,
+    project_id: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """免鉴权只读作战大屏数据。"""
+    return svc.get_public_board(db, week_start=week_start, project_id=project_id)
+
+
 @router.put("/week/end", response_model=WeekInfoOut)
 def api_set_week_end(
     data: WeekEndUpdate,
@@ -364,7 +392,7 @@ async def api_push_weekly(
     db: Session = Depends(get_db),
     current_user: User = Depends(RequireRole(["Admin", "Manager"])),
 ):
-    """手动触发测试周报推送（短进展 + 增量/未解决风险）。"""
+    """手动触发测试周报推送（本周大屏截图 + 详情深链）。"""
     push_svc.assert_can_push(current_user)
     result = await push_svc.push_weekly(
         db,

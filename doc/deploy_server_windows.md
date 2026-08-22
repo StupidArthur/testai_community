@@ -170,13 +170,20 @@ cd /d D:\deploy\testai_community_prod\backend\scripts
 看到 **PASS** 后关掉所有窗口；**不应再出现**一直开着的黑色 CMD。  
 若关某个黑窗口网站就挂，说明还在用旧任务，请重新跑上面的安装命令。
 
-### 企微推送
+### 日/周报推送（推荐：62 调度 → 64 发）
+
+生产网站仍在 **64**；**不要**再在 64 上用 `install_wecom_scheduled_tasks.ps1` 装推送计划任务（避免双发）。
+
+改由 **62** 的 `D:\deploy-task-manager` 定时 HTTP 调用 64：
+
+- 步骤与任务模板：见仓库 `deploy-task-manager/HOW_TO_SCHEDULE_TESTAI_FROM_62.md`
+- 64 `.env`：保持 `DINGTALK_PUSH_ENABLED=false`；钉钉密钥仍只配在 64
+
+（若仍临时用 64 本机计划任务，才跑下面脚本；与 62 方案二选一。）
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install_wecom_scheduled_tasks.ps1
 ```
-
-生产 `.env`：`DINGTALK_PUSH_ENABLED=false`。开发机钉钉/推送任务保持禁用。
 ---
 
 ## 5. 禁止事项

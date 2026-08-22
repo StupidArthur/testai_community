@@ -5,9 +5,63 @@
  * - 空卡标红：当前周 + 0 Action + Task 仍可加 Action
  * - A1 参与者：lead + testers
  * - done Task 不显示 +Action
+ * - 大屏默认项目：优先名称含 TPT 的最新创建（登录页与公开 /tm-screen 共用）
+ * - Action 卡片：未日更优先，再按创建时间升序
  */
 
+import { isMissingDailyToday } from './screenFilters'
+
 export type BoardScope = 'mine' | 'other' | 'all'
+
+/** Action 卡片列表排序用的最小字段 */
+export type ActionCardSortLike = {
+  id: string
+  status: string
+  has_daily_today?: boolean
+  created_at?: string | null
+}
+
+/**
+ * 「我的 Action」/ Task 下 Action 卡片顺序：
+ * 1. 进行中且今日未日更优先
+ * 2. 同组按创建时间升序（先创建的在前）
+ */
+export function compareActionCardsForList(a: ActionCardSortLike, b: ActionCardSortLike): number {
+  const am = isMissingDailyToday(a) ? 0 : 1
+  const bm = isMissingDailyToday(b) ? 0 : 1
+  if (am !== bm) return am - bm
+  const ta = a.created_at ? Date.parse(a.created_at) : 0
+  const tb = b.created_at ? Date.parse(b.created_at) : 0
+  if (ta !== tb) return ta - tb
+  return String(a.id).localeCompare(String(b.id))
+}
+
+export function sortActionCardsForList<T extends ActionCardSortLike>(actions: T[]): T[] {
+  return [...actions].sort(compareActionCardsForList)
+}
+
+/** 大屏/工作台默认项目选择用的最小项目字段 */
+export type ProjectPickLike = {
+  id: string
+  name?: string | null
+  created_at?: string | null
+}
+
+/**
+ * 登录大屏与公开大屏共用的默认项目：
+ * 优先名称含 TPT（不区分大小写）且创建时间最新；否则取全部里最新创建。
+ */
+export function pickDefaultProjectId(projects: ProjectPickLike[]): string | undefined {
+  if (!projects.length) return undefined
+  const tpt = projects.filter((p) => /tpt/i.test(p.name || ''))
+  const pool = tpt.length > 0 ? tpt : projects
+  const sorted = [...pool].sort((a, b) => {
+    const ta = a.created_at ? Date.parse(a.created_at) : 0
+    const tb = b.created_at ? Date.parse(b.created_at) : 0
+    return tb - ta
+  })
+  return sorted[0]?.id
+}
 
 export type ScopeUser = { id: number; username: string; real_name?: string }
 

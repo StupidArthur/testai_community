@@ -1,0 +1,9 @@
+{
+  "trigger": "*/10 * * * *",
+  "display_name": "示例任务",
+  "timeout": 300,
+  "webhook": {
+    "url": "https://oapi.dingtalk.com/robot/send?access_token=06ed88f8d8fcd670b5a206c86031e4016836eebbcd75282c51b0de6c24130fa9",
+    "keyword": "test01"
+  }
+}

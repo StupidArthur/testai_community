@@ -16,13 +16,6 @@
   margin-bottom: 16px;
 }
 
-.knowledge-hub-page__footer {
-  flex-shrink: 0;
-  text-align: right;
-  margin-top: 8px;
-  font-size: 12px;
-}
-
 .knowledge-hub-page__tabs {
   flex: 1;
   min-height: 0;

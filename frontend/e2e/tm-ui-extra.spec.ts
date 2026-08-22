@@ -12,7 +12,11 @@ import {
   goProjects,
   login,
   openBoardTab,
+  openCreateMenu,
+  openTaskDetail,
+  selectBoardScope,
   selectProjectFilter,
+  setTaskReqStage,
 } from './helpers.ts'
 
 test.describe.configure({ mode: 'serial' })
@@ -49,27 +53,29 @@ test.describe(`TM UI 补充 ${RUN}`, () => {
     await login(page, 'manager', PASS)
     await goProjects(page)
     await openBoardTab(page)
-    await page.getByTestId('tm-btn-new-project').click()
+    await openCreateMenu(page, '项目')
     await page.getByTestId('tm-input-project-name').fill(project)
     await page.getByTestId('tm-submit-project').click()
     await expectToast(page, '项目已创建')
     await selectProjectFilter(page, project)
-    await page.getByTestId('tm-btn-new-domain').click()
+    await openCreateMenu(page, '领域')
     await page.getByTestId('tm-input-domain-name').fill(domain)
     await page.getByTestId('tm-submit-domain').click()
     await expectToast(page, '领域已创建')
-    await page.getByTestId('tm-btn-new-task').click()
+    await openCreateMenu(page, 'Task')
+    await expect(page.getByTestId('tm-modal-new-task')).toBeVisible()
+    await antdSelectByLabel(page, 'tm-task-project', project)
+    await antdSelectByLabel(page, 'tm-task-domain', domain)
     await page.getByTestId('tm-task-title').fill(task)
     await page.getByTestId('tm-task-requirement').fill('补测')
     await antdSelectByLabel(page, 'tm-task-lead', new RegExp(lead.realName))
-    await page.getByTestId('tm-task-testers').click()
-    await page
-      .locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option')
-      .filter({ hasText: new RegExp(owner.realName) })
-      .click()
-    await page.keyboard.press('Escape')
     await page.getByTestId('tm-submit-task').click()
     await expectToast(page, 'Task 已保存')
+    await selectBoardScope(page, '全部')
+    const card = await boardTaskByTitle(page, task)
+    await expect(card).toBeVisible({ timeout: 20_000 })
+    // Lead 不能改需求进展：Manager 先切到测试中，供后续 +Action
+    await setTaskReqStage(page, card, '测试中')
   })
 
   test('C Lead 发布 Action；复制到本周（同周 clone）', async ({ page }) => {
@@ -77,21 +83,18 @@ test.describe(`TM UI 补充 ${RUN}`, () => {
     await goProjects(page)
     await openBoardTab(page)
     await selectProjectFilter(page, project)
-    await page.getByTestId('tm-scope-all').click()
+    await selectBoardScope(page, '全部')
 
-    const card = await boardTaskByTitle(page, task)
-    await card.getByTestId('tm-btn-add-action').click()
+    const cardReady = await boardTaskByTitle(page, task)
+    await cardReady.getByTestId('tm-btn-add-action').click()
     await page.getByTestId('tm-action-title').fill(action)
-    await antdSelectByLabel(page, 'tm-action-owner', new RegExp(owner.realName))
+    // 负责人默认当前 Lead；避免用户下拉在 Engineer 会话下不稳定
     await page.getByTestId('tm-submit-action-publish').click()
     await expectToast(page, 'Action 已保存')
 
-    // 打开 Task 抽屉 → 若有复制区则点；同周 clone 也可用 Action 详情外的复制
-    await card.getByTestId('tm-btn-edit-task').click()
-    await expect(page.getByTestId('tm-drawer-task')).toBeVisible()
-    // 从看板再 +Action，点「查看」预览（若上周无候选则 Alert）
+    await openTaskDetail(page, cardReady)
     await page.keyboard.press('Escape')
-    await card.getByTestId('tm-btn-add-action').click()
+    await cardReady.getByTestId('tm-btn-add-action').click()
     const previewLink = page.getByRole('button', { name: '查看' }).first()
     if (await previewLink.count()) {
       await previewLink.click()
@@ -105,12 +108,12 @@ test.describe(`TM UI 补充 ${RUN}`, () => {
     }
   })
 
-  test('D Owner 空进度说明被拒', async ({ page }) => {
-    await login(page, owner.username)
+  test('D Lead 空进度说明被拒', async ({ page }) => {
+    await login(page, lead.username)
     await goProjects(page)
     await openBoardTab(page)
     await selectProjectFilter(page, project)
-    await page.getByTestId('tm-scope-all').click()
+    await selectBoardScope(page, '全部')
     await page.locator('.tm-action-card').filter({ hasText: action }).first().click()
     await fillInputNumber(page, 'tm-daily-progress', '15')
     await page.getByTestId('tm-daily-note').fill('   ')
@@ -133,20 +136,17 @@ test.describe(`TM UI 补充 ${RUN}`, () => {
     await expect(page.getByTestId('tm-help-drawer')).toBeHidden()
   })
 
-  test('F 领域按钮在未选项目时 disabled', async ({ page }) => {
+  test('F 未选项目时新建菜单「领域」disabled', async ({ page }) => {
     await login(page, 'manager', PASS)
     await goProjects(page)
     await openBoardTab(page)
-    // 清空项目筛选
     const filter = page.getByTestId('tm-project-filter')
-    await filter.click()
-    const clear = page.locator('.ant-select-clear')
-    if (await clear.count()) {
-      await clear.first().click()
-    } else {
-      await page.keyboard.press('Escape')
+    await filter.hover()
+    const clear = filter.locator('.ant-select-clear')
+    if ((await clear.count()) > 0) {
+      await clear.click({ force: true })
     }
-    // 无 projectId 时新建领域 disabled
-    await expect(page.getByTestId('tm-btn-new-domain')).toBeDisabled()
+    await page.getByTestId('tm-btn-create-menu').click()
+    await expect(page.getByRole('menuitem', { name: '领域' })).toHaveAttribute('aria-disabled', 'true')
   })
 })

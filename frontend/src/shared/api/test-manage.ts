@@ -34,13 +34,23 @@ export interface TmTask {
   requirement: string
   lead_id: number
   tester_ids: number[]
+  /** 测试状态：published / done / cancelled */
   status: string
+  /** 需求进展 */
+  req_stage?: string
+  expected_handover_at?: string | null
+  actual_handover_at?: string | null
+  test_started_at?: string | null
+  expected_test_end_at?: string | null
+  test_ended_at?: string | null
+  stage_summary?: string
   created_by: number
   published_at: string | null
   project_name?: string | null
   domain_name?: string | null
   can_edit: boolean
-  /** 进行中时可加本周 Action */
+  can_edit_req_stage?: boolean
+  /** 测试中时可加本周 Action */
   can_add_action?: boolean
 }
 
@@ -70,10 +80,16 @@ export interface TmAction {
   created_by: number
   published_at: string | null
   due_at: string | null
+  /** 创建时间；卡片列表「先创建的在前」排序用 */
+  created_at?: string | null
   /** 用于草稿表单重挂载；后端若未返回可缺省 */
   updated_at?: string | null
   progress_percent: number
   latest_risk: string
+  /** 最新日更是否勾选「构成阻塞」 */
+  latest_is_blocking?: boolean
+  /** 今日是否已日更 */
+  has_daily_today?: boolean
   task_title?: string | null
   project_name?: string | null
   domain_name?: string | null
@@ -92,6 +108,7 @@ export interface TmActionDetail extends TmAction {
     report_date: string
     progress_percent: number
     risk_blocker: string
+    is_blocking?: boolean
     progress_note: string
   }[]
   corrections: {
@@ -226,6 +243,12 @@ export const testManageApi = {
       tester_ids?: number[]
       status?: string
       change_summary?: string
+      req_stage?: string
+      expected_handover_at?: string | null
+      actual_handover_at?: string | null
+      test_started_at?: string | null
+      expected_test_end_at?: string | null
+      test_ended_at?: string | null
     },
   ) => apiClient.patch<TmTask>(`/test-manage/tasks/${id}`, data),
   archiveTask: (id: string) =>
@@ -264,6 +287,7 @@ export const testManageApi = {
     data: {
       progress_percent: number
       risk_blocker?: string
+      is_blocking?: boolean
       progress_note?: string
     },
   ) => apiClient.put(`/test-manage/actions/${id}/daily-updates`, data),

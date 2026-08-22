@@ -73,13 +73,17 @@ export default function AdminPage() {
     mutationFn: ({ userId, newPassword }: { userId: number; newPassword: string }) =>
       authApi.resetPassword(userId, { new_password: newPassword }),
     onSuccess: () => {
-      message.success(`用户 ${selectedUser?.username} 密码已重置`)
+      message.success(`用户 ${selectedUser?.username} 密码已更改`)
       setResetModalOpen(false)
       resetForm.resetFields()
       setSelectedUser(null)
     },
     onError: (err: any) => {
-      message.error(err.response?.data?.detail || '重置失败')
+      const detail = err.response?.data?.detail
+      const text = Array.isArray(detail)
+        ? detail.map((d: { msg?: string }) => d.msg).filter(Boolean).join('；') || '更改失败'
+        : detail || '更改失败'
+      message.error(text)
     },
   })
 
@@ -165,7 +169,7 @@ export default function AdminPage() {
             }}
             style={{ color: 'var(--color-primary)' }}
           >
-            重置密码
+            更改密码
           </Button>
           {record.id !== currentUser?.id && (
             <Button
@@ -383,7 +387,7 @@ export default function AdminPage() {
       </Modal>
 
       <Modal
-        title={`重置密码 - ${selectedUser?.username || ''}`}
+        title={`更改密码 - ${selectedUser?.username || ''}`}
         open={resetModalOpen}
         onCancel={() => {
           setResetModalOpen(false)
@@ -404,9 +408,12 @@ export default function AdminPage() {
           <Form.Item
             name="new_password"
             label="新密码"
-            rules={[{ required: true, message: '请输入新密码' }]}
+            rules={[
+              { required: true, message: '请输入新密码' },
+              { min: 6, message: '新密码至少 6 位' },
+            ]}
           >
-            <Input.Password placeholder="请输入新密码" size="large" />
+            <Input.Password placeholder="请输入新密码（至少 6 位）" size="large" />
           </Form.Item>
           <Form.Item>
             <Button
@@ -416,7 +423,7 @@ export default function AdminPage() {
               size="large"
               loading={resetMutation.isPending}
             >
-              确认重置
+              确认更改
             </Button>
           </Form.Item>
         </Form>

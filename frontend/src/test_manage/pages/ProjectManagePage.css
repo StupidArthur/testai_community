@@ -58,50 +58,53 @@
   font-size: 12px;
 }
 
+.tm-clone-panel .ant-card-head {
+  min-height: 40px;
+}
+
 .tm-clone-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  max-height: 220px;
+  max-height: 200px;
   overflow: auto;
+  margin: 0 -4px;
 }
 
 .tm-clone-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 4px 0;
-  border-bottom: 1px solid rgba(228, 228, 247, 0.7);
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  gap: 4px;
+  padding: 6px 4px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 55%, transparent);
 }
 
 .tm-clone-row:last-child {
   border-bottom: none;
 }
 
-.tm-clone-row .ant-btn-link {
-  padding-inline: 0;
-  height: auto;
-  text-align: left;
-  white-space: normal;
+.tm-clone-row__title {
   flex: 1;
   min-width: 0;
+  padding-inline: 0 !important;
+  height: auto !important;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: rgba(0, 0, 0, 0.75) !important;
+}
+
+.tm-clone-row__copy {
+  flex-shrink: 0;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.tm-clone-row__copy:hover {
+  color: var(--color-primary, #1677ff);
 }
 
 .tm-week-summary--slim {
   padding: 12px 14px;
-}
-
-.tm-board-task--empty {
-  border-color: #ff4d4f !important;
-  box-shadow: 0 0 0 1px rgba(255, 77, 79, 0.25);
-}
-
-.tm-board-list {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
 }
 
 .tm-week-summary {
@@ -157,21 +160,129 @@
   color: var(--color-primary);
 }
 
+.tm-board-task--empty {
+  border-color: #ff4d4f !important;
+  box-shadow: 0 0 0 1px rgba(255, 77, 79, 0.25);
+}
+
+.tm-board-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.tm-board-pagination {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 8px;
+  margin-top: 4px;
+}
+
 .tm-board-task {
   border-color: var(--color-border);
   background: var(--color-bg);
 }
 
+.tm-board-task > .ant-card-head {
+  border-bottom-color: color-mix(in srgb, var(--color-border) 80%, transparent);
+  min-height: 48px;
+}
+
+.tm-board-task > .ant-card-head .ant-card-head-wrapper {
+  align-items: center;
+}
+
+.tm-board-task > .ant-card-head .ant-card-extra {
+  align-self: center;
+}
+
+.tm-board-task-extra__tip {
+  color: #d48806;
+  font-size: 14px;
+  cursor: help;
+}
+
+.tm-board-task > .ant-card-head .ant-card-head-title {
+  /* Task 最醒目 */
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--color-text);
+}
+
+.tm-board-task-title {
+  font-weight: 650;
+}
+
+.tm-board-task-req {
+  /* 需求：小于 Task，大于辅助灰字 */
+  margin-bottom: 10px !important;
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+  color: rgba(0, 0, 0, 0.55) !important;
+  color: color-mix(in srgb, var(--color-text) 58%, transparent) !important;
+}
+
+/* 宽屏约 4 列；每页最多 20 张 ≈ 5 行 */
 .tm-action-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 4px;
+  padding: 10px 10px 4px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-bg) 92%, #64748b 8%);
+}
+
+@media (max-width: 1200px) {
+  .tm-action-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .tm-action-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .tm-action-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .tm-action-card {
   cursor: pointer;
-  border-color: var(--color-border);
+  border-color: color-mix(in srgb, var(--color-border) 85%, transparent);
   background: var(--color-bg);
+  box-shadow: none;
+}
+
+.tm-action-card > .ant-card-head {
+  min-height: 36px;
+  padding: 0 12px;
+  border-bottom-color: color-mix(in srgb, var(--color-border) 55%, transparent);
+}
+
+.tm-action-card > .ant-card-head .ant-card-head-title {
+  /* Action 标题：介于 Task(16) 与需求(13) 之间 */
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: rgba(0, 0, 0, 0.78);
+  color: color-mix(in srgb, var(--color-text) 84%, transparent);
+}
+
+.tm-action-card > .ant-card-body {
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.tm-action-card__owner {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px !important;
 }
 
 .tm-action-card:hover {
@@ -182,5 +293,7 @@
 /* Action 卡片风险：最多三行，超出省略 */
 .tm-action-card__risk {
   margin-top: 6px;
-  line-height: 1.4;
+  font-size: 13px !important;
+  line-height: 1.45 !important;
 }
+

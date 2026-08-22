@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date
+import asyncio
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -15,6 +16,12 @@ from app.platform.config import (
     DINGTALK_PUSH_IDEMPOTENCY_ENABLED,
     DINGTALK_WEBHOOK_URL,
     DINGTALK_WEEKLY_IDEMPOTENCY_ENABLED,
+    dingtalk_openapi_ready,
+    dingtalk_push_channel_ready,
+)
+from app.test_manage.dingtalk_client import (
+    DINGTALK_WEEKLY_SCREENSHOT_FILENAME,
+    send_daily_report_messages,
 )
 from app.test_manage.config import (
     PUSH_TRIGGER_MANUAL,
@@ -26,9 +33,51 @@ from app.test_manage.config import (
 from app.test_manage.models import TmPushRun
 from app.test_manage import push_report as report
 from app.test_manage.period import get_daily_context_period
-from app.test_manage.dingtalk_client import send_markdown
+from app.test_manage.screen_capture import (
+    capture_today_screen_png,
+    capture_week_screen_png,
+)
 
 log = logging.getLogger("app.test_manage.push")
+
+
+def _capture_daily_screenshot() -> bytes | None:
+    """
+    截今日大屏：先走配置的公开 Origin；失败再试本机前端（开发机常见）。
+    必须在线程中调用（Playwright sync API）。
+    """
+    png = capture_today_screen_png()
+    if png:
+        return png
+    # 生产页可能未部署公开大屏；开发时用本地 Vite
+    for url in (
+        "http://127.0.0.1:3003/tm-screen?view=today&screenshot=1",
+        "http://127.0.0.1:48010/tm-screen?view=today&screenshot=1",
+    ):
+        png = capture_today_screen_png(url=url)
+        if png:
+            log.info("daily screenshot fallback url=%s bytes=%s", url, len(png))
+            return png
+    return None
+
+
+def _capture_weekly_screenshot() -> bytes | None:
+    """
+    截本周大屏：优先本机前端（含最新「截图自动展开」），再试配置的公开 Origin。
+    必须在线程中调用（Playwright sync API）。
+    """
+    for url in (
+        "http://127.0.0.1:3003/tm-screen?view=current&screenshot=1",
+        "http://127.0.0.1:48010/tm-screen?view=current&screenshot=1",
+    ):
+        png = capture_week_screen_png(url=url)
+        if png:
+            log.info("weekly screenshot local url=%s bytes=%s", url, len(png))
+            return png
+    png = capture_week_screen_png()
+    if png:
+        return png
+    return None
 
 
 @dataclass
@@ -72,11 +121,15 @@ def _already_sent(db: Session, kind: str, period_key: str) -> bool:
     return row is not None
 
 
-def _require_webhook() -> None:
-    if not (DINGTALK_WEBHOOK_URL or "").strip():
+def _require_push_channel() -> None:
+    if not dingtalk_push_channel_ready():
         raise HTTPException(
             status_code=400,
-            detail="未配置 DINGTALK_WEBHOOK_URL，无法推送（可用 dry_run 预览）",
+            detail=(
+                "未配置钉钉推送通道：请配置应用机器人 "
+                "（DINGTALK_APP_KEY/SECRET/ROBOT_CODE/OPEN_CONVERSATION_ID）"
+                "或 DINGTALK_WEBHOOK_URL（可用 dry_run 预览）"
+            ),
         )
 
 
@@ -121,7 +174,7 @@ async def push_daily(
     today: date | None = None,
 ) -> PushResult:
     """
-    日报：偏 Action + 当前风险（今日日更进展 + 开放风险）；无风险也每天发送。
+    日报：当前阻塞列表 + Action 进度四档统计；无阻塞也每天发送。
 
     汇报周取库内日更上下文周 get_daily_context_period（与看板活动周一致，
     避免经典周三 week_key 与自定义 week_end 开窗不一致导致汇总为 0）。
@@ -148,44 +201,57 @@ async def push_daily(
     ws = ctx.week_start
     wk = ctx.week_key
     current = report.collect_open_risks(db, week_start=ws, week_key_s=wk)
-    summary = report.collect_progress_summary(db, week_start=ws, week_key_s=wk)
-    action_lines = report.collect_today_action_lines(
-        db, today=day, week_start=ws, week_key_s=wk
-    )
     previous = report.load_snapshot_risks(db, REPORT_KIND_DAILY)
     diff = report.diff_risks(previous, current)
-    markdown = await report.fit_daily_markdown(
-        today=day, diff=diff, summary=summary, action_lines=action_lines
+
+    # 日报只发：少量说明 + 详情链接 + 明细截图（一条消息）
+    from app.test_manage.config import resolve_board_detail_url
+
+    detail_url = resolve_board_detail_url()
+    title = report.daily_report_heading(day)
+    brief_md = report.build_daily_brief_markdown(
+        title=title,
+        detail_url=detail_url,
     )
-    nbytes = report.utf8_len(markdown)
+    png = await asyncio.to_thread(_capture_daily_screenshot)
+    screenshot_ok = bool(png)
+    nbytes = report.utf8_len(brief_md)
 
     if dry_run:
+        preview = (
+            f"{brief_md}\n\n---\nscreenshot_bytes={len(png or b'')}"
+            f" channel={'openapi' if dingtalk_openapi_ready() else 'webhook'}"
+            " format=one_message_brief"
+        )
         return PushResult(
             kind=REPORT_KIND_DAILY,
             period_key=period,
             sent=False,
             skipped=False,
             dry_run=True,
-            message=markdown,
-            message_bytes=nbytes,
+            message=preview,
+            message_bytes=report.utf8_len(preview),
             added_count=len(diff.added),
             unresolved_count=len(diff.unresolved),
             resolved_count=len(diff.resolved_ids),
             reason="dry_run",
         )
 
-    _require_webhook()
-    await send_markdown(
-        DINGTALK_WEBHOOK_URL,
-        markdown,
-        title=report.daily_report_heading(day),
+    _require_push_channel()
+    send_meta = await send_daily_report_messages(
+        title=title,
+        detail_url=detail_url,
+        screenshot_png=png,
+        webhook_url=DINGTALK_WEBHOOK_URL,
     )
+    if not screenshot_ok:
+        log.warning("daily push without screenshot meta=%s", send_meta)
     report.save_snapshot(
         db,
         report_kind=REPORT_KIND_DAILY,
         current=current,
         period_key=period,
-        message=markdown,
+        message=brief_md,
         trigger=trigger,
     )
     _record_run(
@@ -202,12 +268,12 @@ async def push_daily(
         sent=True,
         skipped=False,
         dry_run=False,
-        message=markdown,
+        message=brief_md,
         message_bytes=nbytes,
         added_count=len(diff.added),
         unresolved_count=len(diff.unresolved),
         resolved_count=len(diff.resolved_ids),
-        reason="ok",
+        reason="ok" if screenshot_ok else "ok_no_screenshot",
     )
 
 
@@ -219,7 +285,7 @@ async def push_weekly(
     force: bool = False,
 ) -> PushResult:
     """
-    周报：偏 Task + 整体进度 + 风险（Task 列表 / 分领域 / 风险 Task 视角）。
+    周报：少量说明 + 本周大屏详情链 + 本周大屏截图（一条消息）。
 
     周归属与日报一致：用库内 get_daily_context_period（与看板同一 week_key）。
     """
@@ -248,41 +314,70 @@ async def push_weekly(
             reason="本周已推送过",
         )
 
-    summary = report.collect_progress_summary(db, week_start=ws, week_key_s=wk)
     current = report.collect_open_risks(db, week_start=ws, week_key_s=wk)
-    task_rows = report.collect_task_progress_rows(db, week_start=ws, week_key_s=wk)
+    risk_snap = report.collect_week_risk_snapshot(db, week_start=ws, week_key_s=wk)
+    prev_key = report.previous_week_key(db, current_week_start=ws)
+    progress_delta, matched_n = report.compute_matched_task_progress_delta(
+        db, this_week_key=wk, last_week_key=prev_key
+    )
     previous = report.load_snapshot_risks(db, REPORT_KIND_WEEKLY)
     diff = report.diff_risks(previous, current)
-    markdown = await report.fit_weekly_markdown(
-        summary=summary, diff=diff, task_rows=task_rows
+
+    from app.test_manage.config import resolve_week_board_detail_url
+
+    detail_url = resolve_week_board_detail_url()
+    title = report.weekly_report_heading()
+    weekly_brief = report.build_weekly_brief_text(
+        risk_snap,
+        progress_delta=progress_delta,
+        matched_task_count=matched_n,
     )
-    nbytes = report.utf8_len(markdown)
+    brief_md = report.build_daily_brief_markdown(
+        title=title,
+        detail_url=detail_url,
+        brief=weekly_brief,
+    )
+    png = await asyncio.to_thread(_capture_weekly_screenshot)
+    screenshot_ok = bool(png)
+    nbytes = report.utf8_len(brief_md)
 
     if dry_run:
+        preview = (
+            f"{brief_md}\n\n---\nscreenshot_bytes={len(png or b'')}"
+            f" channel={'openapi' if dingtalk_openapi_ready() else 'webhook'}"
+            " format=one_message_brief view=current"
+        )
         return PushResult(
             kind=REPORT_KIND_WEEKLY,
             period_key=period,
             sent=False,
             skipped=False,
             dry_run=True,
-            message=markdown,
-            message_bytes=nbytes,
+            message=preview,
+            message_bytes=report.utf8_len(preview),
             added_count=len(diff.added),
             unresolved_count=len(diff.unresolved),
             resolved_count=len(diff.resolved_ids),
             reason="dry_run",
         )
 
-    _require_webhook()
-    await send_markdown(
-        DINGTALK_WEBHOOK_URL, markdown, title=report.weekly_report_heading()
+    _require_push_channel()
+    send_meta = await send_daily_report_messages(
+        title=title,
+        detail_url=detail_url,
+        screenshot_png=png,
+        webhook_url=DINGTALK_WEBHOOK_URL,
+        brief=weekly_brief,
+        image_filename=DINGTALK_WEEKLY_SCREENSHOT_FILENAME,
     )
+    if not screenshot_ok:
+        log.warning("weekly push without screenshot meta=%s", send_meta)
     report.save_snapshot(
         db,
         report_kind=REPORT_KIND_WEEKLY,
         current=current,
         period_key=period,
-        message=markdown,
+        message=brief_md,
         trigger=trigger,
     )
     _record_run(
@@ -299,11 +394,12 @@ async def push_weekly(
         sent=True,
         skipped=False,
         dry_run=False,
-        message=markdown,
+        message=brief_md,
         message_bytes=nbytes,
         added_count=len(diff.added),
         unresolved_count=len(diff.unresolved),
         resolved_count=len(diff.resolved_ids),
+        reason="ok" if screenshot_ok else "ok_no_screenshot",
     )
 
 
@@ -320,6 +416,8 @@ def push_status(db: Session) -> dict:
     )
     return {
         "webhook_configured": bool(DINGTALK_WEBHOOK_URL),
+        "openapi_configured": dingtalk_openapi_ready(),
+        "channel_ready": dingtalk_push_channel_ready(),
         "snapshots": [
             {
                 "report_kind": s.report_kind,

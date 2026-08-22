@@ -64,6 +64,12 @@ class TaskCreate(BaseModel):
     lead_id: int
     tester_ids: list[int] = Field(default_factory=list)
     publish: bool = False
+    req_stage: str | None = None
+    expected_handover_at: date | None = None
+    actual_handover_at: date | None = None
+    test_started_at: date | None = None
+    expected_test_end_at: date | None = None
+    test_ended_at: date | None = None
 
 
 class TaskUpdate(BaseModel):
@@ -71,8 +77,14 @@ class TaskUpdate(BaseModel):
     requirement: str | None = Field(default=None, max_length=TASK_REQUIREMENT_MAX_CHARS)
     lead_id: int | None = None
     tester_ids: list[int] | None = None
-    status: str | None = None
+    status: str | None = None  # 测试状态
     change_summary: str = ""  # 发布后更新时的变更说明
+    req_stage: str | None = None
+    expected_handover_at: date | None = None
+    actual_handover_at: date | None = None
+    test_started_at: date | None = None
+    expected_test_end_at: date | None = None
+    test_ended_at: date | None = None
 
 
 class TaskUpdateLogOut(BaseModel):
@@ -94,6 +106,13 @@ class TaskOut(BaseModel):
     lead_id: int
     tester_ids: list[int]
     status: str
+    req_stage: str = "pending_dev"
+    expected_handover_at: date | None = None
+    actual_handover_at: date | None = None
+    test_started_at: date | None = None
+    expected_test_end_at: date | None = None
+    test_ended_at: date | None = None
+    stage_summary: str = ""
     created_by: int
     published_at: datetime | None
     created_at: datetime | None = None
@@ -101,7 +120,8 @@ class TaskOut(BaseModel):
     project_name: str | None = None
     domain_name: str | None = None
     can_edit: bool = False
-    # 进行中时可新建 / 复制本周 Action；已完成为 False
+    can_edit_req_stage: bool = False
+    # 测试中时可新建 / 复制本周 Action
     can_add_action: bool = False
 
     model_config = {"from_attributes": True}
@@ -139,7 +159,9 @@ class ActionCloneRequest(BaseModel):
 class DailyUpdateUpsert(BaseModel):
     report_date: date | None = None
     progress_percent: int = Field(..., ge=0, le=100)
+    # 风险说明（UI 文案为「风险」）；是否阻塞单独勾选
     risk_blocker: str = Field(default="", max_length=TEXT_FIELD_MAX_CHARS)
+    is_blocking: bool = False
     progress_note: str = Field(default="", max_length=TEXT_FIELD_MAX_CHARS)
 
 
@@ -150,6 +172,7 @@ class DailyUpdateOut(BaseModel):
     report_date: date
     progress_percent: int
     risk_blocker: str
+    is_blocking: bool = False
     progress_note: str
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -190,6 +213,10 @@ class ActionOut(BaseModel):
     updated_at: datetime | None = None
     progress_percent: int = 0
     latest_risk: str = ""
+    # 最新日更勾选「是否阻塞」；仅阻塞项计入开放阻塞 / 日报
+    latest_is_blocking: bool = False
+    # 今日是否已提交日更（大屏「今日」筛选用）
+    has_daily_today: bool = False
     task_title: str | None = None
     project_name: str | None = None
     domain_name: str | None = None

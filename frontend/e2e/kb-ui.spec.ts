@@ -42,7 +42,6 @@ test.describe('KB UI E2E', () => {
     await expect(page.getByRole('heading', { name: '知识库' })).toBeVisible()
     await expect(page.getByRole('tab', { name: '知识问答' })).toBeVisible()
     await expect(page.getByRole('tab', { name: /清洗入库/ })).toBeVisible()
-    await expect(page.getByTestId('kb-hub-credit')).toContainText('designed by @yuzechao')
   })
 
   test('03 知识问答空库提示 + 发送禁用', async ({ page }) => {

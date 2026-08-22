@@ -8,6 +8,11 @@ from fastapi import APIRouter
 PUBLIC_ROUTES: set[tuple[str, str]] = {
     ("POST", "/api/auth/login"),
     ("GET", "/api/health"),
+    # 测试任务公开只读大屏（钉钉详情深链 / Playwright 截图）
+    ("GET", "/api/test-manage/public/week"),
+    ("GET", "/api/test-manage/public/projects"),
+    ("GET", "/api/test-manage/public/users"),
+    ("GET", "/api/test-manage/public/board"),
 }
 
 # 视为已挂载鉴权的 Depends 名称（由各业务 App 的 auth 模块提供）

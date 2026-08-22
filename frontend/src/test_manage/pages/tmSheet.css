@@ -1,0 +1,251 @@
+/**
+ * 项目管理 Drawer / Modal 统一视觉：字号、颜色、分区。
+ * 标题 14/600 · 正文 14 · 标签/辅助 13；少用 Card/大 Alert。
+ */
+
+.tm-sheet {
+  --tm-sheet-title: 14px;
+  --tm-sheet-body: 14px;
+  --tm-sheet-meta: 13px;
+  --tm-sheet-text: color-mix(in srgb, var(--color-text) 90%, transparent);
+  --tm-sheet-text-soft: color-mix(in srgb, var(--color-text) 72%, transparent);
+  --tm-sheet-muted: color-mix(in srgb, var(--color-text) 48%, transparent);
+  --tm-sheet-primary: var(--color-primary, #1677ff);
+  width: 100%;
+  font-size: var(--tm-sheet-body);
+  color: var(--tm-sheet-text);
+  line-height: 1.45;
+}
+
+.tm-sheet__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tm-sheet__summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-bg) 92%, #64748b 8%);
+}
+
+.tm-sheet__summary-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.tm-sheet__task {
+  font-size: var(--tm-sheet-body);
+  color: var(--tm-sheet-text-soft);
+  line-height: 1.35;
+}
+
+.tm-sheet__meta-row {
+  font-size: var(--tm-sheet-meta);
+  color: var(--tm-sheet-muted);
+  line-height: 1.35;
+}
+
+.tm-sheet__progress {
+  margin: 2px 0 0 !important;
+}
+
+.tm-sheet__tip {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: var(--tm-sheet-meta);
+  line-height: 1.4;
+  color: var(--tm-sheet-primary);
+  background: color-mix(in srgb, var(--tm-sheet-primary) 8%, transparent);
+  border-radius: 6px;
+}
+
+.tm-sheet__tip--warn {
+  color: #ad6800;
+  background: color-mix(in srgb, #faad14 14%, transparent);
+}
+
+.tm-sheet__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 85%, transparent);
+}
+
+.tm-sheet__section:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+.tm-sheet__h {
+  margin: 0;
+  font-size: var(--tm-sheet-title);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--tm-sheet-text);
+}
+
+.tm-sheet__muted {
+  font-size: var(--tm-sheet-meta);
+  font-weight: 400;
+  color: var(--tm-sheet-muted);
+}
+
+.tm-sheet__body {
+  margin: 0;
+  font-size: var(--tm-sheet-body);
+  line-height: 1.55;
+  color: var(--tm-sheet-text-soft);
+}
+
+.tm-sheet__body + .tm-sheet__body {
+  margin-top: 0;
+}
+
+.tm-sheet__dl {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tm-sheet__dl > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tm-sheet__dl dt {
+  margin: 0;
+  font-size: var(--tm-sheet-body);
+  font-weight: 600;
+  color: var(--tm-sheet-text);
+}
+
+.tm-sheet__dl dd {
+  margin: 0;
+  font-size: var(--tm-sheet-body);
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: var(--tm-sheet-text-soft);
+}
+
+.tm-sheet__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.tm-sheet__form .ant-form-item {
+  margin-bottom: 12px;
+}
+
+.tm-sheet__form .ant-form-item-label > label {
+  font-size: var(--tm-sheet-meta) !important;
+  height: auto !important;
+  color: var(--tm-sheet-text-soft) !important;
+}
+
+.tm-sheet__form .ant-form-item-extra {
+  font-size: var(--tm-sheet-meta);
+  color: var(--tm-sheet-muted);
+}
+
+.tm-sheet__log {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tm-sheet__log-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
+.tm-sheet__log-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.tm-sheet__corr {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tm-sheet__corr-note {
+  font-size: var(--tm-sheet-body);
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.tm-sheet__lineage.ant-collapse {
+  background: transparent;
+}
+
+.tm-sheet__lineage .ant-collapse-header {
+  padding: 4px 0 !important;
+  font-size: var(--tm-sheet-meta) !important;
+  color: var(--tm-sheet-muted) !important;
+}
+
+.tm-sheet__lineage .ant-collapse-content-box {
+  padding: 8px 0 0 !important;
+}
+
+.tm-lineage-timeline.ant-timeline {
+  margin: 0;
+  padding-top: 2px;
+}
+
+.tm-lineage-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 2px;
+}
+
+.tm-lineage-item__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.tm-lineage-item__week {
+  font-size: var(--tm-sheet-meta);
+  font-weight: 600;
+}
+
+.tm-lineage-item__title {
+  font-size: var(--tm-sheet-meta);
+  line-height: 1.4;
+  color: var(--tm-sheet-text-soft);
+}
+
+.tm-lineage-item__risk {
+  margin-bottom: 0 !important;
+  font-size: var(--tm-sheet-meta) !important;
+  line-height: 1.4 !important;
+}
+
+/* Modal 内表单：与抽屉同一套 label 字号 */
+.tm-sheet--modal .ant-form-item {
+  margin-bottom: 12px;
+}
+
+.tm-sheet--modal .ant-form-item-label > label {
+  font-size: var(--tm-sheet-meta) !important;
+  height: auto !important;
+}

@@ -22,7 +22,7 @@ TestAI Community 将原 **Skill Hub（技能管理）** 与 **Recorder Translate
 
 | 角色 | 说明 | 典型能力 |
 |------|------|----------|
-| **Admin** | 系统管理员 | 用户管理、重置密码、删除翻译任务记录、Changelog 发布 |
+| **Admin** | 系统管理员 | 用户管理、更改密码、删除翻译任务记录、Changelog 发布 |
 | **Engineer** | 测试/开发工程师 | Skill 编辑、Fork/Merge、上传翻译任务、查看全部任务队列 |
 
 > 首个注册用户自动成为 Admin；后续注册需 Admin 代为创建用户。
@@ -37,7 +37,7 @@ TestAI Community 将原 **Skill Hub（技能管理）** 与 **Recorder Translate
 |----|------|--------|
 | AUTH-01 | 用户登录，返回 JWT（60 分钟有效） | P0 |
 | AUTH-02 | 首个用户注册为 Admin | P0 |
-| AUTH-03 | Admin 创建/删除用户、重置密码 | P0 |
+| AUTH-03 | Admin 创建/删除用户、更改密码 | P0 |
 | AUTH-04 | 用户修改自己的密码 | P1 |
 | AUTH-05 | 未认证访问受保护 API 返回 401 | P0 |
 | AUTH-06 | SSE/下载使用短期 ticket（30s 一次性） | P0 |
@@ -88,10 +88,12 @@ TestAI Community 将原 **Skill Hub（技能管理）** 与 **Recorder Translate
 
 | ID | 需求 | 优先级 |
 |----|------|--------|
-| TM-01 | Project → Domain → Task → Action（默认周三 18:00 周界，**周结束可配**；**切周日日更/日报仍属上一汇报周**）；大屏「已完成」**仅 Task.status=done/cancelled**；Task 周进度周结束前手填，未填回退 Action 平均并提示 | P0 ✅ |
+| TM-01 | Project → Domain → Task → Action（默认周三 18:00 周界，**周结束可配**；**切周日日更/日报仍属上一汇报周**）；大屏「今日 / 本周 / 历史」；「已完成」仅 `done`、「归档」仅 `cancelled`；Task 周进度周结束前手填，未填回退 Action 平均并提示 | P0 ✅ |
 | TM-02 | Task 需求/负责人/人员；可更新+日志；Action 草稿可改（含负责人），**发布后字段全锁（本周负责人不可改派）**；Admin/Manager 或 Task lead **当前周内随时**可建 Action；Action 延续链路可查 | P0 ✅ |
-| TM-03 | 日更仅 Action 负责人或 Admin/Manager；**说明去空白后非空（无最少字数）、进度不倒退、仅当天、19:50锁定**；切周日写上一汇报周；更正时间线；看板 Action 卡片风险≤3行 | P0 ✅ |
-| TM-06 | 钉钉群日报/周报：**日报每天发送**（短进展+风险，无风险也发）；Admin/Manager 可手动；日报 **17:12** + **20:00～20:04**（幂等）；周报一律 **周结束 + 15 分钟**；日更截止 **19:50**；**推荐 Windows 计划任务**（`DINGTALK_PUSH_ENABLED=false` 防重复） | P1 ✅ |
+| TM-03 | 日更仅 Action 负责人或 Admin/Manager；**说明去空白后非空、进度不倒退、仅当天、19:50锁定**；风险文案 + **是否阻塞**勾选；**仅勾选阻塞才进日报/开放阻塞 KPI**；切周日写上一汇报周 | P0 ✅ |
+| TM-06 | 钉钉群日报/周报：**日报**=一条（少量说明 + 今日大屏深链 + Playwright 明细截图）；**周报**=一条（少量说明 + 本周大屏深链 + Playwright 本周截图）；Admin/Manager 可手动；日更截止 **19:50**；**推荐 Windows 计划任务** | P1 ✅ |
+| TM-08 | 公开只读大屏 `/tm-screen`（免鉴权、无编辑）；「复制今日深链」分享 | P1 ✅ |
+| TM-09 | **需求进展**（待开发→…→测试完成）与测试状态分离；仅测试中可建 Action；Manager/Admin 改阶段与时间；历史周阶段快照；大屏「需求总览」 | P1 ✅ |
 | TM-04 | 测试管理员 Manager（manager/123456） | P0 ✅ |
 | TM-05 | Action 负责人仅可选 Task lead+测试人员；测试内容≤1000；**环境≤300**；需求≤5000 | P0 ✅ |
 | TM-07 | Action 状态机：draft→published；published→done；**done 终态不可重开**；**不支持取消**；完成不可日更；**标记完成须最新日更进度=100%** | P0 ✅ |
