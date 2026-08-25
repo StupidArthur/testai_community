@@ -4,10 +4,9 @@
   "services": [
     {
       "name": "deploy-task-manager",
-      "process": "python.exe",
-      "match_cmdline": "main.py",
-      "path": "D:\\Python311\\python.exe",
-      "args": "main.py --port 8000",
+      "process": "deploy-task-manager.exe",
+      "path": "D:\\deploy-task-manager\\deploy\\deploy-task-manager.exe",
+      "args": "--port 8000",
       "workdir": "D:\\deploy-task-manager\\deploy",
       "port": 8000,
       "auto_restart": true

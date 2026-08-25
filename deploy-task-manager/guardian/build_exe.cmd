@@ -22,7 +22,7 @@ python -m pip install -r requirements.txt -q
 
 rem --- Build ---
 echo Building exe (this takes ~30s)...
-pyinstaller --onefile --name guardian --noconsole --clean ^
+python -m PyInstaller --onefile --name guardian --noconsole --clean ^
     --hidden-import uvicorn.logging ^
     --hidden-import uvicorn.protocols ^
     --hidden-import uvicorn.protocols.http ^

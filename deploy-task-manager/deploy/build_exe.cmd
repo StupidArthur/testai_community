@@ -39,7 +39,7 @@ if exist deploy-task-manager.spec del deploy-task-manager.spec
 
 rem --- Build ---
 echo Building exe (this takes ~60s)...
-pyinstaller --onefile --name deploy-task-manager --noconsole --clean ^
+python -m PyInstaller --onefile --name deploy-task-manager --noconsole --clean ^
     --hidden-import uvicorn.logging ^
     --hidden-import uvicorn.protocols ^
     --hidden-import uvicorn.protocols.http ^

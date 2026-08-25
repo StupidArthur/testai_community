@@ -1,0 +1,248 @@
+===============================================================
+  Guardian + Deploy-Task-Manager 部署使用说明
+  62 服务器 · 双 exe 方案
+===============================================================
+
+一、整体说明
+---------------------------------------------------------------
+
+本方案包含两个 exe：
+
+1. deploy-task-manager.exe
+   - 原来的定时任务管理平台（原 python main.py）
+   - 运行在 8000 端口，提供 Web 界面和定时调度
+   - 已打包为独立 exe，无需安装 Python
+
+2. guardian.exe
+   - 统一服务守护程序，运行在 9000 端口
+   - 网页面板：http://62服务器IP:9000
+   - 每 60 秒自动巡检，进程挂了自动拉起
+   - 支持开机自启、崩溃自愈
+   - 后续新增服务也在此面板统一管理
+
+
+二、62 服务器目录结构
+---------------------------------------------------------------
+
+D:\
+├── deploy-task-manager\
+│   ├── deploy\                          ← 任务管理平台
+│   │   ├── deploy-task-manager.exe      ← 主程序 exe
+│   │   ├── .env                          ← 配置文件
+│   │   ├── tasks.db                      ← 数据库（自动生成）
+│   │   ├── frontend\
+│   │   │   └── dist\                     ← 前端页面
+│   │   └── tasks\                        ← 任务脚本
+│   │       ├── alg_monitor\
+│   │       ├── demo_task\
+│   │       ├── health_check\
+│   │       ├── tm_daily_push\
+│   │       └── tm_weekly_push\
+│   │
+│   └── guardian\                         ← 守护程序
+│       ├── guardian.exe                  ← 守护主程序 exe
+│       ├── services.json                 ← 守护配置
+│       ├── guardian.log                  ← 运行日志（自动生成）
+│       ├── manage.ps1                    ← 管理脚本
+│       ├── 安装.cmd                       ← 双击安装
+│       ├── 启动.cmd                       ← 双击启动
+│       ├── 停止.cmd                       ← 双击停止
+│       ├── 重启.cmd                       ← 双击重启
+│       ├── 状态.cmd                       ← 双击查看状态
+│       └── 卸载.cmd                       ← 双击卸载
+
+
+三、首次部署步骤
+---------------------------------------------------------------
+
+1. 复制文件到 62 服务器
+
+   将以下内容复制到 62 服务器的 D:\deploy-task-manager\ 目录：
+
+   deploy\ 文件夹：
+   - deploy-task-manager.exe（从 dist\ 目录获取）
+   - .env（配置文件）
+   - frontend\dist\（前端页面）
+   - tasks\（任务脚本目录）
+
+   guardian\ 文件夹：
+   - guardian.exe（从 dist\ 目录获取）
+   - services.json（守护配置）
+   - manage.ps1（管理脚本）
+   - 安装.cmd、启动.cmd、停止.cmd、重启.cmd、状态.cmd、卸载.cmd
+
+2. 安装守护服务
+
+   双击 guardian\ 安装.cmd
+   （会弹出管理员权限请求，点"是"）
+
+   安装成功后会显示绿色提示：
+   "Install OK! Guardian running on port 9000."
+   "Dashboard: http://127.0.0.1:9000"
+
+3. 验证
+
+   打开浏览器访问：http://127.0.0.1:9000
+   或从局域网其他机器访问：http://62服务器IP:9000
+
+   面板上可以看到两个服务：
+   - deploy-task-manager（端口 8000）
+   - imgagent-server
+
+   状态显示 RUNNING 表示正常运行。
+
+
+四、日常操作（全部双击完成）
+---------------------------------------------------------------
+
+  安装.cmd    首次安装或重新安装守护服务
+  启动.cmd    启动 guardian（不影响被守护的服务）
+  停止.cmd    停止 guardian（被守护的服务不会被停止）
+  重启.cmd    重启 guardian
+  状态.cmd    查看守护状态和所有被守护服务的运行情况
+  卸载.cmd    卸载守护服务（取消计划任务和自启）
+
+
+五、网页面板操作
+---------------------------------------------------------------
+
+访问地址：http://62服务器IP:9000
+
+面板功能：
+- 查看所有守护服务的运行状态（RUNNING / STOPPED）
+- 查看进程名、端口监听状态、重启次数
+- 查看上次检查时间和上次重启时间
+- 查看事件日志（自动重启、手动操作记录）
+
+每个服务卡片有 4 个按钮：
+  启动  手动启动该服务
+  停止  停止该服务（停止后不再自动重启）
+  重启  停止再启动该服务
+  删除  从守护列表中移除该服务
+
+右上角「+ 添加服务」按钮：
+  填写服务名称、进程名、exe路径、端口等信息
+  保存后即刻纳入守护列表
+
+
+六、添加新的守护服务
+---------------------------------------------------------------
+
+方式一：网页面板添加
+  1. 访问 http://62服务器IP:9000
+  2. 点击右上角「+ 添加服务」
+  3. 填写：
+     - 服务名称：如 my-service
+     - 进程名：如 my-service.exe
+     - 可执行文件路径：如 D:\myapp\my-service.exe
+     - 启动参数：如有则填
+     - 工作目录：如 D:\myapp
+     - 监听端口：如 3000（仅展示用，可不填）
+     - 自动重启：选"是"
+  4. 点击「保存」
+
+方式二：编辑配置文件
+  1. 打开 guardian\services.json
+  2. 在 services 数组中添加：
+     {
+       "name": "my-service",
+       "process": "my-service.exe",
+       "path": "D:\\myapp\\my-service.exe",
+       "args": "",
+       "workdir": "D:\\myapp",
+       "port": 3000,
+       "auto_restart": true
+     }
+  3. 双击 重启.cmd 重启 guardian
+
+
+七、更新代码或 exe 后的操作
+---------------------------------------------------------------
+
+情况 1：更新了 deploy-task-manager 的 Python 代码
+  → 需要在开发机重新 build_exe.cmd 打包 exe
+  → 将新的 deploy-task-manager.exe 复制到 62 的 deploy\ 目录覆盖
+  → 双击 guardian\ 重启.cmd（或在网页面板点「重启」按钮）
+
+情况 2：更新了前端页面（frontend\dist\）
+  → 将新的 dist\ 目录复制到 62 的 deploy\frontend\ 覆盖
+  → 浏览器强刷（Ctrl+Shift+R）即可生效，无需重启
+
+情况 3：更新了任务脚本（tasks\ 目录下的 run.py 等）
+  → 将修改后的文件复制到 62 的 deploy\tasks\ 对应目录覆盖
+  → 无需重启，下次定时触发自动使用新代码
+
+情况 4：修改了 .env 配置
+  → 将新的 .env 复制到 62 的 deploy\ 目录覆盖
+  → 双击 guardian\ 重启.cmd
+
+情况 5：更新了 guardian 本身
+  → 将新的 guardian.exe 复制到 62 的 guardian\ 目录覆盖
+  → 双击 guardian\ 安装.cmd
+
+情况 6：新增了依赖包
+  → 需要在开发机重新 build_exe.cmd 打包（依赖会打入 exe）
+  → 将新的 exe 复制覆盖，然后重启
+
+
+八、services.json 配置说明
+---------------------------------------------------------------
+
+{
+  "guardian_port": 9000,          ← guardian 网页面板端口
+  "check_interval": 60,           ← 巡检间隔（秒）
+  "services": [
+    {
+      "name": "deploy-task-manager",  ← 服务显示名
+      "process": "deploy-task-manager.exe",  ← 进程名（用于识别）
+      "path": "D:\\deploy-task-manager\\deploy\\deploy-task-manager.exe",
+      "args": "--port 8000",          ← 启动参数
+      "workdir": "D:\\deploy-task-manager\\deploy",  ← 工作目录
+      "port": 8000,                   ← 监听端口（仅展示用）
+      "auto_restart": true            ← 是否自动重启
+    }
+  ]
+}
+
+特殊字段：
+  "match_cmdline": "main.py"   ← 可选，用于区分同名进程
+  "port": null                 ← 无端口监听需求时设为 null
+
+
+九、故障排查
+---------------------------------------------------------------
+
+问题：服务一直显示 STOPPED
+  1. 检查 exe 路径是否正确（services.json 中的 path）
+  2. 检查 exe 文件是否存在于该路径
+  3. 查看面板事件日志，看具体的错误信息
+  4. 检查端口是否被其他程序占用
+
+问题：guardian 面板打不开
+  1. 双击 状态.cmd 查看 guardian 是否在运行
+  2. 双击 启动.cmd 尝试启动
+  3. 检查 9000 端口是否被占用
+  4. 查看 guardian\guardian.log 日志文件
+
+问题：重启服务器后服务没有自动启动
+  1. 双击 状态.cmd 检查
+  2. 确认安装时使用了管理员权限
+  3. 检查 Windows 任务计划程序中是否有 Guardian-Watchdog 和 Guardian-Boot 任务
+  4. 重新双击 安装.cmd
+
+问题：deploy-task-manager.exe 启动后立刻退出
+  1. 检查 .env 文件是否存在
+  2. 检查 frontend\dist\ 目录是否存在
+  3. 检查 tasks\ 目录是否存在
+  4. 尝试在命令行手动运行 exe 看报错信息
+
+
+十、注意事项
+---------------------------------------------------------------
+
+- guardian.exe 和 services.json 必须在同一目录
+- deploy-task-manager.exe 需要与 frontend\、tasks\、.env 在同一目录
+- 修改 services.json 后需重启 guardian 才能生效
+- 网页面板上的「停止」按钮会同时关闭自动重启，需手动「启动」恢复
+- guardian.log 会持续增长，定期清理或忽略即可
+- 两个 exe 合计约 150MB，部署时请确保磁盘空间

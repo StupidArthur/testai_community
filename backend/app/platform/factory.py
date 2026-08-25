@@ -90,6 +90,14 @@ def create_app() -> FastAPI:
             name="static-assets",
         )
 
+    # Vite public/ 下的静态资源（如 docs/*.md 使用说明下载）——须在 SPA 兜底路由前挂载
+    if (DIST_DIR / "docs").is_dir():
+        application.mount(
+            "/docs",
+            StaticFiles(directory=DIST_DIR / "docs"),
+            name="static-docs",
+        )
+
     @application.get("/", include_in_schema=False)
     async def spa_root():
         if not (DIST_DIR / "index.html").exists():
