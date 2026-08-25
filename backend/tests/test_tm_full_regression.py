@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.test_manage.push_report import collect_progress_summary
+from app.test_manage.push_report import collect_open_risks, collect_progress_summary
 from app.test_manage.week import current_week_start
 from app.platform.database import SessionLocal
 
@@ -149,6 +149,7 @@ def _create_task(
             "lead_id": lead_id,
             "tester_ids": tester_ids or [],
             "publish": publish,
+            "req_stage": "testing",
         },
         headers=headers,
     )
@@ -578,7 +579,12 @@ def test_g_push_dry_run_and_empty_task_not_in_kpi(
     aid = r.json()["id"]
     client.put(
         f"/api/test-manage/actions/{aid}/daily-updates",
-        json={"progress_percent": 30, "risk_blocker": "风险X", "progress_note": "记一笔"},
+        json={
+            "progress_percent": 30,
+            "risk_blocker": "风险X",
+            "is_blocking": True,
+            "progress_note": "记一笔",
+        },
         headers=owner_headers,
     )
 
@@ -588,6 +594,10 @@ def test_g_push_dry_run_and_empty_task_not_in_kpi(
         # 空 Task「推送空Task」本周无 Action → 不增加 task_count；有 Action 的计入
         assert summary.action_count >= 1
         assert summary.task_count >= 1
+        # 已发布且勾选阻塞的风险进入开放风险
+        risks = collect_open_risks(db, week_start=current_week_start())
+        texts = " ".join((v.risk or "") for v in risks.values())
+        assert "风险X" in texts
     finally:
         db.close()
 
@@ -608,8 +618,7 @@ def test_g_push_dry_run_and_empty_task_not_in_kpi(
     assert body.get("dry_run") is True or body.get("message")
     msg = body.get("message") or ""
     assert "测试日报" in msg or "日报" in msg
-    # 草稿不进开放风险：再建草稿带不上日更风险即可；已发布风险应出现
-    assert "风险X" in msg or "风险" in msg
+    # 日报正文已改「标题+深链+截图」，风险明细不再进文字（由上方 collect_open_risks 覆盖）
 
     r = client.post(
         "/api/test-manage/push/weekly",

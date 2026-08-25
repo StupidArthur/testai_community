@@ -16,6 +16,9 @@ WEEK_BOUNDARY_WEEKDAY = 2  # 周三
 WEEK_BOUNDARY_HOUR = 17
 WEEK_BOUNDARY_MINUTE = 0
 
+# 周截止前编辑锁：周结束（默认周三 17:00）前 N 分钟起锁定 Action / Task 内容更新
+WEEK_EDIT_LOCK_BEFORE_END_MINUTES = 5
+
 STATUS_DRAFT = "draft"
 STATUS_PUBLISHED = "published"
 STATUS_DONE = "done"

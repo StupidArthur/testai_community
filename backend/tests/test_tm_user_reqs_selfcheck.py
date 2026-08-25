@@ -1,7 +1,7 @@
 """
 用户需求自测（三点）：
 1. Task 未手填进度 → 推荐 Action 平均
-2. Manager 可改周结束；创建 Action 挂当前活动周 due_at
+2. 周结束固定周三 17:00（设置接口已下线）；创建 Action 挂当前活动周 due_at
 3. Action 延续历史 weeks_count
 """
 from __future__ import annotations
@@ -13,8 +13,11 @@ import pytest
 from app.platform.database import SessionLocal
 from app.test_manage.config import now_tm
 from app.test_manage.models import TmAction
-from app.test_manage.period import compute_weekly_push_at
-from app.test_manage.week import week_key as week_key_fn
+from app.test_manage.week import (
+    current_week_start,
+    week_end as week_end_fn,
+    week_key as week_key_fn,
+)
 
 
 @pytest.fixture()
@@ -58,6 +61,7 @@ def _seed_task(client, mgr_headers, pid, did, lead_id, title="Req-Task"):
             "lead_id": lead_id,
             "tester_ids": [],
             "publish": True,
+            "req_stage": "testing",
         },
         headers=mgr_headers,
     )
@@ -112,10 +116,8 @@ def test_1_task_unfilled_progress_recommends_action_avg(
     assert hit["week_progress_avg"] == 60
 
 
-def test_2_manager_sets_week_end_and_action_uses_it(
-    client, mgr_headers, eng_headers
-):
-    """需求2：Manager 可改周结束；创建 Action 的 due_at 跟活动周；Engineer 无权改。"""
+def test_2_week_end_fixed_and_action_uses_it(client, mgr_headers, eng_headers):
+    """需求2（更新）：周结束固定周三 17:00；设置接口已下线；Action.due_at=活动周 week_end。"""
     users = _users(client, mgr_headers)
     pid, did = _seed(client, mgr_headers, "P-week")
     task = _seed_task(
@@ -125,27 +127,24 @@ def test_2_manager_sets_week_end_and_action_uses_it(
     r = client.get("/api/test-manage/week", headers=mgr_headers)
     assert r.status_code == 200, r.text
     week = r.json()
-    assert week["can_set_week_end"] is True
+    # 周结束固定为周三 17:00；设置入口已下线，不再返回相关字段
+    assert "can_set_week_end" not in week
+    assert "weekly_push_at" not in week
+    assert week["week_end"][:16] == week_end_fn(current_week_start(now_tm())).isoformat()[:16]
 
-    new_end = (now_tm() + timedelta(days=2)).replace(second=0, microsecond=0)
+    # 设置接口对所有角色均不可用（404=路由已删；405=路径残留但 PUT 方法已下线）
     r = client.put(
         "/api/test-manage/week/end",
-        json={"week_end": new_end.isoformat()},
+        json={"week_end": (now_tm() + timedelta(days=2)).isoformat()},
         headers=mgr_headers,
     )
-    assert r.status_code == 200, r.text
-    updated = r.json()
-    assert updated["weekly_push_at"] is not None
-    # 周报 = 结束 + 15 分钟
-    push = compute_weekly_push_at(new_end)
-    assert updated["weekly_push_at"].startswith(push.strftime("%Y-%m-%dT%H:%M"))
-
+    assert r.status_code in (404, 405)
     r = client.put(
         "/api/test-manage/week/end",
         json={"week_end": (now_tm() + timedelta(days=3)).isoformat()},
         headers=eng_headers,
     )
-    assert r.status_code == 403
+    assert r.status_code in (404, 405)
 
     r = client.post(
         "/api/test-manage/actions",
@@ -161,11 +160,11 @@ def test_2_manager_sets_week_end_and_action_uses_it(
     assert r.status_code == 201, r.text
     act = r.json()
     assert act["due_at"] is not None
-    # due_at 应对齐刚设置的 week_end（允许 ISO 时区写法差异）
-    assert act["due_at"][:16] == updated["week_end"][:16]
-    assert act["week_key"] == updated["week_key"] or act["week_key"] == week_key_fn(
+    # due_at 对齐活动周 week_end（固定周三 17:00，允许 ISO 时区写法差异）
+    assert act["due_at"][:16] == week["week_end"][:16]
+    assert act["week_key"] == week["week_key"] or act["week_key"] == week_key_fn(
         __import__("datetime").datetime.fromisoformat(
-            updated["week_start"].replace("Z", "+00:00")
+            week["week_start"].replace("Z", "+00:00")
         )
     )
 

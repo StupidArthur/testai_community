@@ -102,16 +102,18 @@ def _uid(client, headers, username: str) -> int:
 
 
 def _install_clock(monkeypatch, when: datetime) -> None:
-    """把业务时钟钉在 when；同步 patch week/service/push_* 的周函数绑定。"""
-    import app.test_manage.week as w
-    import app.test_manage.service as s
+    """把业务时钟钉在 when；同步 patch week/service/push_*/period 的周函数与时钟绑定。"""
     import app.test_manage.config as c
+    import app.test_manage.period as per
     import app.test_manage.push_report as pr
     import app.test_manage.push_service as ps
+    import app.test_manage.service as s
+    import app.test_manage.week as w
 
     real_cws = w.current_week_start
     real_dws = w.daily_context_week_start
     real_pws = w.previous_week_start
+    real_as_local = w._as_local
 
     def cws(now=None):
         return real_cws(when if now is None else now)
@@ -122,15 +124,47 @@ def _install_clock(monkeypatch, when: datetime) -> None:
     def pws(week_start=None):
         return real_pws(week_start if week_start is not None else cws())
 
+    def as_local(dt=None):
+        return real_as_local(when if dt is None else dt)
+
     for mod in (w, s, pr, ps):
         monkeypatch.setattr(mod, "current_week_start", cws, raising=False)
         monkeypatch.setattr(mod, "daily_context_week_start", dws, raising=False)
         monkeypatch.setattr(mod, "previous_week_start", pws, raising=False)
+    # period 模块（get_or_create_active_period / get_daily_context_period）
+    # 经 _as_local(None) 取当前时刻；week._as_local 影响 push_report 的函数内延迟导入
+    monkeypatch.setattr(w, "_as_local", as_local, raising=False)
+    monkeypatch.setattr(per, "_as_local", as_local, raising=False)
 
     monkeypatch.setattr(c, "now_tm", lambda: when)
     monkeypatch.setattr(s, "now_tm", lambda: when)
     monkeypatch.setattr(c, "today_tm", lambda: when.date())
     monkeypatch.setattr(s, "today_tm", lambda: when.date())
+
+    _seed_week_periods(real_cws(when))
+
+
+def _seed_week_periods(ws: datetime) -> None:
+    """预种冻结时刻所在周及上一周的窗口行：日更上下文/接窗/看板历史都读周期表。"""
+    from datetime import timedelta
+
+    from app.test_manage.models import TmWeekPeriod
+
+    db = SessionLocal()
+    try:
+        for start in (ws - timedelta(days=7), ws):
+            key = week_key(start)
+            if not db.query(TmWeekPeriod).filter(TmWeekPeriod.week_key == key).first():
+                db.add(
+                    TmWeekPeriod(
+                        week_key=key,
+                        week_start=start,
+                        week_end=start + timedelta(days=7),
+                    )
+                )
+        db.commit()
+    finally:
+        db.close()
 
 
 def _sandbox(client, mgr_headers):
@@ -161,6 +195,7 @@ def _task(client, headers, pid, did, lead_id, title, tester_ids=None):
             "lead_id": lead_id,
             "tester_ids": tester_ids or [],
             "publish": True,
+            "req_stage": "testing",
         },
         headers=headers,
     )
@@ -377,6 +412,7 @@ def test_w_push_dry_run_uses_daily_context_week(
         json={
             "progress_percent": 55,
             "risk_blocker": "旧周独特词CUTOVER_OLD",
+            "is_blocking": True,
             "progress_note": "旧",
         },
         headers=owner_headers,
@@ -398,5 +434,6 @@ def test_w_push_dry_run_uses_daily_context_week(
     )
     assert daily.status_code == 200, daily.text
     msg = daily.json().get("message") or ""
-    assert "CUTOVER_OLD" in msg
+    # 日报正文已改「标题+深链+截图」，风险明细不再进文字；周归属由上方 collect_open_risks 覆盖
+    assert "日报" in msg
     assert new_act["title"]  # sanity: 新周 Action 已创建

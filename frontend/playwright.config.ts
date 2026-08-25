@@ -7,6 +7,11 @@ import { defineConfig, devices } from '@playwright/test'
  * Windows 上请用 npm run test:e2e（已设 PW_DISABLE_TS_ESM=1），
  * 否则 Playwright ESM loader 可能无输出挂起。
  */
+
+// 主进程统一注入 RUN id，worker 子进程继承同一值；
+// 否则 spec 内以 process.pid / Date.now() 兜底会导致主/worker 标题不一致（"Test not found"）。
+process.env.E2E_RUN_ID ||= `r${Date.now().toString(36)}`
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,

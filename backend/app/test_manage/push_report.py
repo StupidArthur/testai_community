@@ -35,6 +35,7 @@ from app.test_manage.config import (
     WECOM_WEEKLY_TASK_ROWS_SOFT_MAX,
     now_tm,
     resolve_board_detail_url,
+    resolve_week_board_detail_url,
 )
 from app.test_manage.models import TmAction, TmDomain, TmPushSnapshot, TmTask, TmWeekPeriod
 from app.test_manage.service import _latest_progress
@@ -43,13 +44,21 @@ from app.test_manage.week import current_week_start, daily_context_week_start, w
 log = logging.getLogger("app.test_manage.push")
 
 
-def _report_footer() -> list[str]:
-    """日/周报统一页脚：突出详情大屏链接（可点 + 明文 URL）。"""
-    url = resolve_board_detail_url()
+def _report_footer(view: str = "today") -> list[str]:
+    """日/周报统一页脚：突出详情大屏链接（可点 + 明文 URL）。
+
+    view="today" → 今日大屏（日报）；view="current" → 本周大屏（周报）。
+    """
+    if view == "current":
+        url = resolve_week_board_detail_url()
+        label = "点此打开本周大屏"
+    else:
+        url = resolve_board_detail_url()
+        label = "点此打开今日大屏"
     return [
         "",
         "---",
-        f"**详情大屏**：[点此打开今日大屏]({url})",
+        f"**详情大屏**：[{label}]({url})",
         _font("comment", url, size=_DINGTALK_FONT_SIZE_META),
     ]
 
@@ -1660,7 +1669,7 @@ def build_weekly_markdown(
         "",
     ]
     parts.extend(_weekly_focus_parts(focus))
-    parts.extend(_report_footer())
+    parts.extend(_report_footer(view="current"))
     return "\n".join(parts).strip()
 
 

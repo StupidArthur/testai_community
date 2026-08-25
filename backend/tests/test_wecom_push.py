@@ -41,7 +41,7 @@ def test_daily_link_markdown_footer():
     from app.test_manage.push_report import build_daily_link_markdown
 
     md = build_daily_link_markdown(today=date(2026, 8, 12), screenshot_ok=True)
-    assert "详情：" in md
+    assert "详情大屏" in md
     assert "/tm-screen" in md
     assert "view=today" in md
     assert "当前阻塞" not in md
@@ -69,7 +69,7 @@ def test_daily_empty_still_returns_message():
     assert md is not None
     assert "无开放阻塞" in md
     assert "Action 进度统计" in md
-    assert "详情：" in md
+    assert "详情大屏" in md
     assert "今日 Action 进展" not in md
 
 
@@ -110,7 +110,7 @@ def test_daily_contains_blockers_and_buckets():
     assert "0–50%" in md
     assert "50–100%" in md
     assert "今日 Action 进展" not in md
-    assert "详情：" in md
+    assert "详情大屏" in md
     assert "/tm-screen" in md
     assert "view=today" in md
     assert "1、" not in md
@@ -202,8 +202,11 @@ def test_weekly_always_has_progress():
     assert "另有" not in md
     assert "已消除" not in md
     assert "阻塞 Task" in md
-    assert "详情：" in md
+    assert "详情大屏" in md
     assert "/tm-screen" in md
+    # 周报页脚应链到本周大屏（view=current），而非今日大屏
+    assert "view=current" in md
+    assert "本周大屏" in md
     assert 'color="#262626"' in md or 'color="#8C8C8C"' in md
 
 
@@ -300,7 +303,8 @@ def test_weekly_focus_all_blocked_tasks():
     assert "另有" not in md
     assert "已消除" not in md
     assert "阻塞 Task" in md
-    assert "详情：" in md
+    assert "详情大屏" in md
+    assert "view=current" in md
     assert "🗓️" not in md
     from app.test_manage.push_report import _fmt_week_span
 
@@ -417,12 +421,11 @@ async def test_daily_always_sends_even_without_risks(monkeypatch):
         "save_snapshot",
         lambda *a, **k: None,
     )
-    monkeypatch.setattr(push_service, "_require_webhook", lambda: None)
+    monkeypatch.setattr(push_service, "_require_push_channel", lambda: None)
     monkeypatch.setattr(
-        push_service, "send_markdown", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(
-        push_service, "send_image", AsyncMock(return_value=None)
+        push_service,
+        "send_daily_report_messages",
+        AsyncMock(return_value={"channel": "openapi", "ok": True, "image_ok": True}),
     )
     monkeypatch.setattr(
         push_service, "capture_today_screen_png", lambda **k: b"fake-png"
@@ -432,7 +435,7 @@ async def test_daily_always_sends_even_without_risks(monkeypatch):
     try:
         r1 = await push_service.push_daily(db, dry_run=False, force=False, today=day)
         assert r1.sent is True
-        assert r1.message and "详情：" in r1.message
+        assert r1.message and "详情大屏" in r1.message
         assert "/tm-screen" in r1.message
         assert "当前阻塞" not in r1.message
 
@@ -468,9 +471,12 @@ async def test_daily_force_bypasses_idempotency(monkeypatch):
     )
     monkeypatch.setattr(push_service.report, "load_snapshot_risks", lambda *a, **k: {})
     monkeypatch.setattr(push_service.report, "save_snapshot", lambda *a, **k: None)
-    monkeypatch.setattr(push_service, "_require_webhook", lambda: None)
-    monkeypatch.setattr(push_service, "send_markdown", AsyncMock(return_value=None))
-    monkeypatch.setattr(push_service, "send_image", AsyncMock(return_value=None))
+    monkeypatch.setattr(push_service, "_require_push_channel", lambda: None)
+    monkeypatch.setattr(
+        push_service,
+        "send_daily_report_messages",
+        AsyncMock(return_value={"channel": "openapi", "ok": True, "image_ok": True}),
+    )
     monkeypatch.setattr(
         push_service, "capture_today_screen_png", lambda **k: b"fake-png"
     )

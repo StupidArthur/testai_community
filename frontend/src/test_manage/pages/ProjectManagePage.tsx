@@ -165,19 +165,6 @@ export default function ProjectManagePage() {
     queryFn: async () => (await testManageApi.week()).data,
   })
 
-  const setWeekEndMut = useMutation({
-    mutationFn: async (weekEndIso: string) => (await testManageApi.setWeekEnd(weekEndIso)).data,
-    onSuccess: (data) => {
-      const pushHint = data.weekly_push_at
-        ? `；周报预计 ${formatDateTimeShort(data.weekly_push_at)} 发送（周结束后 15min）`
-        : ''
-      message.success(`本周结束时间已更新；本周 Action 截止时间已同步${pushHint}`)
-      void qc.invalidateQueries({ queryKey: ['tm-week'] })
-      void qc.invalidateQueries({ queryKey: ['tm-board'] })
-    },
-    onError: (e: any) => message.error(e?.response?.data?.detail || '设置失败'),
-  })
-
   const upsertTaskWeekProgressMut = useMutation({
     mutationFn: async (p: { id: string; progress_percent: number; note?: string }) =>
       (await testManageApi.upsertTaskWeekProgress(p.id, {
@@ -606,31 +593,12 @@ export default function ProjectManagePage() {
                 showPipeline={false}
               />
             </Space>
-            {!viewingHistory &&
-            (week?.can_set_week_end || board?.weekly_push_at || week?.weekly_push_at) ? (
+            {!viewingHistory && (board?.week_end || week?.week_end) ? (
               <Space wrap size={8} style={{ marginTop: 8 }} align="center">
-                {week?.can_set_week_end ? (
-                  <>
-                    <Text type="secondary">周结束</Text>
-                    <DatePicker
-                      showTime={{ format: 'HH:mm' }}
-                      format="YYYY-MM-DD HH:mm"
-                      value={week?.week_end ? dayjs(week.week_end) : null}
-                      disabled={setWeekEndMut.isPending}
-                      onChange={(v) => {
-                        if (!v) return
-                        setWeekEndMut.mutate(v.toISOString())
-                      }}
-                      data-testid="tm-week-end-picker"
-                    />
-                  </>
-                ) : null}
-                {board?.weekly_push_at || week?.weekly_push_at ? (
-                  <Text type="secondary" data-testid="tm-weekly-push-at">
-                    周报预计 {formatDateTimeShort(board?.weekly_push_at || week?.weekly_push_at)}{' '}
-                    发送（周结束后 15min）
-                  </Text>
-                ) : null}
+                <Text type="warning" data-testid="tm-week-end-hint">
+                  默认每周三 17:00 周截止（{formatDateTimeShort(board?.week_end || week?.week_end)}），
+                  请提前 5 分钟（16:55 前）完成 Action / Task 内容更新，届时将锁定编辑
+                </Text>
               </Space>
             ) : null}
           </div>
@@ -1353,7 +1321,7 @@ export default function ProjectManagePage() {
                               name="progress_percent"
                               label="进度 %"
                               rules={[{ required: true, message: '请填写进度' }]}
-                              extra="周结束前填写"
+                              extra="每周三 16:55 前填写"
                             >
                               <InputNumber
                                 min={0}

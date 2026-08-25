@@ -108,6 +108,7 @@ def _task(client, headers, pid, did, lead_id, title, tester_ids=None, publish=Tr
             "lead_id": lead_id,
             "tester_ids": tester_ids or [],
             "publish": publish,
+            "req_stage": "testing",
         },
         headers=headers,
     )
@@ -404,7 +405,12 @@ def test_x_clear_risk_resolves_for_board_and_push(
     act = _action(client, lead_headers, task["id"], f"{TAG} 风险Act", owner_id, publish=True)
     client.put(
         f"/api/test-manage/actions/{act['id']}/daily-updates",
-        json={"progress_percent": 40, "risk_blocker": "阻塞Z", "progress_note": "有风险"},
+        json={
+            "progress_percent": 40,
+            "risk_blocker": "阻塞Z",
+            "is_blocking": True,
+            "progress_note": "有风险",
+        },
         headers=owner_headers,
     )
     board = client.get(
@@ -630,29 +636,43 @@ def test_x_push_draft_risk_excluded_and_weekly_names(
     owner_id = _uid(client, mgr_headers, "tm_owner")
     task = _task(client, mgr_headers, pid, domains["平台"], lead_id, f"{TAG} 推送细", [owner_id])
     # 草稿：无法日更，不应进开放风险
-    _action(client, lead_headers, task["id"], f"{TAG} 草稿风险名", owner_id, publish=False)
+    draft = _action(client, lead_headers, task["id"], f"{TAG} 草稿风险名", owner_id, publish=False)
     pub = _action(client, lead_headers, task["id"], f"{TAG} 开放风险名", owner_id, publish=True)
     client.put(
         f"/api/test-manage/actions/{pub['id']}/daily-updates",
-        json={"progress_percent": 22, "risk_blocker": "独特阻塞词XYZ", "progress_note": "记"},
+        json={
+            "progress_percent": 22,
+            "risk_blocker": "独特阻塞词XYZ",
+            "is_blocking": True,
+            "progress_note": "记",
+        },
         headers=owner_headers,
     )
 
+    # 推送口径：已发布 + 勾选阻塞 → 开放风险；草稿不计入；负责人真实姓名可追溯
+    db = SessionLocal()
+    try:
+        risks = report.collect_open_risks(db, week_start=current_week_start())
+        texts = " ".join((v.risk or "") for v in risks.values())
+        assert "独特阻塞词XYZ" in texts
+        assert draft["id"] not in risks
+        owners = " ".join((v.owner_name or "") for v in risks.values())
+        assert ("回归Owner" in owners) or ("tm_owner" in owners)
+    finally:
+        db.close()
+
+    # 日报/周报正文已改「标题+深链+截图」，风险明细不再进文字；此处只验消息可产出
     daily = client.post(
         "/api/test-manage/push/daily", json={"dry_run": True}, headers=mgr_headers
     ).json()
     dmsg = daily.get("message") or ""
-    assert "独特阻塞词XYZ" in dmsg
-    assert "草稿风险名" not in dmsg or "独特阻塞词XYZ" in dmsg
+    assert "日报" in dmsg
 
     weekly = client.post(
         "/api/test-manage/push/weekly", json={"dry_run": True}, headers=mgr_headers
     ).json()
     wmsg = weekly.get("message") or ""
-    assert "开放风险名" in wmsg
-    assert "独特阻塞词XYZ" in wmsg
-    # 负责人真实姓名或用户名
-    assert ("回归Owner" in wmsg) or ("tm_owner" in wmsg)
+    assert "周报" in wmsg
 
 
 def test_x_push_daily_without_open_risk_still_sends(

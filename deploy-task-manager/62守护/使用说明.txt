@@ -1,0 +1,45 @@
+62 定时任务平台 守护 - 使用说明
+================================
+
+把整个 "62守护" 文件夹拷到 62 的  D:\deploy-task-manager\  下
+（和 deploy 文件夹放一起就行，放别处也行）。
+
+
+【第一次用】
+1. 确保现在 cmd 里那个服务还跑着
+   （这样脚本能自动认出你的 python 路径和端口，不用你填）
+2. 双击  安装.cmd  ->  弹出 UAC 点 "是"  ->  自动装好
+   看到  Install OK! Listening on port 8000  就成了
+3. 浏览器开  http://10.30.144.62:8000  验证
+
+
+【平时】
+- 双击  状态.cmd   ->  看 RUNNING(在跑) / STOPPED(没跑)
+- 双击  重启.cmd   ->  重启服务
+- 双击  停止.cmd   ->  停服务
+- 不要了 -> 双击  卸载.cmd
+
+
+【改了代码怎么生效】
+- 改了后端 .py 代码 (app.py / scheduler.py / tasks 等) :
+  直接双击  重启.cmd  ->  几秒后新代码生效, 不用关 cmd 不用敲命令
+  (改文件时服务跑着也没事, 直接覆盖文件, 改完双击重启即可)
+- 改了前端 dist (页面/JS) :
+  不用重启, 浏览器按 Ctrl+F5 强刷就行
+- 改了 .env 配置 :
+  双击  重启.cmd  (配置是启动时读的, 必须重启才生效)
+- 改了依赖 (requirements.txt 增减包) :
+  先装依赖再重启:
+    D:\deploy-task-manager\deploy\.venv\Scripts\python.exe -m pip install -r requirements.txt
+  装完双击  重启.cmd
+- 标准更新流程: 改文件 -> 双击 重启.cmd -> 双击 状态.cmd 确认 RUNNING -> 浏览器刷新验证
+
+
+【想更稳】（可选）
+把 nssm.exe 放进这个文件夹，再双击 安装.cmd，
+就变成真正的 Windows 服务（services.msc 里能看到，开机自启 + 崩溃自动重启）。
+不放也行，默认用 watchdog，一样能开机自启 + 崩了自动拉起。
+
+
+不用敲任何命令，全靠双击。
+安装时会自动停掉旧 cmd 里那个进程，不用担心端口冲突。

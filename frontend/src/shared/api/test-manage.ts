@@ -150,8 +150,6 @@ export interface WeekInfo {
   week_start: string
   week_end: string
   week_key: string
-  weekly_push_at?: string | null
-  can_set_week_end?: boolean
   history: WeekHistoryOption[]
 }
 
@@ -159,7 +157,6 @@ export interface BoardOut {
   week_start: string
   week_end: string
   week_key: string
-  weekly_push_at?: string | null
   summary: BoardSummary
   tasks: BoardTask[]
 }
@@ -195,8 +192,6 @@ export interface ActionLineage {
 
 export const testManageApi = {
   week: () => apiClient.get<WeekInfo>('/test-manage/week'),
-  setWeekEnd: (week_end: string) =>
-    apiClient.put<WeekInfo>('/test-manage/week/end', { week_end }),
   users: () => apiClient.get<TmUserBrief[]>('/test-manage/users'),
   board: (params?: { project_id?: string; week_start?: string }) =>
     apiClient.get<BoardOut>('/test-manage/board', { params }),

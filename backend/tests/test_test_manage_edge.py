@@ -66,6 +66,7 @@ def _task(client, mgr_headers, pid, did, lead_id, **kw):
         "lead_id": lead_id,
         "tester_ids": kw.get("tester_ids", []),
         "publish": kw.get("publish", True),
+        "req_stage": kw.get("req_stage", "testing"),
     }
     r = client.post("/api/test-manage/tasks", json=body, headers=mgr_headers)
     assert r.status_code == 201, r.text

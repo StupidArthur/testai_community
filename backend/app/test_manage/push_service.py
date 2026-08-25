@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.models import User, UserRole
 from app.platform.config import (
+    BACKEND_PORT,
     DINGTALK_PUSH_IDEMPOTENCY_ENABLED,
     DINGTALK_WEBHOOK_URL,
     DINGTALK_WEEKLY_IDEMPOTENCY_ENABLED,
@@ -49,10 +50,10 @@ def _capture_daily_screenshot() -> bytes | None:
     png = capture_today_screen_png()
     if png:
         return png
-    # 生产页可能未部署公开大屏；开发时用本地 Vite
+    local_backend = f"http://127.0.0.1:{BACKEND_PORT}/tm-screen?view=today&screenshot=1"
     for url in (
         "http://127.0.0.1:3003/tm-screen?view=today&screenshot=1",
-        "http://127.0.0.1:48010/tm-screen?view=today&screenshot=1",
+        local_backend,
     ):
         png = capture_today_screen_png(url=url)
         if png:
@@ -66,9 +67,10 @@ def _capture_weekly_screenshot() -> bytes | None:
     截本周大屏：优先本机前端（含最新「截图自动展开」），再试配置的公开 Origin。
     必须在线程中调用（Playwright sync API）。
     """
+    local_backend = f"http://127.0.0.1:{BACKEND_PORT}/tm-screen?view=current&screenshot=1"
     for url in (
         "http://127.0.0.1:3003/tm-screen?view=current&screenshot=1",
-        "http://127.0.0.1:48010/tm-screen?view=current&screenshot=1",
+        local_backend,
     ):
         png = capture_week_screen_png(url=url)
         if png:
@@ -314,6 +316,8 @@ async def push_weekly(
             reason="本周已推送过",
         )
 
+    # 发送时刻由 62 平台 cron 控制（不再由 week_end + 15min 推导）；
+    # 此处只保留幂等检查，防止同一周重复推送。
     current = report.collect_open_risks(db, week_start=ws, week_key_s=wk)
     risk_snap = report.collect_week_risk_snapshot(db, week_start=ws, week_key_s=wk)
     prev_key = report.previous_week_key(db, current_week_start=ws)

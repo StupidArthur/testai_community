@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>62 服务器 · 服务守护部署手册</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#1a2230; --panel2:#222d3d; --ink:#e6edf3; --mut:#9fb0c3;
+    --line:#2c3a4f; --acc:#36c2a8; --acc2:#4d9fff; --warn:#ffb454; --bad:#ff6b6b;
+    --code:#0d1117; --codeink:#c9d1d9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"PingFang SC","Microsoft YaHei","Segoe UI",system UI,sans-serif;
+    line-height:1.7;font-size:15.5px;}
+  .wrap{max-width:920px;margin:0 auto;padding:0 20px 80px;}
+  header{padding:34px 20px 26px;border-bottom:1px solid var(--line);}
+  .kicker{color:var(--acc);letter-spacing:2px;font-size:12px;font-weight:700;}
+  h1{margin:6px 0 10px;font-size:30px;line-height:1.25;}
+  .lead{color:var(--mut);font-size:16px;}
+  h2{margin:42px 0 14px;font-size:21px;border-left:4px solid var(--acc);padding-left:12px;}
+  h3{margin:24px 0 10px;font-size:16.5px;color:var(--acc2);}
+  p{margin:10px 0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:18px 20px;margin:14px 0;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  @media(max-width:720px){.grid2{grid-template-columns:1fr}}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px;}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:var(--ink);}
+  code,.c{font-family:"Cascadia Code",Consolas,"Courier New",monospace;font-size:13.5px;}
+  .c{display:block;background:var(--code);color:var(--codeink);border:1px solid #1f2937;
+    border-radius:8px;padding:12px 14px;margin:10px 0;overflow:auto;white-space:pre-wrap;word-break:break-all;}
+  .c .p{color:var(--mut)} .c .s{color:var(--acc)} .c .k{color:var(--warn)}
+  ol.steps{counter-reset:s;list-style:none;padding:0;margin:8px 0}
+  ol.steps>li{counter-increment:s;position:relative;padding:14px 16px 14px 52px;
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;margin:12px 0;}
+  ol.steps>li::before{content:counter(s);position:absolute;left:14px;top:13px;
+    width:26px;height:26px;border-radius:50%;background:var(--acc);color:#06241f;
+    font-weight:800;text-align:center;line-height:26px;font-size:14px;}
+  .tag{display:inline-block;padding:1px 8px;border-radius:5px;font-size:12px;font-weight:700;}
+  .t-good{background:rgba(54,194,168,.18);color:var(--acc);}
+  .t-warn{background:rgba(255,180,84,.16);color:var(--warn);}
+  .t-bad{background:rgba(255,107,107,.16);color:var(--bad);}
+  .note{background:rgba(77,159,255,.08);border-left:3px solid var(--acc2);padding:10px 14px;border-radius:6px;margin:12px 0;}
+  .warn{background:rgba(255,180,84,.08);border-left:3px solid var(--warn);padding:10px 14px;border-radius:6px;margin:12px 0;}
+  .ascii{background:var(--code);color:var(--codeink);border-radius:8px;padding:14px;font-size:13px;
+    overflow:auto;font-family:Consolas,monospace;line-height:1.4;}
+  .flow{text-align:center;margin:18px 0;font-family:Consolas,monospace;color:var(--mut);}
+  .flow b{color:var(--acc)} .flow i{color:var(--acc2);font-style:normal}
+  ul.clean{padding-left:20px;margin:8px 0} ul.clean li{margin:5px 0}
+  .q{color:var(--acc2);font-weight:700}
+  footer{margin-top:48px;padding-top:18px;border-top:1px solid var(--line);color:var(--mut);font-size:13px;}
+</style>
+</head>
+<body>
+<header>
+  <div class="kicker">SVC DAEMON · 通用服务守护器</div>
+  <h1>62 服务器服务守护部署手册</h1>
+  <p class="lead">目标：把现在“cmd 跑着、窗口一关服务就死”的网页服务，改成<b>后台常驻、开机自启、崩溃自愈</b>的守护服务。一套脚本管多个服务，任意 python / java / node / exe 都能注册。</p>
+</header>
+<div class="wrap">
+
+<h2>一、为什么这样做</h2>
+<div class="card">
+  <p>现在你用 cmd 跑 <code>python main.py</code>，进程是<b>前台进程</b>，生命周期绑在那个 cmd 窗口上——窗口被关、被误触、RDP 掉线、用户注销，服务就停了。</p>
+  <p>守护方案把它变成<b>与 cmd 窗口无关</b>的后台进程：没有可被误关的窗口，机器重启自动拉起，进程崩了自动重启。你还能用同一条命令把 62 上其他同样“cmd 裸跑”的服务一起接管。</p>
+  <div class="flow">
+    Windows 服务管理器 → <b>NSSM</b> / 计划任务 → <i>你的程序 (python main.py)</i>
+  </div>
+</div>
+
+<h2>二、两种后端，按需选</h2>
+<p>脚本会<b>自动选择</b>：把 <code>nssm.exe</code> 放进 <code>daemon</code> 目录就用 NSSM，没放就用内置 watchdog。两种用同一套命令。</p>
+<table>
+  <tr><th style="width:18%">维度</th><th>NSSM 模式（推荐）</th><th>watchdog 模式（零依赖退路）</th></tr>
+  <tr><td>本质</td><td>真正的 Windows 服务，services.msc 可见</td><td>计划任务 + 进程检测，常驻拉起</td></tr>
+  <tr><td>开机自启</td><td>服务自启</td><td>开机后 1 分钟内由 watchdog 拉起</td></tr>
+  <tr><td>崩溃自愈</td><td>NSSM 检测退出立即重启（5 秒）</td><td>每 1 分钟检测，不在就拉起</td></tr>
+  <tr><td>窗口</td><td>无（session 0 服务）</td><td>无（隐藏窗口启动）</td></tr>
+  <tr><td>额外依赖</td><td>需下载 nssm.exe（单文件，几百 KB）</td><td><span class="tag t-good">无</span>系统自带</td></tr>
+  <tr><td>多服务</td><td>每个独立服务名，sc / services.msc 统一管</td><td>共用一个 watchdog，清单统一管</td></tr>
+  <tr><td>建议</td><td><span class="tag t-good">生产首选</span></td><td><span class="tag t-warn">62 无法下载 nssm 时用</span></td></tr>
+</table>
+
+<h2>三、准备清单</h2>
+<ol class="steps">
+  <li>
+    <b>把 daemon 目录拷到 62</b>，放到：<code>D:\deploy-task-manager\daemon</code>
+    <p class="mut" style="color:var(--mut)">即和你的 deploy 目录同级。目录里有：svc.cmd、svc.ps1、watchdog.ps1 三个文件。</p>
+  </li>
+  <li>
+    <b>（NSSM 模式才需要）下载 nssm.exe</b><br>
+    官网 <code>https://nssm.cc/download</code> 下载压缩包，解压取 <code>win64\nssm.exe</code>，放进 <code>daemon</code> 目录。
+    <p style="color:var(--mut)">62 若无法访问外网，从你的开发机下载后拷过去即可。跳过此步即走 watchdog 模式。</p>
+  </li>
+  <li>
+    <b>确认两个值：python 路径、端口</b><br>
+    在 62 管理员 PowerShell 里跑：
+    <div class="c"><span class="p"># python 完整路径</span>
+(Get-Command python).Source
+<span class="p"># 当前在监听的端口（确认到底 8000 还是 8020）</span>
+Get-NetTCPConnection -State Listen | ? { $_.LocalPort -in 8000,8020 }</div>
+    <p style="color:var(--mut)">你现在浏览器能打开的那个端口，就是待会儿 <code>-Arguments "main.py --port <b>端口</b>"</code> 里要填的。</p>
+  </li>
+</ol>
+
+<h2>四、部署步骤</h2>
+<div class="warn"><b>所有命令都要“以管理员身份”运行。</b>：开始菜单搜 PowerShell → 右键“以管理员身份运行”，再 cd 进 daemon 目录。</div>
+<ol class="steps">
+  <li>
+    <b>先停掉现在 cmd 里那个服务</b><br>
+    去那个跑着的 cmd 窗口按 Ctrl+C 关掉它（或直接关窗口）。这一步是为了避免端口被旧进程占用，导致新守护服务起不来。
+    <div class="c"><span class="p"># 确认端口已释放（应无输出）</span>
+Get-NetTCPConnection -LocalPort 8000 -State Listen</div>
+  </li>
+  <li>
+    <b>注册当前定时任务平台为守护服务</b>
+    <div class="c"><span class="k">cd</span> D:\deploy-task-manager\daemon
+
+<span class="p">. 若 62 上 python 在 .venv 里（参考 64 的部署习惯）：</span>
+.\svc.cmd add TaskManager `
+  -Exe <span class="s">"D:\deploy-task-manager\deploy\.venv\Scripts\python.exe"</span> `
+  -Arguments <span class="s">"main.py --port 8000"</span> `
+  -Dir <span class="s">"D:\deploy-task-manager\deploy"</span>
+
+<span class="p">. 若直接用系统 python（把上一步查到的路径填进 -Exe）：</span>
+.\svc.cmd add TaskManager `
+  -Exe <span class="s">"C:\Python311\python.exe"</span> `
+  -Arguments <span class="s">"main.py --port 8000"</span> `
+  -Dir <span class="s">"D:\deploy-task-manager\deploy"</span></div>
+    <p>说明：<code>TaskManager</code> 是服务名，自己起，多个服务各起各的名。<code>反引号 `</code> 是 PowerShell 续行符。</p>
+  </li>
+  <li>
+    <b>验证起来了</b>
+    <div class="c">.\svc.cmd status TaskManager
+.\svc.cmd list
+
+<span class="p"># 浏览器打开</span>
+http://10.30.144.62:8000</div>
+    <p>NSSM 模式会显示 <span class="tag t-good">RUNNING</span>；watchdog 模式若显示 STOPPED，是因为还没装守护任务，继续下一步。</p>
+  </li>
+  <li>
+    <b>（仅 watchdog 模式）安装守护任务</b><br>
+    如果你没放 nssm.exe，必须执行一次这条，开机自启 + 每 1 分钟自愈才生效：
+    <div class="c">.\svc.cmd install-watchdog</div>
+    <p>NSSM 模式可跳过（服务本身已自带开机自启与重启）。</p>
+  </li>
+</ol>
+
+<h2>五、日常管理</h2>
+<table>
+  <tr><th style="width:34%">命令</th><th>作用</th></tr>
+  <tr><td><code>.\svc.cmd list</code></td><td>看所有受管服务状态</td></tr>
+  <tr><td><code>.\svc.cmd status TaskManager</code></td><td>看单个服务</td></tr>
+  <tr><td><code>.\svc.cmd start TaskManager</code></td><td>启动</td></tr>
+  <tr><td><code>.\svc.cmd stop TaskManager</code></td><td>停止</td></tr>
+  <tr><td><code>.\svc.cmd restart TaskManager</code></td><td>重启（改完代码后用这个）</td></tr>
+  <tr><td><code>.\svc.cmd remove TaskManager</code></td><td>彻底卸载该服务</td></tr>
+  <tr><td>services.msc（NSSM 模式）</td><td>图形界面里也能看到、启停这些服务</td></tr>
+</table>
+
+<h2>六、接管其他“cmd 裸跑”的服务</h2>
+<p>62 上只要还有别的服务是 cmd 跑的，照葫芦画瓢，换三个值即可：</p>
+<div class="c"><span class="p"># Java Spring Boot</span>
+.\svc.cmd add SpringBoot -Exe <span class="s">"C:\Program Files\Java\jdk-21\bin\java.exe"</span> `
+  -Arguments <span class="s">"-jar D:\app\demo.jar"</span> -Dir <span class="s">"D:\app"</span>
+
+<span class="p"># Node.js</span>
+.\svc.cmd add WebHook -Exe <span class="s">"C:\node\node.exe"</span> `
+  -Arguments <span class="s">"server.js"</span> -Dir <span class="s">"D:\nodeapp"</span>
+
+<span class="p"># 任意 exe</span>
+.\svc.cmd add MyTool -Exe <span class="s">"D:\tools\mytool.exe"</span> -Arguments <span class="s">""</span> -Dir <span class="s">"D:\tools"</span>
+
+<span class="p"># 看全部</span>
+.\svc.cmd list</div>
+<div class="note"><b>注意</b>：<code>-Arguments</code> 里不要出现“带空格的路径”，否则 watchdog 模式下检测/拉起可能拆错。带空格的路径请放到 <code>-Dir</code>（工作目录）里，参数只写文件名。</div>
+
+<h2>七、卸载</h2>
+<div class="c"><span class="p"># 卸载某个服务</span>
+.\svc.cmd remove TaskManager
+
+<span class="p"># watchdog 模式不再需要时，连守护任务一起卸</span>
+.\svc.cmd uninstall-watchdog</div>
+
+<h2>八、FAQ</h2>
+
+<p class="q">Q1：到底是 8000 还是 8020 端口？</p>
+<p>你说是 8000 就填 8000。部署文档里出现过 8020（任务平台地址），两者不矛盾只是历史口径不同。以“你现在浏览器能打开的那个”为准，用第三步的 <code>Get-NetTCPConnection</code> 命令一查便知。端口填错了服务会起来但访问不了，改 <code>remove</code> 再 <code>add</code> 即可。</p>
+
+<p class="q">Q2：python 路径填哪个？</p>
+<p>填“你现在 cmd 里敲的那个 python”的全路径。如果之前是 <code>python main.py</code> 直接跑，就用 <code>(Get-Command python).Source</code> 查出来的路径。若 64 那套用了 .venv，62 大概率也有，优先 <code>D:\deploy-task-manager\deploy\.venv\Scripts\python.exe</code>。</p>
+
+<p class="q">Q3：以 SYSTEM 账户跑，访问 64 / 发钉钉会有问题吗？</p>
+<p>一般没有。SYSTEM 能访问网络、能读写 deploy 目录、能读同目录 .env。若发现服务起不来或访问被拒，多半是账户权限。NSSM 模式改账户：</p>
+<div class="c">nssm set TaskManager ObjectName <span class="s">".\管理员用户名"</span> <span class="s">"密码"</span>
+<span class="p"># 或在 services.msc → TaskManager → 登录 页签里改</span></div>
+<p>watchdog 模式改计划任务账户：任务计划程序 → Gateway-Watchdog → 常规 →“更改用户或组”。</p>
+
+<p class="q">Q4：日志在哪？</p>
+<p>NSSM 模式：<code>daemon\logs\&lt;服务名&gt;.out.log</code> 和 <code>.err.log</code>，10MB 自动轮转。watchdog 模式：<code>daemon\logs\watchdog.log</code>（记录每次拉起）。</p>
+
+<p class="q">Q5：开机自启吗？</p>
+<p>是。NSSM 模式服务设为 SERVICE_AUTO_START；watchdog 模式计划任务设了 AtStartup 触发器。机器重启后服务自动回来。</p>
+
+<p class="q">Q6：会启动多个实例抢端口吗？</p>
+<p>不会。NSSM 一个服务名只允许一个实例；watchdog 检测到端口/进程已在就不重复拉起。重复执行 <code>start</code> 也安全。</p>
+
+<p class="q">Q7：改了代码怎么生效？</p>
+<p><code>.\svc.cmd restart TaskManager</code>。前端 dist 更新不需要重启，刷新浏览器即可。</p>
+
+<h2>九、文件清单</h2>
+<table>
+  <tr><th style="width:30%">文件</th><th>作用</th></tr>
+  <tr><td><code>daemon\svc.cmd</code></td><td>命令入口（双击/命令行调）</td></tr>
+  <tr><td><code>daemon\svc.ps1</code></td><td>核心逻辑：add/remove/start/stop/restart/status/list/install-watchdog</td></tr>
+  <tr><td><code>daemon\watchdog.ps1</code></td><td>零依赖守护核心（无 nssm 时用）</td></tr>
+  <tr><td><code>daemon\nssm.exe</code></td><td>需自行放入（放入即 NSSM 模式）</td></tr>
+  <tr><td><code>daemon\services.csv</code></td><td>受管服务清单（add 时自动生成）</td></tr>
+  <tr><td><code>daemon\logs\</code></td><td>运行日志</td></tr>
+</table>
+
+<div class="note">
+  <b>一句话上手</b>：daemon 目录拷到 62 → nssm.exe 扔进去（可选）→ 管理员跑
+  <code>.\svc.cmd add TaskManager -Exe "&lt;python全路径&gt;" -Arguments "main.py --port 8000" -Dir "D:\deploy-task-manager\deploy"</code>
+  → <code>.\svc.cmd status TaskManager</code> 看 RUNNING 就成。
+</div>
+
+<footer>
+  通用服务守护器 · NSSM 与 watchdog 双后端 · 2026-08-25<br>
+  适用于 62 服务器上所有“cmd 裸跑”的后台服务统一接管。
+</footer>
+
+</div>
+</body>
+</html>

@@ -18,11 +18,17 @@
 
 import json
 import sqlite3
+import sys
 import time
 import threading
 from pathlib import Path
 
-DEFAULT_DB = Path(__file__).parent / "tasks.db"
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).parent
+else:
+    BASE_DIR = Path(__file__).parent
+
+DEFAULT_DB = BASE_DIR / "tasks.db"
 _LOCK = threading.Lock()
 
 _SCHEMA = """

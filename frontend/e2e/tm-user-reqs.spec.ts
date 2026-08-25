@@ -1,7 +1,7 @@
 /**
  * 用户三点需求前端自测（打现网：后端 48010 + 前端 3003）
  * 1) Task 未手填进度 → 推荐提示
- * 2) Manager 可改周结束；创建 Action 跟当前周；预计发送可见
+ * 2) 周结束固定周三 17:00（设置控件已下线，截止提示全员可见）；创建 Action 跟当前周
  * 3) Action 延续历史（克隆后抽屉可见「延续历史」）
  */
 import { test, expect } from '@playwright/test'
@@ -35,21 +35,21 @@ const names = {
 }
 
 test.describe(`TM 三点需求 UI ${RUN}`, () => {
-  test('01 Manager：周结束控件 + 周报预计文案', async ({ page }) => {
+  test('01 Manager：周截止提示可见（设置控件已下线）', async ({ page }) => {
     await login(page, 'manager', PASS)
     await goProjects(page)
     await openBoardTab(page)
 
-    const picker = page.getByTestId('tm-week-end-picker')
-    await expect(picker).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByText(/周报预计.*发送（周结束后 15min）/)).toBeVisible()
-
-    const pushHint = page.getByTestId('tm-weekly-push-at')
-    await expect(pushHint).toBeVisible()
-    await expect(pushHint).toContainText(/周报预计/)
+    // 周结束设置控件已下线
+    await expect(page.getByTestId('tm-week-end-picker')).toHaveCount(0)
+    // 固定截止提示全员可见
+    const hint = page.getByTestId('tm-week-end-hint')
+    await expect(hint).toBeVisible({ timeout: 20_000 })
+    await expect(hint).toContainText('每周三 17:00')
+    await expect(hint).toContainText('16:55')
   })
 
-  test('02 Engineer：看不到改周结束', async ({ page }) => {
+  test('02 Engineer：同样只有截止提示，无设置控件', async ({ page }) => {
     const engUser = `e2e_eng_${RUN}`
     await login(page, 'admin', 'admin')
     await page.goto('/admin')
@@ -68,6 +68,7 @@ test.describe(`TM 三点需求 UI ${RUN}`, () => {
     await goProjects(page)
     await openBoardTab(page)
     await expect(page.getByTestId('tm-week-end-picker')).toHaveCount(0)
+    await expect(page.getByTestId('tm-week-end-hint')).toBeVisible({ timeout: 20_000 })
   })
 
   test('03 Manager：建树+日更 → 未手填推荐提示', async ({ page }) => {

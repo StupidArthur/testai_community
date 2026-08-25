@@ -84,6 +84,7 @@ def main() -> int:
             "lead_id": lead["id"],
             "tester_ids": [owner["id"], tester["id"]],
             "publish": True,
+            "req_stage": "testing",
         },
         headers=mgr_h,
     )
@@ -314,6 +315,7 @@ def main() -> int:
             "lead_id": lead["id"],
             "tester_ids": [],
             "publish": True,
+            "req_stage": "testing",
         },
         headers=mgr_h,
     )

@@ -38,7 +38,6 @@ from app.test_manage.schemas import (
     TaskWeekProgressOut,
     TaskWeekProgressUpsert,
     UserBrief,
-    WeekEndUpdate,
     WeekInfoOut,
 )
 
@@ -79,16 +78,6 @@ def api_public_board(
 ):
     """免鉴权只读作战大屏数据。"""
     return svc.get_public_board(db, week_start=week_start, project_id=project_id)
-
-
-@router.put("/week/end", response_model=WeekInfoOut)
-def api_set_week_end(
-    data: WeekEndUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Admin/Manager：设置当前活动周结束时刻（并同步本周 Action.due_at）。"""
-    return svc.update_week_end(db, current_user, data)
 
 
 @router.get("/users", response_model=list[UserBrief])

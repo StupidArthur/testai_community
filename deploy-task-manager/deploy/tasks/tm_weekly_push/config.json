@@ -1,5 +1,5 @@
 {
-  "trigger": "15 17 * * 3",
+  "trigger": "0 17 * * 3",
   "display_name": "TestAI 测试周报（调64）",
   "timeout": 600,
   "webhook": {

@@ -267,7 +267,6 @@ class BoardOut(BaseModel):
     week_start: datetime
     week_end: datetime
     week_key: str
-    weekly_push_at: datetime | None = None
     summary: BoardSummaryOut = Field(default_factory=BoardSummaryOut)
     tasks: list[BoardTaskOut]
 
@@ -285,18 +284,10 @@ class WeekInfoOut(BaseModel):
     week_start: datetime
     week_end: datetime
     week_key: str
-    weekly_push_at: datetime | None = None
-    can_set_week_end: bool = False
     history: list[WeekOptionOut] = Field(
         default_factory=list,
         description="最近 N 个历史业务周（不含本周），供「历史」下拉使用",
     )
-
-
-class WeekEndUpdate(BaseModel):
-    """设置当前活动周结束时刻（须晚于现在）。"""
-
-    week_end: datetime
 
 
 class TaskWeekProgressUpsert(BaseModel):

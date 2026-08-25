@@ -1,7 +1,7 @@
 """
-业务周周期：可配置结束时刻；周报发送时刻由此推导。
+业务周周期：固定周三 17:00 切周（不再支持自定义周结束时刻）。
 
-周报规则：不论周结束为何时，一律在结束后 15 分钟发送。
+周报发送时刻由 62 平台 cron 控制，与本模块无关。
 """
 from __future__ import annotations
 
@@ -9,7 +9,10 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from app.test_manage.config import now_tm
+from app.test_manage.config import (
+    WEEK_EDIT_LOCK_BEFORE_END_MINUTES,
+    now_tm,
+)
 from app.test_manage.models import TmWeekPeriod
 from app.test_manage.week import (
     _as_local,
@@ -103,8 +106,16 @@ def get_or_create_active_period(
         except Exception:  # noqa: BLE001
             # 快照失败不阻断开周
             pass
-        ws = _as_local(last.week_end)
+        # 新窗对齐标准周三 17:00（消除历史自定义窗口带来的时刻漂移）
+        we_last = _as_local(last.week_end)
+        ws = classic_week_start(we_last)
+        if ws < we_last:
+            ws = ws + timedelta(days=7)
         we = ws + timedelta(days=7)
+        # 周期表存在空洞（如停机跨多周）时逐周推进，确保窗口覆盖当前时刻
+        while we <= local:
+            ws = we
+            we = ws + timedelta(days=7)
     else:
         ws = classic_week_start(local)
         we = classic_week_end(ws)
@@ -135,36 +146,14 @@ def get_daily_context_period(
     return get_or_create_active_period(db, local)
 
 
-def set_active_week_end(
-    db: Session,
-    *,
-    week_end: datetime,
-    user_id: int | None = None,
-    now: datetime | None = None,
-    allow_past: bool = False,
-) -> TmWeekPeriod:
+def is_week_edit_locked(db: Session, now: datetime | None = None) -> bool:
     """
-    Admin/Manager 设置当前活动周的结束时刻；同步刷新本周 Action.due_at。
-
-    allow_past=True 仅用于运维脚本（验收时可把 week_end 设到刚过的时刻）。
+    周截止前编辑锁：当前时刻落在「本周 week_end 前 N 分钟 ～ week_end」内时锁定，
+    提醒大家在周截止（默认周三 17:00）前 5 分钟结束 Action / Task 内容更新。
+    切周后（新一周窗口）自动解锁。
     """
-    local_now = _as_local(now)
-    we = _as_local(week_end)
-    if not allow_past and we <= local_now:
-        raise ValueError("周结束时刻必须晚于当前时间")
-
-    period = get_or_create_active_period(db, local_now, user_id=user_id)
-    if we <= _as_local(period.week_start):
-        raise ValueError("周结束时刻必须晚于本周起点")
-
-    period.week_end = we
-    period.updated_by = user_id
-    db.flush()
-
-    from app.test_manage.models import TmAction
-
-    db.query(TmAction).filter(TmAction.week_key == period.week_key).update(
-        {TmAction.due_at: we}, synchronize_session=False
-    )
-    db.flush()
-    return period
+    local = _as_local(now) if now is not None else now_tm()
+    period = get_or_create_active_period(db, local)
+    we = _as_local(period.week_end)
+    lock_since = we - timedelta(minutes=WEEK_EDIT_LOCK_BEFORE_END_MINUTES)
+    return lock_since <= local < we

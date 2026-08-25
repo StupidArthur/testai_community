@@ -6,7 +6,9 @@
 
 from pathlib import Path
 import os
+import sys
 import threading
+from datetime import datetime
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -15,11 +17,16 @@ from pydantic import BaseModel
 
 from apscheduler.triggers.cron import CronTrigger
 
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).parent
+else:
+    BASE_DIR = Path(__file__).parent
+
 import db
 import tasks as task_repo
 from actions import execute_task
 
-STATIC_DIR = Path(__file__).parent / "frontend" / "dist"
+STATIC_DIR = BASE_DIR / "frontend" / "dist"
 
 
 def _validate_expr(expr: str) -> None:
@@ -198,6 +205,19 @@ def _set_enabled(task_id, enabled):
     return {"id": task_id, "enabled": enabled}
 
 
+def _compute_next_runs(trigger, now, count=3):
+    """用 APScheduler trigger 推算未来 count 次触发时间。"""
+    runs = []
+    prev = None
+    for _ in range(count):
+        nxt = trigger.get_next_fire_time(prev, now if prev is None else prev)
+        if nxt is None:
+            break
+        runs.append(nxt.isoformat())
+        prev = nxt
+    return runs
+
+
 def _task_view(t):
     """组装任务视图：补充 trigger 原始结构和下次运行信息。
 
@@ -209,6 +229,13 @@ def _task_view(t):
     cfg = task_repo.load_task_config(t["name"])
     wh = cfg.get("webhook") or {}
     webhook_url = str(wh.get("url") or os.environ.get("PLATFORM_WEBHOOK_URL") or "").strip()
+    next_runs = []
+    if job and hasattr(job, "trigger"):
+        try:
+            now = datetime.now(tz=scheduler.timezone if scheduler else None)
+            next_runs = _compute_next_runs(job.trigger, now, 3)
+        except Exception:
+            pass
     return {
         "id": t["id"],
         "name": t["name"],
@@ -217,4 +244,5 @@ def _task_view(t):
         "enabled": t["enabled"],
         "webhook_url": webhook_url,
         "next_run": job.next_run_time.isoformat() if (job and job.next_run_time) else None,
+        "next_runs": next_runs,
     }

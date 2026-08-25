@@ -76,6 +76,7 @@ def _seed_task(client, headers, pid, did, lead_id, tester_ids=None, publish=True
             "lead_id": lead_id,
             "tester_ids": tester_ids or [],
             "publish": publish,
+            "req_stage": "testing",
         },
         headers=headers,
     )

@@ -1,0 +1,25 @@
+{
+  "guardian_port": 9000,
+  "check_interval": 60,
+  "services": [
+    {
+      "name": "deploy-task-manager",
+      "process": "python.exe",
+      "match_cmdline": "main.py",
+      "path": "D:\\Python311\\python.exe",
+      "args": "main.py --port 8000",
+      "workdir": "D:\\deploy-task-manager\\deploy",
+      "port": 8000,
+      "auto_restart": true
+    },
+    {
+      "name": "imgagent-server",
+      "process": "imgagent-server.exe",
+      "path": "D:\\deploy\\imgagent-server.exe",
+      "args": "",
+      "workdir": "D:\\deploy",
+      "port": null,
+      "auto_restart": true
+    }
+  ]
+}

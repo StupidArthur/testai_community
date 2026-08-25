@@ -1,18 +1,26 @@
 """Task Manager 入口：启动 FastAPI Web Server + 常驻调度服务。"""
 
 import argparse
+import os
+import sys
 import threading
 import time
 from pathlib import Path
 
 import uvicorn
 
+# --- 路径解析（支持 PyInstaller exe 和 python 脚本两种模式）---
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).parent
+else:
+    BASE_DIR = Path(__file__).parent
+
 import db
 
 
 def load_env():
     """启动时把 .env 文件里的 K=V 灌入 os.environ（不覆盖已有值）。"""
-    env_file = Path(__file__).parent / ".env"
+    env_file = BASE_DIR / ".env"
     if not env_file.exists():
         return
     for line in env_file.read_text(encoding="utf-8").splitlines():
@@ -22,8 +30,6 @@ def load_env():
         k, v = line.split("=", 1)
         os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
-
-import os
 
 load_env()
 

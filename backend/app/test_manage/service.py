@@ -45,10 +45,9 @@ from app.test_manage.models import (
     TmWeekPeriod,
 )
 from app.test_manage.period import (
-    compute_weekly_push_at,
     get_daily_context_period,
     get_or_create_active_period,
-    set_active_week_end,
+    is_week_edit_locked,
 )
 from app.test_manage.schemas import (
     ActionCloneRequest,
@@ -78,7 +77,6 @@ from app.test_manage.schemas import (
     TaskWeekProgressOut,
     TaskWeekProgressUpsert,
     UserBrief,
-    WeekEndUpdate,
     WeekInfoOut,
     WeekOptionOut,
 )
@@ -264,15 +262,13 @@ def list_history_week_options(
 
 
 def get_week_info(db: Session, user: User | None, *, public: bool = False) -> WeekInfoOut:
+    _ = public, user
     period = get_or_create_active_period(db)
     db.commit()
-    can_set = False if public or user is None else is_tm_admin(user)
     return WeekInfoOut(
         week_start=period.week_start,
         week_end=period.week_end,
         week_key=period.week_key,
-        weekly_push_at=compute_weekly_push_at(period.week_end),
-        can_set_week_end=can_set,
         history=list_history_week_options(db),
     )
 
@@ -293,20 +289,25 @@ def get_public_board(
     )
 
 
-def update_week_end(db: Session, user: User, data: WeekEndUpdate) -> WeekInfoOut:
-    require_tm_admin(user)
-    try:
-        set_active_week_end(db, week_end=data.week_end, user_id=user.id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    db.commit()
-    return get_week_info(db, user)
-
-
 def _writable_week_keys(db: Session) -> set[str]:
     active = get_or_create_active_period(db)
     daily = get_daily_context_period(db)
     return {active.week_key, daily.week_key}
+
+
+def _assert_week_edit_open(db: Session) -> None:
+    """
+    周截止前编辑锁：周结束（默认周三 17:00）前 5 分钟起，
+    停止 Action / Task 内容更新，切周后自动恢复。
+    """
+    if is_week_edit_locked(db):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "本周内容已于周截止前 5 分钟锁定（默认周三 16:55），"
+                "请于下周再更新；纠错请在下周补「更正说明」"
+            ),
+        )
 
 
 def _is_writable_action_week(db: Session, action: TmAction) -> bool:
@@ -617,6 +618,7 @@ def update_task(db: Session, user: User, task_id: str, data: TaskUpdate) -> Task
     task = _load_task(db, task_id)
     if not can_edit_task(user, task):
         raise HTTPException(status_code=403, detail="无权编辑该 Task")
+    _assert_week_edit_open(db)
 
     changes: list[str] = []
     was_published = task.status == TASK_STATUS_PUBLISHED
@@ -1107,6 +1109,9 @@ def _publish_action(db: Session, action: TmAction) -> None:
 
 def create_action(db: Session, user: User, data: ActionCreate) -> ActionOut:
     task = _load_task(db, data.task_id)
+    # 权限校验先行：无权限应得到 403，而非业务规则 400（避免向无关人员泄露任务状态细节）
+    if not can_edit_task(user, task):
+        raise HTTPException(status_code=403, detail="仅测试管理员或该 Task 负责人可创建 Action")
     if not can_add_action_to_task(task):
         if task.status == TASK_STATUS_DONE:
             raise HTTPException(status_code=400, detail="已完成的 Task 不能再创建 Action")
@@ -1118,8 +1123,7 @@ def create_action(db: Session, user: User, data: ActionCreate) -> ActionOut:
                 detail=f"仅「测试中」可创建 Action（当前需求进展：{req_stage_label(task.req_stage)}）",
             )
         raise HTTPException(status_code=400, detail="仅测试进行中的 Task 可创建 Action")
-    if not can_edit_task(user, task):
-        raise HTTPException(status_code=403, detail="仅测试管理员或该 Task 负责人可创建 Action")
+    _assert_week_edit_open(db)
 
     owner_id = data.owner_id if data.owner_id is not None else task.lead_id
     _ensure_users(db, [owner_id])
@@ -1174,6 +1178,7 @@ def clone_action(
 def update_action(db: Session, user: User, action_id: str, data: ActionUpdate) -> ActionOut:
     action = _load_action(db, action_id)
     _assert_writable_action_week(action)
+    _assert_week_edit_open(db)
 
     # 状态变更：发布 / 完成（受状态机约束；不支持取消）
     if data.status is not None:
@@ -1246,6 +1251,7 @@ def upsert_daily_update(
         raise HTTPException(status_code=403, detail="无权提交日更")
     if not (is_tm_admin(user) or action.owner_id == user.id):
         raise HTTPException(status_code=403, detail="无权提交日更")
+    _assert_week_edit_open(db)
 
     report_date, note, progress = _validate_daily_payload(action, data)
 
@@ -1286,6 +1292,7 @@ def add_correction(
     action = _load_action(db, action_id)
     if not _can_correct(user, action):
         raise HTTPException(status_code=403, detail="无权追加更正说明")
+    _assert_week_edit_open(db)
     row = TmActionCorrection(
         action_id=action_id, user_id=user.id, note=data.note.strip()
     )
@@ -1424,6 +1431,7 @@ def upsert_task_week_progress(
     task = _load_task(db, task_id)
     if not can_edit_task(user, task):
         raise HTTPException(status_code=403, detail="仅测试管理员或 Task 测试负责人可填写周进度")
+    _assert_week_edit_open(db)
     from app.test_manage.req_stage import can_add_action_for_req_stage, req_stage_label
 
     if not can_add_action_for_req_stage(getattr(task, "req_stage", None)):
@@ -1653,7 +1661,6 @@ def get_board(
         week_start=ws,
         week_end=we,
         week_key=key,
-        weekly_push_at=compute_weekly_push_at(we),
         summary=summary,
         tasks=board_tasks,
     )

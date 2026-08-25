@@ -115,6 +115,7 @@ def _seed_task(client, mgr_headers, project_id, domain_id, lead_id, tester_ids=N
             "lead_id": lead_id,
             "tester_ids": tester_ids or [],
             "publish": True,
+            "req_stage": "testing",
         },
         headers=mgr_headers,
     )
@@ -530,7 +531,12 @@ def test_board_week_task_aggregation_and_project_filter(
     a1 = r.json()["id"]
     client.put(
         f"/api/test-manage/actions/{a1}/daily-updates",
-        json={"progress_percent": 30, "risk_blocker": "风险甲", "progress_note": "本日进展说明已填写完毕"},
+        json={
+            "progress_percent": 30,
+            "risk_blocker": "风险甲",
+            "is_blocking": True,
+            "progress_note": "本日进展说明已填写完毕",
+        },
         headers=eng_headers,
     )
     client.post(

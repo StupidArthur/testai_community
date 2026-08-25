@@ -25,21 +25,57 @@ logger = logging.getLogger("task_manager")
 POLL_INTERVAL = 5
 MAX_INSTANCES = 1
 COALESCE = True
+MISFIRE_GRACE_SECONDS = 300  # 错过触发点后 5 分钟内仍补执行（防止进程短暂阻塞/重启导致漏触发）
+
+
+def _unix_dow_to_aps(dow: str) -> str:
+    """把 Unix cron 的 day_of_week（0=周日）转换为 APScheduler 语义（0=周一）。
+
+    仅转换纯数字；名字（mon/sun/...）与 * 语义一致，原样返回。
+    支持 范围(a-b)、步进(a-b/s 或 */s)、列表(a,b,c) 组合。
+    """
+    def shift(tok: str) -> str:
+        return str((int(tok) + 6) % 7) if tok.isdigit() else tok
+
+    def shift_part(part: str) -> str:
+        step = ""
+        if "/" in part:
+            part, _, step = part.partition("/")
+            step = "/" + step
+        if part == "*" or not any(c.isdigit() for c in part):
+            return part + step
+        if "-" in part:
+            lo, _, hi = part.partition("-")
+            if lo.isdigit() and hi.isdigit() and int(lo) <= int(hi):
+                part = f"{shift(lo)}-{shift(hi)}"
+            # 跨周环绕范围（如 6-1）罕见，原样交给 APScheduler
+        elif part.isdigit():
+            part = shift(part)
+        return part + step
+
+    return ",".join(shift_part(p) for p in dow.split(","))
 
 
 def build_trigger(task):
     """根据任务 trigger_params.expr 构造 APScheduler CronTrigger。
 
     支持 5 段（标准）或 6 段（含秒）cron 表达式。
+    注意：表达式按 Unix cron 语义解析（day_of_week 0=周日），
+    内部转换为 APScheduler 语义（0=周一），保证用户直觉一致。
     """
     expr = task["trigger_params"]["expr"]
     parts = expr.split()
     if len(parts) == 5:
-        return CronTrigger.from_crontab(expr)
+        minute, hour, day, month, dow = parts
+        return CronTrigger(
+            minute=minute, hour=hour, day=day, month=month,
+            day_of_week=_unix_dow_to_aps(dow),
+        )
     if len(parts) == 6:
         second, minute, hour, day, month, dow = parts
         return CronTrigger(
-            second=second, minute=minute, hour=hour, day=day, month=month, day_of_week=dow,
+            second=second, minute=minute, hour=hour, day=day, month=month,
+            day_of_week=_unix_dow_to_aps(dow),
         )
     raise ValueError(f"cron 表达式段数必须为 5 或 6: {expr}")
 
@@ -65,6 +101,12 @@ def _apply_task(scheduler, task):
     if existing:
         if existing.trigger != trigger:
             existing.reschedule(trigger=trigger)
+        existing.modify(
+            args=[task],
+            max_instances=MAX_INSTANCES,
+            coalesce=COALESCE,
+            misfire_grace_time=MISFIRE_GRACE_SECONDS,
+        )
     else:
         scheduler.add_job(
             _job_exec,
@@ -74,6 +116,7 @@ def _apply_task(scheduler, task):
             replace_existing=True,
             max_instances=MAX_INSTANCES,
             coalesce=COALESCE,
+            misfire_grace_time=MISFIRE_GRACE_SECONDS,
         )
 
 

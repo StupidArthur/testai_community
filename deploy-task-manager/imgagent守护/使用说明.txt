@@ -1,0 +1,30 @@
+imgagent-server 守护 - 使用说明
+================================
+
+把整个 "imgagent守护" 文件夹拷到 62 的  D:\deploy\  下
+（和 imgagent-server.exe 放一起）。
+
+
+【第一次用】
+1. 双击  安装.cmd  ->  弹出 UAC 点 "是"  ->  自动装好
+   看到  Install OK! imgagent-server is running.  就成了
+
+
+【平时】
+- 双击  状态.cmd   ->  看 RUNNING(在跑) / STOPPED(没跑)
+- 双击  重启.cmd   ->  重启服务
+- 双击  停止.cmd   ->  停服务
+- 不要了 -> 双击  卸载.cmd
+
+
+【换了新 exe 怎么生效】
+直接用新的 imgagent-server.exe 覆盖旧文件, 然后双击  重启.cmd  即可。
+(exe 是编译好的, 改不了源码; 拿到新版直接覆盖文件再重启)
+
+
+【想更稳】
+把 nssm.exe 放进这个文件夹，再双击 安装.cmd，
+就变成真正的 Windows 服务（开机自启 + 崩溃自动重启）。
+不放也行，默认 watchdog 一样开机自启 + 崩了自动拉起。
+
+
