@@ -22,7 +22,7 @@ from app.test_manage import models as _models  # noqa: F401 — 注册 metadata
 log = logging.getLogger("app.test_manage")
 
 # 结构版本：变更 schema 时递增，触发 drop + create
-TM_SCHEMA_VERSION = "3-daily-one-per-action-day"
+TM_SCHEMA_VERSION = "4-subtask-and-inherit"
 
 
 def _drop_tm_tables(engine: Engine) -> None:

@@ -21,6 +21,8 @@ AUTH_DEPENDENCY_NAMES = frozenset({
     "get_current_user",
     "RequireRole",
     "verify_api_key",
+    # test_manage 推送接口：X-Robot-Key 机器人通道 或 Bearer+Admin/Manager 双通道鉴权
+    "_push_caller_or_admin",
 })
 
 

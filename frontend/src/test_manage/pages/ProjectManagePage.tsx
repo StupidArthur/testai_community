@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import {
   Alert,
   App,
@@ -15,9 +16,14 @@ import {
   InputNumber,
   Modal,
   Pagination,
+  Popconfirm,
+  Popover,
   Progress,
+  Segmented,
   Select,
+  Slider,
   Space,
+  Table,
   Tabs,
   Tag,
   Timeline,
@@ -25,8 +31,8 @@ import {
   Typography,
 } from 'antd'
 import type { MenuProps } from 'antd'
+import type { FormInstance } from 'antd'
 import {
-  CopyOutlined,
   DeleteOutlined,
   DownOutlined,
   EditOutlined,
@@ -44,6 +50,7 @@ import {
   type TmAction,
   type TmActionDetail,
   type TmTask,
+  type TmSubtask,
 } from '../../shared/api/test-manage'
 import { useCurrentUser, isTmAdmin } from '../../shared/hooks/useAuth'
 import WeekScreenTab from './WeekScreenTab'
@@ -60,13 +67,17 @@ import {
   sortActionCardsForList,
   taskParticipantUsers,
 } from '../utils/boardUi'
-import { isMissingDailyToday } from '../utils/screenFilters'
+import { isMissingDailyToday, isBlockingFlag } from '../utils/screenFilters'
+import {
+  DISPLAY_STATUS_OPTIONS,
+  DISPLAY_STATUS_TAG_COLOR,
+  displayStatusLabel,
+  displayStatusTagColor,
+  splitDisplayStatus,
+} from '../utils/displayStatus'
 import {
   REQ_STAGE_OPTIONS,
   REQ_STAGE_TESTING,
-  reqStageLabel,
-  reqStageTagColor,
-  showTestStatus,
 } from '../utils/reqStage'
 import './ProjectManagePage.css'
 import './tmSheet.css'
@@ -103,12 +114,6 @@ function userSelectOptions(users: { id: number; username: string; real_name?: st
   }))
 }
 
-function formatDateTimeShort(iso?: string | null) {
-  if (!iso) return '—'
-  const d = dayjs(iso)
-  return d.isValid() ? d.format('MM-DD HH:mm') : iso
-}
-
 function formatWeekShort(weekStart?: string, weekEnd?: string) {
   if (!weekStart) return ''
   const s = new Date(weekStart)
@@ -136,11 +141,12 @@ export default function ProjectManagePage() {
   const [historyWeekStart, setHistoryWeekStart] = useState<string | undefined>()
   const [taskModal, setTaskModal] = useState(false)
   const [createTaskForm] = Form.useForm()
-  const [actionModalTask, setActionModalTask] = useState<TmTask | null>(null)
   const [projectModal, setProjectModal] = useState(false)
   const [domainModal, setDomainModal] = useState(false)
   const [detailActionId, setDetailActionId] = useState<string | null>(null)
   const [editTaskId, setEditTaskId] = useState<string | null>(null)
+  /** 从 Task 抽屉触发：关闭抽屉并在对应卡片展开 inline 新建 Action 表单 */
+  const [inlineAddTaskId, setInlineAddTaskId] = useState<string | null>(null)
   /** Task 抽屉：默认只读写进度；点小「编辑」才改基本信息 */
   const [taskInfoEditing, setTaskInfoEditing] = useState(false)
   /** Task 抽屉模式：详情（信息）| 进度（只写本周进度） */
@@ -151,10 +157,14 @@ export default function ProjectManagePage() {
   const [taskSaveTip, setTaskSaveTip] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState('screen')
   const [helpOpen, setHelpOpen] = useState(false)
-  /** 复制上周前预览候选 Action */
-  const [previewClone, setPreviewClone] = useState<TmAction | null>(null)
-  /** 工作台：我的 Task（负责人）| 其他 | 全部 */
-  const [boardTaskScope, setBoardTaskScope] = useState<'mine' | 'other' | 'all'>('mine')
+  /** 工作台：我的 Task（负责人）| 全部 */
+  const [boardTaskScope, setBoardTaskScope] = useState<'mine' | 'all'>('mine')
+  /** 工作台筛选：负责人 */
+  const [boardLeadFilter, setBoardLeadFilter] = useState<number | null>(null)
+  /** 工作台筛选：领域 */
+  const [boardDomainFilter, setBoardDomainFilter] = useState<string | null>(null)
+  /** 工作台筛选：状态 */
+  const [boardStatusFilter, setBoardStatusFilter] = useState<string | null>(null)
   /** 工作台 Task 分页 */
   const [boardTaskPage, setBoardTaskPage] = useState(1)
   const [boardTaskPageSize, setBoardTaskPageSize] = useState<number>(BOARD_TASK_PAGE_SIZE_DEFAULT)
@@ -303,16 +313,6 @@ export default function ProjectManagePage() {
     enabled: !!editTaskId && !viewingHistory && taskDrawerFocus === 'progress',
   })
 
-  const { data: cloneCandidates = [] } = useQuery({
-    queryKey: ['tm-clone', actionModalTask?.id || editTaskId || ''],
-    queryFn: async () => {
-      const tid = actionModalTask?.id || editTaskId
-      if (!tid) return []
-      return (await testManageApi.cloneCandidates(tid)).data
-    },
-    enabled: !!(actionModalTask?.id || editTaskId) && !viewingHistory,
-  })
-
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['tm-board'] })
     void qc.invalidateQueries({ queryKey: ['tm-mine'] })
@@ -402,50 +402,97 @@ export default function ProjectManagePage() {
     mutationFn: testManageApi.createAction,
     onSuccess: () => {
       message.success('Action 已保存')
-      setActionModalTask(null)
       invalidate()
     },
     onError: (e: any) => message.error(e?.response?.data?.detail || '失败'),
   })
 
-  const cloneMut = useMutation({
-    mutationFn: (id: string) => testManageApi.cloneAction(id),
+  /** 子需求 CRUD（JSON 列存 Task 上；改名同步刷 Action，软删连带取消未完成 Action） */
+  const addSubtaskMut = useMutation({
+    mutationFn: (p: { taskId: string; name: string; content?: string }) =>
+      testManageApi.addSubtask(p.taskId, { name: p.name, content: p.content }),
     onSuccess: () => {
-      message.success('已引用为当前周草稿')
-      setActionModalTask(null)
+      message.success('子需求已添加')
       invalidate()
     },
-    onError: (e: any) => message.error(e?.response?.data?.detail || '失败'),
+    onError: (e: any) => message.error(e?.response?.data?.detail || '添加失败'),
   })
 
-  /** 切周：一键复制该 Task 上周全部候选 Action */
-  const cloneLastWeekMut = useMutation({
-    mutationFn: async (taskId: string) => {
-      const list = (await testManageApi.cloneCandidates(taskId)).data || []
-      for (const c of list) {
-        await testManageApi.cloneAction(c.id)
-      }
-      return list.length
-    },
-    onSuccess: (n) => {
-      if (n === 0) message.info('上周无可复制 Action，请点「+ Action」新建')
-      else message.success(`已复制 ${n} 条为草稿`)
+  const deleteSubtaskMut = useMutation({
+    mutationFn: (p: { taskId: string; sid: string }) =>
+      testManageApi.deleteSubtask(p.taskId, p.sid),
+    onSuccess: () => {
+      message.success('子需求已删除（关联未完成 Action 已取消）')
       invalidate()
     },
-    onError: (e: any) => message.error(e?.response?.data?.detail || '复制失败'),
+    onError: (e: any) => message.error(e?.response?.data?.detail || '删除失败'),
   })
 
   /** 工作台列表：归档 Task 默认不展示（与归档确认文案一致） */
   const boardTasksScoped = useMemo(() => {
     const list = (board?.tasks || []).filter((bt) => bt.task.status !== 'cancelled')
     const uid = user?.id != null ? Number(user.id) : null
-    return filterBoardTasksByScope(list, boardTaskScope, uid)
-  }, [board?.tasks, boardTaskScope, user?.id])
+    let scoped = filterBoardTasksByScope(list, boardTaskScope, uid)
+    if (boardLeadFilter != null) {
+      scoped = scoped.filter((bt) => Number(bt.task.lead_id) === boardLeadFilter)
+    }
+    if (boardDomainFilter) {
+      scoped = scoped.filter((bt) => bt.task.domain_id === boardDomainFilter)
+    }
+    if (boardStatusFilter) {
+      scoped = scoped.filter((bt) => bt.task.display_status === boardStatusFilter)
+    }
+    return scoped
+  }, [
+    board?.tasks,
+    boardTaskScope,
+    user?.id,
+    boardLeadFilter,
+    boardDomainFilter,
+    boardStatusFilter,
+  ])
+
+  /** 筛选下拉选项：从当前看板数据去重（只列实际存在的负责人/领域/状态） */
+  const boardFilterOptions = useMemo(() => {
+    const list = (board?.tasks || []).filter((bt) => bt.task.status !== 'cancelled')
+    const leads = new Map<number, string>()
+    const domainsMap = new Map<string, string>()
+    const statusSet = new Set<string>()
+    for (const bt of list) {
+      const lid = Number(bt.task.lead_id)
+      if (!leads.has(lid)) leads.set(lid, userName(lid))
+      if (!domainsMap.has(bt.task.domain_id)) {
+        domainsMap.set(bt.task.domain_id, bt.task.domain_name || '未分领域')
+      }
+      const ds = (bt.task.display_status || '').trim()
+      if (ds) statusSet.add(ds)
+    }
+    const leadOpts = [...leads.entries()]
+      .sort((a, b) => a[1].localeCompare(b[1], 'zh'))
+      .map(([value, label]) => ({ value, label }))
+    const domainOpts = [...domainsMap.entries()]
+      .sort((a, b) => a[1].localeCompare(b[1], 'zh'))
+      .map(([value, label]) => ({ value, label }))
+    const labelMap = new Map(DISPLAY_STATUS_OPTIONS.map((o) => [o.value, o.label]))
+    const statusOpts = [...statusSet]
+      .map((v) => ({ value: v, label: labelMap.get(v) || v }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'zh'))
+    return { leadOpts, domainOpts, statusOpts }
+  }, [board?.tasks, userName])
+
+  /** 工作台筛选是否有生效条件（空态文案用） */
+  const boardFiltersActive =
+    boardLeadFilter != null || !!boardDomainFilter || !!boardStatusFilter
 
   /** 筛选/周切换后回到第 1 页 */
   useEffect(() => {
     setBoardTaskPage(1)
-  }, [boardTaskScope, projectId, boardWeekStart, weekMode])
+  }, [boardTaskScope, projectId, boardWeekStart, weekMode, boardLeadFilter, boardDomainFilter, boardStatusFilter])
+
+  /** 切项目后领域选项变化，清掉已失效的领域筛选 */
+  useEffect(() => {
+    setBoardDomainFilter(null)
+  }, [projectId])
 
   /** 删减后当前页超出范围时回退 */
   useEffect(() => {
@@ -596,8 +643,8 @@ export default function ProjectManagePage() {
             {!viewingHistory && (board?.week_end || week?.week_end) ? (
               <Space wrap size={8} style={{ marginTop: 8 }} align="center">
                 <Text type="warning" data-testid="tm-week-end-hint">
-                  默认每周三 17:00 周截止（{formatDateTimeShort(board?.week_end || week?.week_end)}），
-                  请提前 5 分钟（16:55 前）完成 Action / Task 内容更新，届时将锁定编辑
+                  每周三 17:00 将发送周报，请大家在 16:55 完成周 Task 的更新，Action 请于每天 19:50
+                  前更新
                 </Text>
               </Space>
             ) : null}
@@ -639,7 +686,6 @@ export default function ProjectManagePage() {
             onChange={setBoardTaskScope}
             options={[
               { value: 'mine', label: `我的 Task（${boardScopeCounts.mine}）` },
-              { value: 'other', label: `其他 Task（${boardScopeCounts.other}）` },
               { value: 'all', label: `全部（${boardScopeCounts.all}）` },
             ]}
             data-testid="tm-scope-select"
@@ -654,6 +700,37 @@ export default function ProjectManagePage() {
             onChange={setProjectId}
             options={projects.map((p) => ({ value: p.id, label: p.name }))}
             data-testid="tm-project-filter"
+          />
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder="按负责人筛选"
+            style={{ minWidth: 150 }}
+            value={boardLeadFilter ?? undefined}
+            onChange={(v) => setBoardLeadFilter(v ?? null)}
+            options={boardFilterOptions.leadOpts}
+            data-testid="tm-lead-filter"
+          />
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder="按领域筛选"
+            style={{ minWidth: 150 }}
+            value={boardDomainFilter ?? undefined}
+            onChange={(v) => setBoardDomainFilter(v ?? null)}
+            options={boardFilterOptions.domainOpts}
+            data-testid="tm-domain-filter"
+          />
+          <Select
+            allowClear
+            placeholder="按状态筛选"
+            style={{ minWidth: 130 }}
+            value={boardStatusFilter ?? undefined}
+            onChange={(v) => setBoardStatusFilter(v ?? null)}
+            options={boardFilterOptions.statusOpts}
+            data-testid="tm-status-filter"
           />
           {tmAdmin && !viewingHistory && (
             <Dropdown
@@ -695,12 +772,12 @@ export default function ProjectManagePage() {
         ) : !boardTasksScoped.length ? (
           <Empty
             description={
-              viewingHistory
-                ? '该历史周暂无 Action 记录。'
-                : boardTaskScope === 'mine'
-                  ? '暂无你负责的 Task。可切到「其他 / 全部」，或新建 Task。'
-                  : boardTaskScope === 'other'
-                    ? '暂无其他人负责的 Task。'
+              boardFiltersActive
+                ? '没有符合筛选条件的 Task，可清空筛选条件后重试。'
+                : viewingHistory
+                  ? '该历史周暂无 Action 记录。'
+                  : boardTaskScope === 'mine'
+                    ? '暂无你负责的 Task。可切到「全部」查看，或新建 Task。'
                     : '本周暂无 Task。可新建 Task，或在已有 Task 上添加 Action。'
             }
           />
@@ -724,8 +801,21 @@ export default function ProjectManagePage() {
                   setTaskInfoEditing(false)
                   setEditTaskId(bt.task.id)
                 }}
-                onAddAction={() => setActionModalTask(bt.task)}
+                forceInlineAdd={inlineAddTaskId === bt.task.id}
+                onInlineAddDone={() => setInlineAddTaskId(null)}
+                onCreateAction={(values, publish) =>
+                  createActionMut.mutate({ task_id: bt.task.id, ...values, publish })
+                }
+                onCreateSubtask={(name, content) =>
+                  addSubtaskMut.mutate({ taskId: bt.task.id, name, content })
+                }
+                createActionLoading={createActionMut.isPending}
+                createSubtaskLoading={addSubtaskMut.isPending}
+                users={users}
                 onPublishAction={(id) => publishActionMut.mutate(id)}
+                canQuickDaily={(a) => tmAdmin || Number(a.owner_id) === Number(user?.id)}
+                onDaily={(p) => dailyMut.mutate(p)}
+                dailyLoading={dailyMut.isPending}
                 onArchiveTask={() => {
                   modal.confirm({
                     title: `归档 Task「${bt.task.title}」？`,
@@ -780,6 +870,10 @@ export default function ProjectManagePage() {
         <div className="tm-action-grid" data-testid="tm-mine-action-grid">
           {mineActionsPaged.map((a) => {
             const missingDaily = isMissingDailyToday(a)
+            const canQuickDaily =
+              a.status === 'published' &&
+              !viewingHistory &&
+              (tmAdmin || Number(a.owner_id) === Number(user?.id))
             return (
             <Card
               key={a.id}
@@ -788,7 +882,18 @@ export default function ProjectManagePage() {
               onClick={() => setDetailActionId(a.id)}
               title={a.title}
               extra={
-                <Space size={4} wrap>
+                <Space size={4} wrap onClick={(e) => e.stopPropagation()}>
+                  {canQuickDaily ? (
+                    <DailyQuickPopover
+                      action={a}
+                      loading={dailyMut.isPending}
+                      onSubmit={(p) => dailyMut.mutate(p)}
+                    >
+                      <Button size="small" data-testid={`tm-mine-quick-daily-${a.id}`}>
+                        日更
+                      </Button>
+                    </DailyQuickPopover>
+                  ) : null}
                   {missingDaily ? (
                     <Tag color="gold" data-testid="tm-mine-missing-daily-tag">
                       今日未日更
@@ -861,70 +966,6 @@ export default function ProjectManagePage() {
 
       <TestManageHelpDrawer open={helpOpen} onClose={() => setHelpOpen(false)} />
 
-      <Modal
-        title={previewClone ? `上周 Action · ${previewClone.title}` : '上周 Action'}
-        open={!!previewClone}
-        onCancel={() => setPreviewClone(null)}
-        destroyOnClose
-        width={520}
-        footer={[
-          <Button key="close" onClick={() => setPreviewClone(null)}>
-            关闭
-          </Button>,
-          <Button
-            key="copy"
-            type="primary"
-            icon={<CopyOutlined />}
-            loading={cloneMut.isPending}
-            data-testid="tm-clone-to-week"
-            onClick={() => {
-              if (!previewClone) return
-              cloneMut.mutate(previewClone.id, {
-                onSuccess: () => setPreviewClone(null),
-              })
-            }}
-          >
-            复制到本周
-          </Button>,
-        ]}
-      >
-        {previewClone && (
-          <div className="tm-sheet tm-sheet--modal" data-testid="tm-modal-clone-preview">
-            <dl className="tm-sheet__dl">
-              <div>
-                <dt>负责人</dt>
-                <dd>{userName(previewClone.owner_id)}</dd>
-              </div>
-              <div>
-                <dt>状态 / 进度</dt>
-                <dd>
-                  <Tag color={STATUS_LABEL[previewClone.status]?.color}>
-                    {STATUS_LABEL[previewClone.status]?.text || previewClone.status}
-                  </Tag>{' '}
-                  {previewClone.progress_percent}%
-                </dd>
-              </div>
-              {previewClone.latest_risk ? (
-                <div>
-                  <dt>阻塞</dt>
-                  <dd>
-                    <WarningOutlined /> {previewClone.latest_risk}
-                  </dd>
-                </div>
-              ) : null}
-              <div>
-                <dt>测试内容</dt>
-                <dd>{previewClone.test_content?.trim() || '—'}</dd>
-              </div>
-              <div>
-                <dt>环境</dt>
-                <dd>{previewClone.environment?.trim() || '—'}</dd>
-              </div>
-            </dl>
-          </div>
-        )}
-      </Modal>
-
       {/* 新建 Task */}
       <Modal
         title="新建 Task"
@@ -974,7 +1015,7 @@ export default function ProjectManagePage() {
             }
           >
             <p className="tm-sheet__tip" style={{ marginBottom: 12 }}>
-              创建后可在详情里复制上周 Action
+              创建后可在卡片内直接维护子需求（subtask）与 Action
             </p>
             <Form.Item name="project_id" label="项目" rules={[{ required: true, message: '请选择项目' }]}>
               <Select
@@ -1094,17 +1135,16 @@ export default function ProjectManagePage() {
               {taskDrawerFocus === 'progress' ? (
                 <>
                   <section className="tm-sheet__section" data-testid="tm-task-flow">
-                    <h3 className="tm-sheet__h">需求进展</h3>
+                    <h3 className="tm-sheet__h">状态</h3>
                     {!viewingHistory &&
                     (taskDetail.can_edit_req_stage ||
-                      (taskDetail.can_edit && showTestStatus(taskDetail.req_stage))) ? (
+                      (taskDetail.can_edit && taskDetail.req_stage === 'testing')) ? (
                       <Form
                         key={`flow-${taskDetail.id}-${taskFormEpoch}`}
                         layout="vertical"
                         className="tm-sheet__form"
                         initialValues={{
-                          status: taskDetail.status,
-                          req_stage: taskDetail.req_stage || 'pending_dev',
+                          display_status: taskDetail.display_status || 'pending_dev',
                           expected_handover_at: taskDetail.expected_handover_at
                             ? dayjs(taskDetail.expected_handover_at)
                             : null,
@@ -1125,135 +1165,108 @@ export default function ProjectManagePage() {
                         onFinish={(v) => {
                           const fmt = (d: dayjs.Dayjs | null | undefined) =>
                             d ? d.format('YYYY-MM-DD') : null
+                          const { req_stage, status } = splitDisplayStatus(v.display_status)
                           const payload: Parameters<typeof testManageApi.updateTask>[1] = {
-                            change_summary: v.change_summary || '更新需求进展',
+                            change_summary: v.change_summary || '更新状态',
                           }
                           if (taskDetail.can_edit_req_stage) {
-                            payload.req_stage = v.req_stage
+                            payload.req_stage = req_stage
                             payload.expected_handover_at = fmt(v.expected_handover_at)
                             payload.actual_handover_at = fmt(v.actual_handover_at)
                             payload.test_started_at = fmt(v.test_started_at)
                             payload.expected_test_end_at = fmt(v.expected_test_end_at)
                             payload.test_ended_at = fmt(v.test_ended_at)
                           }
-                          if (showTestStatus(v.req_stage || taskDetail.req_stage) && v.status) {
-                            payload.status = v.status
-                          }
+                          payload.status = status
                           updateTaskMut.mutate({ id: taskDetail.id, data: payload })
                         }}
                       >
+                        <Form.Item
+                          name="display_status"
+                          label="状态"
+                          extra="阶段决定能否建 Action、能否填本周进度"
+                        >
+                          <Select
+                            data-testid="tm-task-display-status"
+                            options={DISPLAY_STATUS_OPTIONS}
+                          />
+                        </Form.Item>
                         {taskDetail.can_edit_req_stage ? (
-                          <>
-                            <Form.Item
-                              name="req_stage"
-                              label="需求进展"
-                              extra="阶段决定能否建 Action、能否填本周进度"
-                            >
-                              <Select data-testid="tm-task-req-stage" options={REQ_STAGE_OPTIONS} />
-                            </Form.Item>
-                            <Form.Item
-                              noStyle
-                              shouldUpdate={(prev, cur) => prev.req_stage !== cur.req_stage}
-                            >
-                              {({ getFieldValue }) => {
-                                const stage = getFieldValue('req_stage') as string
-                                return (
-                                  <>
-                                    {stage === 'pending_handover' ? (
-                                      <Form.Item
-                                        name="expected_handover_at"
-                                        label="预计提测时间"
-                                        extra="可清空表示待定"
-                                      >
-                                        <DatePicker
-                                          allowClear
-                                          placeholder="待定"
-                                          style={{ width: '100%' }}
-                                        />
-                                      </Form.Item>
-                                    ) : null}
-                                    {stage === 'pending_test' ? (
-                                      <Form.Item
-                                        name="actual_handover_at"
-                                        label="实际提测时间"
-                                        extra="可清空表示待定"
-                                      >
-                                        <DatePicker
-                                          allowClear
-                                          placeholder="待定"
-                                          style={{ width: '100%' }}
-                                        />
-                                      </Form.Item>
-                                    ) : null}
-                                    {stage === 'testing' ? (
-                                      <>
-                                        <Form.Item
-                                          name="test_started_at"
-                                          label="测试开始时间"
-                                          extra="可清空表示待定"
-                                        >
-                                          <DatePicker
-                                            allowClear
-                                            placeholder="待定"
-                                            style={{ width: '100%' }}
-                                          />
-                                        </Form.Item>
-                                        <Form.Item
-                                          name="expected_test_end_at"
-                                          label="预计测试结束"
-                                          extra="可清空表示待定"
-                                        >
-                                          <DatePicker
-                                            allowClear
-                                            placeholder="待定"
-                                            style={{ width: '100%' }}
-                                          />
-                                        </Form.Item>
-                                      </>
-                                    ) : null}
-                                    {stage === 'test_done' ? (
-                                      <Form.Item
-                                        name="test_ended_at"
-                                        label="测试结束时间"
-                                        extra="可清空表示待定"
-                                      >
-                                        <DatePicker
-                                          allowClear
-                                          placeholder="待定"
-                                          style={{ width: '100%' }}
-                                        />
-                                      </Form.Item>
-                                    ) : null}
-                                  </>
-                                )
-                              }}
-                            </Form.Item>
-                          </>
-                        ) : (
-                          <p className="tm-sheet__tip" style={{ marginBottom: 12 }}>
-                            <Tag color={reqStageTagColor(taskDetail.req_stage)}>{reqStageLabel(taskDetail.req_stage)}</Tag>
-                            {taskDetail.stage_summary ? (
-                              <Text type="secondary"> {taskDetail.stage_summary}</Text>
-                            ) : null}
-                            <span className="tm-sheet__muted"> · 仅 Admin/Manager 可改需求进展</span>
-                          </p>
-                        )}
-                        {showTestStatus(taskDetail.req_stage) || taskDetail.can_edit_req_stage ? (
-                          <Form.Item noStyle shouldUpdate>
+                          <Form.Item
+                            noStyle
+                            shouldUpdate={(prev, cur) => prev.display_status !== cur.display_status}
+                          >
                             {({ getFieldValue }) => {
-                              const stage = (getFieldValue('req_stage') ||
-                                taskDetail.req_stage) as string
-                              if (!showTestStatus(stage)) return null
+                              const ds = getFieldValue('display_status') as string
+                              const { req_stage } = splitDisplayStatus(ds)
                               return (
-                                <Form.Item name="status" label="测试状态">
-                                  <Select
-                                    data-testid="tm-task-status"
-                                    options={[
-                                      { value: 'published', label: '进行中' },
-                                      { value: 'done', label: '已完成' },
-                                    ]}
-                                  />
-                                </Form.Item>
+                                <>
+                                  {req_stage === 'pending_handover' ? (
+                                    <Form.Item
+                                      name="expected_handover_at"
+                                      label="预计提测时间"
+                                      extra="可清空表示待定"
+                                    >
+                                      <DatePicker
+                                        allowClear
+                                        placeholder="待定"
+                                        style={{ width: '100%' }}
+                                      />
+                                    </Form.Item>
+                                  ) : null}
+                                  {req_stage === 'pending_test' ? (
+                                    <Form.Item
+                                      name="actual_handover_at"
+                                      label="实际提测时间"
+                                      extra="可清空表示待定"
+                                    >
+                                      <DatePicker
+                                        allowClear
+                                        placeholder="待定"
+                                        style={{ width: '100%' }}
+                                      />
+                                    </Form.Item>
+                                  ) : null}
+                                  {req_stage === 'testing' ? (
+                                    <>
+                                      <Form.Item
+                                        name="test_started_at"
+                                        label="测试开始时间"
+                                        extra="可清空表示待定"
+                                      >
+                                        <DatePicker
+                                          allowClear
+                                          placeholder="待定"
+                                          style={{ width: '100%' }}
+                                        />
+                                      </Form.Item>
+                                      <Form.Item
+                                        name="expected_test_end_at"
+                                        label="预计测试结束"
+                                        extra="可清空表示待定"
+                                      >
+                                        <DatePicker
+                                          allowClear
+                                          placeholder="待定"
+                                          style={{ width: '100%' }}
+                                        />
+                                      </Form.Item>
+                                    </>
+                                  ) : null}
+                                  {req_stage === 'test_done' ? (
+                                    <Form.Item
+                                      name="test_ended_at"
+                                      label="测试结束时间"
+                                      extra="可清空表示待定"
+                                    >
+                                      <DatePicker
+                                        allowClear
+                                        placeholder="待定"
+                                        style={{ width: '100%' }}
+                                      />
+                                    </Form.Item>
+                                  ) : null}
+                                </>
                               )
                             }}
                           </Form.Item>
@@ -1268,16 +1281,19 @@ export default function ProjectManagePage() {
                           loading={updateTaskMut.isPending}
                           data-testid="tm-task-save"
                         >
-                          保存需求进展
+                          保存状态
                         </Button>
                       </Form>
                     ) : (
                       <p className="tm-sheet__tip">
-                        <Tag color={reqStageTagColor(taskDetail.req_stage)}>{reqStageLabel(taskDetail.req_stage)}</Tag>
+                        <Tag color={displayStatusTagColor(taskDetail.display_status)}>
+                          {displayStatusLabel(taskDetail.display_status)}
+                        </Tag>
                         {taskDetail.stage_summary ? (
                           <Text type="secondary"> {taskDetail.stage_summary}</Text>
                         ) : null}
                         {viewingHistory ? ' · 历史周只读' : null}
+                        {!taskDetail.can_edit_req_stage ? ' · 仅 Admin/Manager 可改状态' : null}
                       </p>
                     )}
                   </section>
@@ -1290,7 +1306,7 @@ export default function ProjectManagePage() {
                     <h3 className="tm-sheet__h">本周测试进度</h3>
                     {taskDetail.req_stage !== REQ_STAGE_TESTING ? (
                       <p className="tm-sheet__tip tm-sheet__tip--warn" data-testid="tm-task-progress-locked">
-                        仅「测试中」可填写本周进度（当前：{reqStageLabel(taskDetail.req_stage)}）
+                        仅「测试中」可填写本周进度（当前：{displayStatusLabel(taskDetail.display_status)}）
                       </p>
                     ) : null}
                     {!viewingHistory && taskWeekProgress ? (
@@ -1449,27 +1465,19 @@ export default function ProjectManagePage() {
                     ) : (
                       <dl className="tm-sheet__dl">
                         <div>
-                          <dt>需求进展</dt>
+                          <dt>状态</dt>
                           <dd>
-                            <Tag color={reqStageTagColor(taskDetail.req_stage)}>{reqStageLabel(taskDetail.req_stage)}</Tag>
+                            <Tag color={displayStatusTagColor(taskDetail.display_status)}>
+                              {displayStatusLabel(taskDetail.display_status)}
+                            </Tag>
                             {taskDetail.stage_summary ? (
                               <Text type="secondary"> {taskDetail.stage_summary}</Text>
                             ) : null}
                             <div className="tm-sheet__muted" style={{ marginTop: 4 }}>
-                              改流程请用「操作 → 进度」
+                              改状态请用「操作 → 进度」
                             </div>
                           </dd>
                         </div>
-                        {showTestStatus(taskDetail.req_stage) ? (
-                          <div>
-                            <dt>测试状态</dt>
-                            <dd>
-                              <Tag color={STATUS_LABEL[taskDetail.status]?.color}>
-                                {STATUS_LABEL[taskDetail.status]?.text}
-                              </Tag>
-                            </dd>
-                          </div>
-                        ) : null}
                         <div>
                           <dt>项目 / 领域</dt>
                           <dd>
@@ -1515,23 +1523,61 @@ export default function ProjectManagePage() {
                     </section>
                   ) : null}
 
+                  {(taskDetail.subtasks || []).length > 0 ? (
+                    <section className="tm-sheet__section">
+                      <h3 className="tm-sheet__h">
+                        子需求
+                        <span className="tm-sheet__muted"> · {taskDetail.subtasks!.length}</span>
+                      </h3>
+                      <Table
+                        size="small"
+                        rowKey="sid"
+                        pagination={false}
+                        columns={[
+                          { title: '名称', dataIndex: 'name', key: 'name', width: 180, render: (t: string) => <Text strong>{t}</Text> },
+                          { title: '内容', dataIndex: 'content', key: 'content', ellipsis: true, render: (t?: string) => t || <Text type="secondary">—</Text> },
+                          {
+                            title: '操作',
+                            key: 'op',
+                            width: 60,
+                            render: (_: unknown, r: TmSubtask) =>
+                              !viewingHistory && taskDetail.can_edit ? (
+                                <Popconfirm
+                                  title="删除该子需求？"
+                                  description="其下未完成的 Action 将一并取消"
+                                  okText="删除"
+                                  okButtonProps={{ danger: true }}
+                                  onConfirm={() =>
+                                    deleteSubtaskMut.mutate({
+                                      taskId: taskDetail.id,
+                                      sid: r.sid,
+                                    })
+                                  }
+                                >
+                                  <Button size="small" type="link" danger>
+                                    删除
+                                  </Button>
+                                </Popconfirm>
+                              ) : null,
+                          },
+                        ]}
+                        dataSource={taskDetail.subtasks}
+                      />
+                    </section>
+                  ) : null}
+
                   {taskDetail.can_edit && !viewingHistory && taskDetail.can_add_action ? (
                     <section className="tm-sheet__section">
-                      <CloneLastWeekPanel
-                        candidates={cloneCandidates}
-                        cloneAllLoading={cloneLastWeekMut.isPending}
-                        cloneOneLoading={cloneMut.isPending}
-                        onCloneAll={() => cloneLastWeekMut.mutate(taskDetail.id)}
-                        onCloneOne={(id) => cloneMut.mutate(id)}
-                        onPreview={(c) => setPreviewClone(c)}
-                      />
                       <Button
                         type="dashed"
                         block
-                        onClick={() => setActionModalTask(taskDetail)}
+                        onClick={() => {
+                          setInlineAddTaskId(taskDetail.id)
+                          setEditTaskId(null)
+                        }}
                         data-testid="tm-btn-new-action-in-drawer"
                       >
-                        新建本周 Action
+                        新建本周 Action（在工作台卡片内填写）
                       </Button>
                     </section>
                   ) : null}
@@ -1545,54 +1591,6 @@ export default function ProjectManagePage() {
           </div>
         ) : null}
       </Drawer>
-
-      {/* 新建 Action */}
-      <Modal
-        title={actionModalTask ? `新建 Action · ${actionModalTask.title}` : '新建 Action'}
-        open={!!actionModalTask}
-        onCancel={() => setActionModalTask(null)}
-        footer={null}
-        destroyOnClose
-        width={560}
-      >
-        <div className="tm-sheet tm-sheet--modal" data-testid="tm-modal-new-action">
-          {cloneCandidates.length > 0 ? (
-            <div style={{ marginBottom: 12 }}>
-              <CloneLastWeekPanel
-                candidates={cloneCandidates}
-                cloneAllLoading={cloneLastWeekMut.isPending}
-                cloneOneLoading={cloneMut.isPending}
-                onCloneAll={() => actionModalTask && cloneLastWeekMut.mutate(actionModalTask.id)}
-                onCloneOne={(id) => cloneMut.mutate(id)}
-                onPreview={(c) => setPreviewClone(c)}
-              />
-            </div>
-          ) : actionModalTask ? (
-            <p className="tm-sheet__tip" style={{ marginBottom: 12 }}>
-              上周无可复制条目，请直接新建
-            </p>
-          ) : null}
-          <ActionCreateButtons
-            loading={createActionMut.isPending}
-            onDraft={(values) =>
-              createActionMut.mutate({
-                task_id: actionModalTask!.id,
-                ...values,
-                publish: false,
-              })
-            }
-            onPublish={(values) =>
-              createActionMut.mutate({
-                task_id: actionModalTask!.id,
-                ...values,
-                publish: true,
-              })
-            }
-            defaultOwnerId={actionModalTask?.lead_id || user?.id}
-            users={taskParticipantUsers(actionModalTask, users)}
-          />
-        </div>
-      </Modal>
 
       <Modal
         title="新建项目"
@@ -1678,91 +1676,227 @@ export default function ProjectManagePage() {
   )
 }
 
-function CloneLastWeekPanel(props: {
-  candidates: TmAction[]
-  cloneAllLoading?: boolean
-  cloneOneLoading?: boolean
-  onCloneAll: () => void
-  onCloneOne: (id: string) => void
-  onPreview: (c: TmAction) => void
+/**
+ * 快捷日更：卡片/表格行内轻量弹层，免开详情抽屉。
+ * 三步完成：拖进度 → 写今日完成 → 选风险状态（无/风险/阻塞）。
+ */
+function DailyQuickPopover(props: {
+  action: Pick<TmAction, 'id' | 'progress_percent' | 'latest_risk' | 'latest_is_blocking'>
+  loading?: boolean
+  onSubmit: (p: {
+    id: string
+    progress_percent: number
+    risk_blocker: string
+    is_blocking: boolean
+    progress_note: string
+  }) => void
+  children: ReactNode
 }) {
-  const { candidates } = props
+  const { message } = App.useApp()
+  const [open, setOpen] = useState(false)
+  const [progress, setProgress] = useState(props.action.progress_percent ?? 0)
+  const [note, setNote] = useState('')
+  const [riskLevel, setRiskLevel] = useState<'none' | 'risk' | 'blocking'>(
+    isBlockingFlag(props.action.latest_is_blocking)
+      ? 'blocking'
+      : (props.action.latest_risk || '').trim()
+        ? 'risk'
+        : 'none',
+  )
+  const [riskText, setRiskText] = useState(props.action.latest_risk || '')
+
+  /** 进度只增不减：下限为当前进度 */
+  const min = Math.min(props.action.progress_percent ?? 0, 100)
+
+  const reset = () => {
+    setProgress(props.action.progress_percent ?? 0)
+    setNote('')
+    setRiskLevel(
+      isBlockingFlag(props.action.latest_is_blocking)
+        ? 'blocking'
+        : (props.action.latest_risk || '').trim()
+          ? 'risk'
+          : 'none',
+    )
+    setRiskText(props.action.latest_risk || '')
+  }
+
+  const submit = () => {
+    if (!note.trim()) {
+      message.warning('请填写今日完成内容')
+      return
+    }
+    if (riskLevel !== 'none' && !riskText.trim()) {
+      message.warning('请填写风险/阻塞说明')
+      return
+    }
+    props.onSubmit({
+      id: props.action.id,
+      progress_percent: progress,
+      risk_blocker: riskLevel === 'none' ? '' : riskText.trim(),
+      is_blocking: riskLevel === 'blocking',
+      progress_note: note.trim(),
+    })
+    setOpen(false)
+    reset()
+  }
+
   return (
-    <Card
-      size="small"
-      className="tm-clone-panel"
-      title="复制上周"
-      data-testid="tm-clone-panel"
-      extra={
-        candidates.length > 0 ? (
-          <Button
-            type="link"
-            size="small"
-            loading={props.cloneAllLoading}
-            onClick={props.onCloneAll}
-            data-testid="tm-clone-all"
-          >
-            全部 · {candidates.length}
-          </Button>
-        ) : null
+    <Popover
+      trigger="click"
+      placement="left"
+      open={open}
+      onOpenChange={(v) => {
+        setOpen(v)
+        if (v) reset()
+      }}
+      title={
+        <span style={{ fontSize: 13 }}>
+          快捷日更 <Text type="secondary" style={{ fontSize: 12 }}>19:50 截止</Text>
+        </span>
       }
-    >
-      {candidates.length === 0 ? (
-        <Text type="secondary">上周无可复制条目</Text>
-      ) : (
-        <div className="tm-clone-list">
-          {candidates.map((c) => (
-            <div key={c.id} className="tm-clone-row">
+      content={
+        <div className="tm-daily-pop" data-testid="tm-daily-pop">
+          <div className="tm-daily-pop__progress-row">
+            <span className="tm-daily-pop__value" data-testid="tm-daily-pop-progress">
+              {progress}%
+            </span>
+            <Space size={4}>
               <Button
-                type="link"
                 size="small"
-                className="tm-clone-row__title"
-                onClick={() => props.onPreview(c)}
-                title={c.title}
+                disabled={progress >= 100}
+                onClick={() => setProgress(Math.min(100, progress + 10))}
+                data-testid="tm-daily-pop-plus10"
               >
-                {c.title}
+                +10
               </Button>
               <Button
-                type="text"
                 size="small"
-                className="tm-clone-row__copy"
-                icon={<CopyOutlined />}
-                loading={props.cloneOneLoading}
-                onClick={() => props.onCloneOne(c.id)}
-                aria-label={`复制 ${c.title}`}
-                title="复制到本周"
-              />
-            </div>
-          ))}
+                disabled={progress >= 100}
+                onClick={() => setProgress(100)}
+              >
+                100%
+              </Button>
+            </Space>
+          </div>
+          <Slider
+            min={min}
+            max={100}
+            value={progress}
+            onChange={setProgress}
+            tooltip={{ formatter: (v) => `${v}%` }}
+          />
+          <Input
+            placeholder="今日完成（必填）"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            onPressEnter={submit}
+            maxLength={TEXT_FIELD_MAX_CHARS}
+            data-testid="tm-daily-pop-note"
+          />
+          <Segmented
+            block
+            value={riskLevel}
+            onChange={(v) => setRiskLevel(v as 'none' | 'risk' | 'blocking')}
+            options={[
+              { value: 'none', label: '无风险' },
+              { value: 'risk', label: '有风险' },
+              { value: 'blocking', label: '阻塞' },
+            ]}
+            data-testid="tm-daily-pop-risk"
+          />
+          {riskLevel !== 'none' ? (
+            <Input
+              placeholder={riskLevel === 'blocking' ? '阻塞说明（必填）' : '风险说明（必填）'}
+              value={riskText}
+              onChange={(e) => setRiskText(e.target.value)}
+              status={!riskText.trim() ? 'error' : undefined}
+              maxLength={TEXT_FIELD_MAX_CHARS}
+              data-testid="tm-daily-pop-risk-text"
+            />
+          ) : null}
+          <Button
+            type="primary"
+            block
+            loading={props.loading}
+            onClick={submit}
+            data-testid="tm-daily-pop-submit"
+          >
+            提交日更
+          </Button>
         </div>
-      )}
-    </Card>
+      }
+    >
+      {props.children}
+    </Popover>
   )
 }
 
 function BoardTaskCard(props: {
   bt: BoardTask
-  /** 历史周只读：隐藏新建 / 发布等写操作 */
   readOnly?: boolean
-  /** 本周无 Action 时标红提示 */
   highlightEmpty?: boolean
   userName: (id: number) => string
+  users: { id: number; username: string; real_name: string }[]
   onOpenAction: (id: string) => void
   onEditTask: (focus: 'progress' | 'detail') => void
-  onAddAction: () => void
+  /** 外部（Task 抽屉）请求展开 inline 新建表单 */
+  forceInlineAdd?: boolean
+  onInlineAddDone?: () => void
+  onCreateAction: (
+    values: {
+      title: string
+      subtask_name: string
+      owner_id: number
+      test_content: string
+      environment: string
+    },
+    publish: boolean,
+  ) => void
+  onCreateSubtask: (name: string, content?: string) => void
+  createActionLoading?: boolean
+  createSubtaskLoading?: boolean
   onPublishAction: (id: string) => void
+  /** 快捷日更可见性（默认 true；页面按负责人/管理员判定后传入） */
+  canQuickDaily?: (a: TmAction) => boolean
+  onDaily: (p: {
+    id: string
+    progress_percent: number
+    risk_blocker: string
+    is_blocking: boolean
+    progress_note: string
+  }) => void
+  dailyLoading?: boolean
   onArchiveTask: () => void
   onDeleteTask: () => void
   archiveLoading?: boolean
   deleteLoading?: boolean
 }) {
   const { bt, userName, readOnly, highlightEmpty } = props
+  const { message } = App.useApp()
   const [actionPage, setActionPage] = useState(1)
-  const st = STATUS_LABEL[bt.task.status] || { color: 'default', text: bt.task.status }
+  const [inlineAddOpen, setInlineAddOpen] = useState(false)
+  const [newSubtaskMode, setNewSubtaskMode] = useState(false)
+  const [newSubtaskName, setNewSubtaskName] = useState('')
+  const [newSubtaskContent, setNewSubtaskContent] = useState('')
+  const [addForm] = Form.useForm()
+  const st = bt.task.display_status || 'pending_dev'
+  const stLabel = displayStatusLabel(st)
+  const stColor = displayStatusTagColor(st)
 
   useEffect(() => {
     setActionPage(1)
   }, [bt.task.id])
+
+  /** 抽屉触发展开 inline 新建 */
+  useEffect(() => {
+    if (props.forceInlineAdd) {
+      setInlineAddOpen(true)
+      setNewSubtaskMode((bt.task.subtasks || []).length === 0)
+      props.onInlineAddDone?.()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.forceInlineAdd])
 
   useEffect(() => {
     const maxPage = Math.max(1, Math.ceil(bt.actions.length / ACTION_CARD_PAGE_SIZE) || 1)
@@ -1776,22 +1910,43 @@ function BoardTaskCard(props: {
     return actionsSorted.slice(start, start + ACTION_CARD_PAGE_SIZE)
   }, [actionsSorted, actionPage])
 
+  const subtaskRowSpans = useMemo(() => {
+    const spans: number[] = new Array(actionsPaged.length).fill(1)
+    for (let i = actionsPaged.length - 1; i > 0; i--) {
+      const prev = (actionsPaged[i - 1].subtask_name || '').trim()
+      const curr = (actionsPaged[i].subtask_name || '').trim()
+      if (prev && prev === curr) {
+        spans[i - 1] += spans[i]
+        spans[i] = 0
+      }
+    }
+    return spans
+  }, [actionsPaged])
+
   const taskMenuItems: MenuProps['items'] = [
     { key: 'detail', label: '详情' },
     ...(!readOnly && bt.task.can_edit
       ? [
           { key: 'progress', label: '进度' },
           {
-            key: 'archive',
-            label: '归档',
-            disabled: !!props.archiveLoading,
-          },
-          {
-            key: 'delete',
-            label: '删除',
-            danger: true,
+            key: 'archive-delete',
+            label: '归档/删除',
             icon: <DeleteOutlined />,
-            disabled: !!props.deleteLoading,
+            disabled: !!props.archiveLoading || !!props.deleteLoading,
+            type: 'submenu' as const,
+            children: [
+              {
+                key: 'archive',
+                label: '归档',
+                disabled: !!props.archiveLoading,
+              },
+              {
+                key: 'delete',
+                label: '删除',
+                danger: true,
+                disabled: !!props.deleteLoading,
+              },
+            ],
           },
         ]
       : []),
@@ -1806,7 +1961,7 @@ function BoardTaskCard(props: {
           <span className="tm-board-task-title" data-testid="tm-board-task-title">
             {bt.task.title}
           </span>
-          <Tag color={st.color}>{st.text}</Tag>
+          <Tag color={stColor}>{stLabel}</Tag>
           <Tag>
             {bt.task.project_name}/{bt.task.domain_name}
           </Tag>
@@ -1853,7 +2008,10 @@ function BoardTaskCard(props: {
             <Button
               size="small"
               type="primary"
-              onClick={props.onAddAction}
+              onClick={() => {
+                setInlineAddOpen(true)
+                setNewSubtaskMode((bt.task.subtasks || []).length === 0)
+              }}
               data-testid="tm-btn-add-action"
             >
               + Action
@@ -1863,8 +2021,6 @@ function BoardTaskCard(props: {
       }
     >
       <Paragraph type="secondary" className="tm-board-task-req" ellipsis={{ rows: 2 }}>
-        <Tag color={reqStageTagColor(bt.task.req_stage)}>{reqStageLabel(bt.task.req_stage)}</Tag>
-        {bt.task.stage_summary ? `${bt.task.stage_summary} · ` : null}
         需求：{bt.task.requirement || '（无）'} · 负责人 {userName(bt.task.lead_id)}
       </Paragraph>
       {bt.actions.length === 0 ? (
@@ -1877,57 +2033,123 @@ function BoardTaskCard(props: {
         />
       ) : (
         <>
-          <div className="tm-action-grid" data-testid={`tm-task-action-grid-${bt.task.id}`}>
-            {actionsPaged.map((a) => (
-              <Card
-                key={a.id}
-                size="small"
-                className="tm-action-card"
-                onClick={() => props.onOpenAction(a.id)}
-                title={a.title}
-                data-testid={`tm-action-card-${a.id}`}
-                data-action-title={a.title}
-                extra={
-                  <Space size={4}>
-                    <Tag color={STATUS_LABEL[a.status]?.color}>{STATUS_LABEL[a.status]?.text}</Tag>
-                    {!readOnly && a.status === 'draft' && a.can_edit_fields && (
+          <Table
+            size="small"
+            className="tm-action-table"
+            data-testid={`tm-task-action-table-${bt.task.id}`}
+            rowKey="id"
+            dataSource={actionsPaged}
+            pagination={false}
+            onRow={(a): any => ({
+              onClick: () => props.onOpenAction(a.id),
+              className: 'tm-action-card tm-action-table__row',
+              'data-testid': `tm-action-card-${a.id}`,
+              'data-action-title': a.title,
+            })}
+            columns={[
+              {
+                title: '子需求',
+                dataIndex: 'subtask_name',
+                width: 150,
+                ellipsis: true,
+                onCell: (_: unknown, index?: number) => ({
+                  rowSpan: index != null ? subtaskRowSpans[index] : 1,
+                }),
+                render: (v: string, _: unknown, index?: number) => {
+                  if (index != null && subtaskRowSpans[index] === 0) return null
+                  return v ? (
+                    <Tooltip title={`子需求：${v}`}>
+                      <span className="tm-action-table__subtask">{v}</span>
+                    </Tooltip>
+                  ) : (
+                    <Text type="secondary">—</Text>
+                  )
+                },
+              },
+              {
+                title: 'Action',
+                dataIndex: 'title',
+                ellipsis: true,
+                render: (v: string) => <span className="tm-action-table__title">{v}</span>,
+              },
+              {
+                title: '负责人',
+                dataIndex: 'owner_id',
+                width: 90,
+                ellipsis: true,
+                render: (v: number) => userName(v),
+              },
+              {
+                title: '进度',
+                dataIndex: 'progress_percent',
+                width: 150,
+                render: (v: number) => (
+                  <Progress percent={v} size="small" className="tm-action-table__progress" />
+                ),
+              },
+              {
+                title: '状态',
+                dataIndex: 'status',
+                width: 96,
+                render: (v: string, a: TmAction) => (
+                  <Space size={4} wrap={false}>
+                    <Tag color={STATUS_LABEL[v]?.color}>{STATUS_LABEL[v]?.text}</Tag>
+                    {!readOnly && v === 'draft' && a.can_edit_fields ? (
                       <Text type="secondary" style={{ fontSize: 12 }}>
                         点开可编辑
                       </Text>
-                    )}
+                    ) : null}
                   </Space>
-                }
-              >
-                <Progress percent={a.progress_percent} size="small" />
-                <Text type="secondary" className="tm-action-card__owner">
-                  本周负责人 {userName(a.owner_id)}
-                </Text>
-                {a.status === 'published' && a.latest_risk && (
-                  <Paragraph
-                    type="danger"
-                    className="tm-action-card__risk"
-                    ellipsis={{ rows: 3, tooltip: a.latest_risk }}
-                    style={{ marginBottom: 0 }}
-                  >
-                    <WarningOutlined /> {a.latest_risk}
-                  </Paragraph>
-                )}
-                {!readOnly && a.status === 'draft' && a.can_edit_fields && (
-                  <Button
-                    size="small"
-                    type="link"
-                    icon={<SendOutlined />}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      props.onPublishAction(a.id)
-                    }}
-                  >
-                    发布
-                  </Button>
-                )}
-              </Card>
-            ))}
-          </div>
+                ),
+              },
+              {
+                title: '风险',
+                dataIndex: 'latest_risk',
+                ellipsis: true,
+                render: (v: string | undefined, a: TmAction) =>
+                  a.status === 'published' && v ? (
+                    <Tooltip title={v}>
+                      <Text type="danger" className="tm-action-table__risk">
+                        <WarningOutlined /> {v}
+                      </Text>
+                    </Tooltip>
+                  ) : (
+                    <Text type="secondary">—</Text>
+                  ),
+              },
+              {
+                title: '操作',
+                key: 'op',
+                width: 108,
+                render: (_: unknown, a: TmAction) =>
+                  !readOnly ? (
+                    <Space size={0} wrap={false} onClick={(e) => e.stopPropagation()}>
+                      {a.status === 'published' && (props.canQuickDaily?.(a) ?? true) ? (
+                        <DailyQuickPopover
+                          action={a}
+                          loading={props.dailyLoading}
+                          onSubmit={props.onDaily}
+                        >
+                          <Button size="small" type="link" data-testid={`tm-quick-daily-${a.id}`}>
+                            日更
+                          </Button>
+                        </DailyQuickPopover>
+                      ) : null}
+                      {a.status === 'draft' && a.can_edit_fields ? (
+                        <Button
+                          size="small"
+                          type="link"
+                          icon={<SendOutlined />}
+                          onClick={() => props.onPublishAction(a.id)}
+                        >
+                          发布
+                        </Button>
+                      ) : null}
+                    </Space>
+                  ) : null,
+              },
+            ]}
+          />
           {bt.actions.length > ACTION_CARD_PAGE_SIZE ? (
             <div
               className="tm-board-pagination"
@@ -1945,116 +2167,220 @@ function BoardTaskCard(props: {
           ) : null}
         </>
       )}
+      {inlineAddOpen && !readOnly ? (
+        <InlineAddAction
+          task={bt.task}
+          users={props.users}
+          form={addForm}
+          loading={!!props.createActionLoading}
+          subtaskCreating={!!props.createSubtaskLoading}
+          newSubtaskMode={newSubtaskMode}
+          newSubtaskName={newSubtaskName}
+          newSubtaskContent={newSubtaskContent}
+          onToggleNewSubtask={() => {
+            setNewSubtaskMode(!newSubtaskMode)
+            setNewSubtaskName('')
+            setNewSubtaskContent('')
+          }}
+          onNewSubtaskNameChange={setNewSubtaskName}
+          onNewSubtaskContentChange={setNewSubtaskContent}
+          onCreateSubtask={() => {
+            const name = newSubtaskName.trim()
+            if (!name) return
+            props.onCreateSubtask(name, newSubtaskContent.trim())
+            setNewSubtaskName('')
+            setNewSubtaskContent('')
+            setNewSubtaskMode(false)
+            addForm.setFieldsValue({ subtask_name: name })
+          }}
+          onCancel={() => {
+            setInlineAddOpen(false)
+            setNewSubtaskMode(false)
+            setNewSubtaskName('')
+            setNewSubtaskContent('')
+            addForm.resetFields()
+          }}
+          onSubmit={(publish) => {
+            void addForm.validateFields().then((v) => {
+              const subName = newSubtaskMode
+                ? newSubtaskName.trim()
+                : (v.subtask_name || '').trim()
+              if (!subName) {
+                message.warning('请选择或新建子需求')
+                return
+              }
+              props.onCreateAction(
+                {
+                  title: v.title.trim(),
+                  subtask_name: subName,
+                  owner_id: Number(v.owner_id),
+                  test_content: v.test_content || '',
+                  environment: v.environment || '',
+                },
+                publish,
+              )
+              setInlineAddOpen(false)
+              setNewSubtaskMode(false)
+              setNewSubtaskName('')
+              addForm.resetFields()
+            })
+          }}
+        />
+      ) : null}
     </Card>
   )
 }
 
-function ActionCreateButtons(props: {
+function InlineAddAction(props: {
+  task: TmTask
+  users: { id: number; username: string; real_name: string }[]
+  form: FormInstance
   loading: boolean
-  defaultOwnerId?: number
-  users: { id: number; username: string }[]
-  onDraft: (v: {
-    title: string
-    owner_id: number
-    test_content: string
-    environment: string
-  }) => void
-  onPublish: (v: {
-    title: string
-    owner_id: number
-    test_content: string
-    environment: string
-  }) => void
+  subtaskCreating: boolean
+  newSubtaskMode: boolean
+  newSubtaskName: string
+  onToggleNewSubtask: () => void
+  onNewSubtaskNameChange: (v: string) => void
+  onNewSubtaskContentChange: (v: string) => void
+  newSubtaskContent: string
+  onCreateSubtask: () => void
+  onCancel: () => void
+  onSubmit: (publish: boolean) => void
 }) {
-  const [form] = Form.useForm()
-  const ownerOptions = userSelectOptions(props.users)
-  const defaultOwner =
-    props.defaultOwnerId != null &&
-    props.users.some((u) => Number(u.id) === Number(props.defaultOwnerId))
-      ? Number(props.defaultOwnerId)
-      : props.users[0]?.id
+  const { task, users, form } = props
+  const ownerOptions = userSelectOptions(users.map((u) => ({ ...u, real_name: u.real_name || u.username })))
+  const subtaskOptions = useMemo(
+    () =>
+      (task.subtasks || []).map((s) => ({
+        value: s.name,
+        label: s.name,
+      })),
+    [task.subtasks],
+  )
+  const defaultOwner = task.lead_id && users.some((u) => Number(u.id) === Number(task.lead_id))
+    ? Number(task.lead_id)
+    : users[0]?.id
+  useEffect(() => {
+    form.setFieldsValue({ owner_id: defaultOwner })
+  }, [defaultOwner, form])
   return (
-    <Form
-      form={form}
-      layout="vertical"
-      className="tm-sheet__form"
-      initialValues={{ owner_id: defaultOwner }}
-    >
-      <Form.Item name="title" label="标题" rules={[{ required: true }]}>
-        <Input
-          placeholder="本周 Action"
-          maxLength={300}
-          showCount
-          data-testid="tm-action-title"
-        />
-      </Form.Item>
-      <Form.Item
-        name="owner_id"
-        label="本周负责人"
-        rules={[{ required: true, message: '请选择' }]}
-      >
-        <Select
-          options={ownerOptions}
-          showSearch
-          optionFilterProp="label"
-          placeholder={ownerOptions.length ? '选择负责人' : '无参与者可选'}
-          notFoundContent="无参与者"
-          data-testid="tm-action-owner"
-        />
-      </Form.Item>
-      <Form.Item name="test_content" label="测试内容">
-        <TextArea
-          rows={3}
-          placeholder="可选"
-          maxLength={TEXT_FIELD_MAX_CHARS}
-          showCount
-          data-testid="tm-action-content"
-        />
-      </Form.Item>
-      <Form.Item name="environment" label="环境">
-        <Input
-          placeholder="可选"
-          maxLength={ACTION_ENVIRONMENT_MAX_CHARS}
-          showCount
-          data-testid="tm-action-env"
-        />
-      </Form.Item>
-      <div className="tm-sheet__actions" style={{ justifyContent: 'flex-end' }}>
-        <Button
-          loading={props.loading}
-          data-testid="tm-submit-action-draft"
-          onClick={() =>
-            void form.validateFields().then((v) =>
-              props.onDraft({
-                title: v.title,
-                owner_id: Number(v.owner_id),
-                test_content: v.test_content || '',
-                environment: v.environment || '',
-              }),
-            )
-          }
-        >
-          仅存草稿
-        </Button>
-        <Button
-          type="primary"
-          loading={props.loading}
-          data-testid="tm-submit-action-publish"
-          onClick={() =>
-            void form.validateFields().then((v) =>
-              props.onPublish({
-                title: v.title,
-                owner_id: Number(v.owner_id),
-                test_content: v.test_content || '',
-                environment: v.environment || '',
-              }),
-            )
-          }
-        >
-          保存并发布
-        </Button>
-      </div>
-    </Form>
+    <div className="tm-inline-add" data-testid="tm-inline-add-action">
+      <Form form={form} layout="vertical" size="small" className="tm-inline-add__form" initialValues={{ owner_id: defaultOwner }}>
+        <div className="tm-inline-add__row">
+          <Form.Item
+            name="subtask_name"
+            label="子需求"
+            style={{ width: 140, marginBottom: 0 }}
+            rules={props.newSubtaskMode ? [] : [{ required: true, message: '必填' }]}
+          >
+            {props.newSubtaskMode ? (
+              <Input
+                placeholder="新子需求名称"
+                value={props.newSubtaskName}
+                onChange={(e) => props.onNewSubtaskNameChange(e.target.value)}
+                onPressEnter={props.onCreateSubtask}
+                data-testid="tm-inline-new-subtask"
+              />
+            ) : (
+              <Select
+                options={subtaskOptions}
+                showSearch
+                optionFilterProp="label"
+                placeholder="选择子需求"
+                data-testid="tm-inline-subtask"
+                dropdownRender={(menu) => (
+                  <>
+                    {menu}
+                    <div className="tm-inline-add__dropdown-new">
+                      <Button
+                        type="link"
+                        size="small"
+                        block
+                        icon={<PlusOutlined />}
+                        onClick={props.onToggleNewSubtask}
+                      >
+                        新建子需求
+                      </Button>
+                    </div>
+                  </>
+                )}
+              />
+            )}
+          </Form.Item>
+          {props.newSubtaskMode ? (
+            <Form.Item label="子需求内容" style={{ flex: 1, marginBottom: 0, minWidth: 180 }}>
+              <Input
+                placeholder="子需求内容（可选）"
+                value={props.newSubtaskContent}
+                onChange={(e) => props.onNewSubtaskContentChange(e.target.value)}
+                onPressEnter={props.onCreateSubtask}
+                maxLength={TEXT_FIELD_MAX_CHARS}
+                data-testid="tm-inline-new-subtask-content"
+              />
+            </Form.Item>
+          ) : null}
+          <Form.Item
+            name="title"
+            label="Action 标题"
+            style={{ flex: 1, marginBottom: 0, minWidth: 160 }}
+            rules={[{ required: true, message: '必填' }]}
+          >
+            <Input placeholder="本周 Action" maxLength={300} data-testid="tm-inline-title" />
+          </Form.Item>
+          <Form.Item
+            name="owner_id"
+            label="负责人"
+            style={{ width: 100, marginBottom: 0 }}
+            rules={[{ required: true, message: '必填' }]}
+          >
+            <Select options={ownerOptions} showSearch optionFilterProp="label" placeholder="选择" data-testid="tm-inline-owner" />
+          </Form.Item>
+          <Form.Item name="environment" label="环境" style={{ width: 110, marginBottom: 0 }}>
+            <Input placeholder="test/prod" maxLength={ACTION_ENVIRONMENT_MAX_CHARS} data-testid="tm-inline-env" />
+          </Form.Item>
+          <div className="tm-inline-add__btns">
+            {props.newSubtaskMode ? (
+              <Button
+                size="small"
+                type="primary"
+                loading={props.subtaskCreating}
+                disabled={!props.newSubtaskName.trim()}
+                onClick={props.onCreateSubtask}
+              >
+                创建子需求
+              </Button>
+            ) : null}
+            <Button size="small" onClick={props.onCancel}>取消</Button>
+            {!props.newSubtaskMode ? (
+              <>
+                <Button
+                  size="small"
+                  loading={props.loading}
+                  onClick={() => props.onSubmit(false)}
+                  data-testid="tm-inline-draft"
+                >
+                  存草稿
+                </Button>
+                <Button
+                  size="small"
+                  type="primary"
+                  loading={props.loading}
+                  onClick={() => props.onSubmit(true)}
+                  data-testid="tm-inline-publish"
+                >
+                  发布
+                </Button>
+              </>
+            ) : null}
+          </div>
+        </div>
+        {!props.newSubtaskMode ? (
+          <Form.Item name="test_content" label="测试内容" style={{ marginBottom: 0, marginTop: 8 }}>
+            <Input placeholder="可选" maxLength={TEXT_FIELD_MAX_CHARS} data-testid="tm-inline-content" />
+          </Form.Item>
+        ) : null}
+      </Form>
+    </div>
   )
 }
 
@@ -2080,6 +2406,7 @@ function ActionDetailDrawer(props: {
     id: string,
     data: {
       title?: string
+      subtask_name?: string
       owner_id?: number
       test_content?: string
       environment?: string
@@ -2178,7 +2505,7 @@ function ActionDetailDrawer(props: {
                 <span className="tm-sheet__task">{d.task_title}</span>
               </div>
               <div className="tm-sheet__meta-row">
-                负责人 {props.userName(d.owner_id)}
+                子需求 {d.subtask_name || '—'} · 负责人 {props.userName(d.owner_id)}
               </div>
               <Progress
                 percent={d.progress_percent}
@@ -2258,11 +2585,27 @@ function ActionDetailDrawer(props: {
                   key={`${d.id}-${d.updated_at || ''}`}
                   initialValues={{
                     title: d.title,
+                    subtask_name: d.subtask_name,
                     owner_id: d.owner_id,
                     test_content: d.test_content,
                     environment: d.environment,
                   }}
                 >
+                  <Form.Item
+                    name="subtask_name"
+                    label="关联子需求"
+                    rules={[{ required: true, message: '请选择子需求' }]}
+                  >
+                    <Select
+                      options={(draftTask?.subtasks || []).map((s) => ({
+                        value: s.name,
+                        label: s.name,
+                      }))}
+                      showSearch
+                      optionFilterProp="label"
+                      placeholder="选择子需求"
+                    />
+                  </Form.Item>
                   <Form.Item name="title" label="标题" rules={[{ required: true }]}>
                     <Input maxLength={300} showCount />
                   </Form.Item>
@@ -2287,6 +2630,7 @@ function ActionDetailDrawer(props: {
                         void draftForm.validateFields().then((v) =>
                           props.onSaveDraft(d.id, {
                             title: v.title,
+                            subtask_name: v.subtask_name,
                             owner_id: Number(v.owner_id),
                             test_content: v.test_content || '',
                             environment: v.environment || '',
@@ -2312,6 +2656,10 @@ function ActionDetailDrawer(props: {
               <section className="tm-sheet__section">
                 <h3 className="tm-sheet__h">基本信息</h3>
                 <dl className="tm-sheet__dl">
+                  <div>
+                    <dt>子需求</dt>
+                    <dd>{d.subtask_name || '—'}</dd>
+                  </div>
                   <div>
                     <dt>测试内容</dt>
                     <dd>{d.test_content || '—'}</dd>
@@ -2372,7 +2720,7 @@ function ActionDetailDrawer(props: {
                 <Form
                   form={dailyForm}
                   layout="vertical"
-                  size="middle"
+                  size="small"
                   className="tm-sheet__form"
                   key={`tm-daily-${d.id}`}
                   preserve={false}
@@ -2388,38 +2736,23 @@ function ActionDetailDrawer(props: {
                 >
                   <Form.Item
                     name="progress_percent"
-                    label="进度 %"
-                    extra={`≥ 当前 ${d.progress_percent}%`}
+                    label="当前进度"
                     rules={[{ required: true, message: '必填' }]}
+                    style={{ marginBottom: 12 }}
                   >
                     <InputNumber
                       min={d.progress_percent ?? 0}
                       max={100}
                       style={{ width: '100%' }}
+                      placeholder={`当前 ${d.progress_percent}%`}
                       data-testid="tm-daily-progress"
                     />
                   </Form.Item>
-                  <Form.Item name="risk_blocker" label="风险">
-                    <TextArea
-                      rows={2}
-                      maxLength={TEXT_FIELD_MAX_CHARS}
-                      showCount
-                      placeholder="可选：当前风险说明"
-                      data-testid="tm-daily-risk"
-                    />
-                  </Form.Item>
-                  <Form.Item
-                    name="is_blocking"
-                    label="是否阻塞"
-                    valuePropName="checked"
-                    extra="必须勾选后，大屏「阻塞」筛选 / 日报才会计入"
-                  >
-                    <Checkbox data-testid="tm-daily-is-blocking">此风险构成阻塞</Checkbox>
-                  </Form.Item>
                   <Form.Item
                     name="progress_note"
-                    label="说明"
+                    label="今日完成"
                     rules={[{ required: true, whitespace: true, message: '必填' }]}
+                    style={{ marginBottom: 12 }}
                   >
                     <TextArea
                       rows={2}
@@ -2429,6 +2762,35 @@ function ActionDetailDrawer(props: {
                       data-testid="tm-daily-note"
                     />
                   </Form.Item>
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: 12,
+                      alignItems: 'flex-start',
+                      marginBottom: 12,
+                    }}
+                  >
+                    <Form.Item
+                      name="risk_blocker"
+                      label="风险"
+                      style={{ flex: 1, marginBottom: 0 }}
+                    >
+                      <TextArea
+                        rows={2}
+                        maxLength={TEXT_FIELD_MAX_CHARS}
+                        placeholder="如有风险，简要说明"
+                        data-testid="tm-daily-risk"
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name="is_blocking"
+                      label="阻塞"
+                      valuePropName="checked"
+                      style={{ marginBottom: 0, paddingTop: 22 }}
+                    >
+                      <Checkbox data-testid="tm-daily-is-blocking">是否阻塞</Checkbox>
+                    </Form.Item>
+                  </div>
                   <Button
                     type="primary"
                     htmlType="submit"

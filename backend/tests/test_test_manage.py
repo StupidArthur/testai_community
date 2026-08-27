@@ -120,6 +120,39 @@ def _seed_task(client, mgr_headers, project_id, domain_id, lead_id, tester_ids=N
         headers=mgr_headers,
     )
     assert r.status_code == 201, r.text
+    task = r.json()
+    # 自动带一个默认子需求，便于测试创建 Action（subtask_name 必填）
+    _seed_subtask(client, mgr_headers, task["id"], DEFAULT_SUBTASK_NAME, "默认子需求内容")
+    return task
+
+
+DEFAULT_SUBTASK_NAME = "默认子需求"
+
+
+def _seed_subtask(client, headers, task_id, name=DEFAULT_SUBTASK_NAME, content=""):
+    r = client.post(
+        f"/api/test-manage/tasks/{task_id}/subtasks",
+        json={"name": name, "content": content},
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+def _create_action(client, headers, task_id, title, *, publish=True, subtask_name=None,
+                   owner_id=None, **extra):
+    """统一封装 Action 创建：自动补 subtask_name（必填）。"""
+    payload = {
+        "task_id": task_id,
+        "title": title,
+        "subtask_name": subtask_name or DEFAULT_SUBTASK_NAME,
+        "publish": publish,
+    }
+    if owner_id is not None:
+        payload["owner_id"] = owner_id
+    payload.update(extra)
+    r = client.post("/api/test-manage/actions", json=payload, headers=headers)
+    assert r.status_code == 201, r.text
     return r.json()
 
 
@@ -245,7 +278,7 @@ def test_action_draft_edit_then_publish_locks(
     # 无关人不能建 Action
     r = client.post(
         "/api/test-manage/actions",
-        json={"task_id": task["id"], "title": "偷建", "publish": False},
+        json={"task_id": task["id"], "title": "偷建", "subtask_name": DEFAULT_SUBTASK_NAME, "publish": False},
         headers=eng2_headers,
     )
     assert r.status_code == 403
@@ -256,6 +289,7 @@ def test_action_draft_edit_then_publish_locks(
         json={
             "task_id": task["id"],
             "title": "草稿A",
+            "subtask_name": DEFAULT_SUBTASK_NAME,
             "test_content": "v1",
             "environment": "dev",
             "publish": False,
@@ -327,6 +361,7 @@ def test_daily_update_permissions_and_progress_avg(
         json={
             "task_id": task["id"],
             "title": "日更A",
+            "subtask_name": DEFAULT_SUBTASK_NAME,
             "owner_id": users["eng_test"]["id"],
             "publish": True,
         },
@@ -394,6 +429,7 @@ def test_action_owner_must_be_task_participant(client, mgr_headers, eng_headers,
         json={
             "task_id": task["id"],
             "title": "非法负责人",
+            "subtask_name": DEFAULT_SUBTASK_NAME,
             "owner_id": users["eng_other"]["id"],
             "publish": False,
         },
@@ -416,6 +452,7 @@ def test_action_owner_must_be_task_participant(client, mgr_headers, eng_headers,
         json={
             "task_id": task2["id"],
             "title": "合法负责人",
+            "subtask_name": DEFAULT_SUBTASK_NAME,
             "owner_id": users["eng_other"]["id"],
             "publish": True,
         },
@@ -440,57 +477,6 @@ def test_action_owner_must_be_task_participant(client, mgr_headers, eng_headers,
     assert r.status_code == 403
 
 
-def test_clone_resets_progress_and_links_source(client, mgr_headers, eng_headers):
-    users = _users(client, mgr_headers)
-    pid, did = _seed_project_domain(client, mgr_headers, "P-clone")
-    task = _seed_task(client, mgr_headers, pid, did, users["eng_test"]["id"])
-    r = client.post(
-        "/api/test-manage/actions",
-        json={
-            "task_id": task["id"],
-            "title": "上周遗留",
-            "test_content": "内容",
-            "publish": True,
-        },
-        headers=eng_headers,
-    )
-    src_id = r.json()["id"]
-    client.put(
-        f"/api/test-manage/actions/{src_id}/daily-updates",
-        json={"progress_percent": 80, "progress_note": "本日进展说明已填写完毕"},
-        headers=eng_headers,
-    )
-
-    # 把源 Action 改到「上周」week_key，才能出现在 clone-candidates
-    prev = previous_week_start()
-    with SessionLocal() as db:
-        row = db.query(TmAction).filter(TmAction.id == src_id).first()
-        row.week_start = prev
-        row.week_key = week_key(prev)
-        row.due_at = week_end(prev)
-        db.commit()
-
-    r = client.get(
-        f"/api/test-manage/tasks/{task['id']}/clone-candidates",
-        headers=eng_headers,
-    )
-    assert r.status_code == 200
-    assert any(a["id"] == src_id for a in r.json())
-
-    r = client.post(
-        f"/api/test-manage/actions/{src_id}/clone",
-        json={"publish": False},
-        headers=eng_headers,
-    )
-    assert r.status_code == 201, r.text
-    cloned = r.json()
-    assert cloned["source_action_id"] == src_id
-    assert cloned["status"] == "draft"
-    assert cloned["progress_percent"] == 0
-    assert cloned["test_content"] == "内容"
-    assert cloned["week_key"] == week_key(current_week_start())
-
-
 def test_done_task_blocks_new_action(client, mgr_headers, eng_headers):
     """已完成 Task 不可再创建 Action。"""
     users = _users(client, mgr_headers)
@@ -505,7 +491,7 @@ def test_done_task_blocks_new_action(client, mgr_headers, eng_headers):
     assert r.json()["can_add_action"] is False
     r = client.post(
         "/api/test-manage/actions",
-        json={"task_id": task["id"], "title": "不应创建"},
+        json={"task_id": task["id"], "title": "不应创建", "subtask_name": DEFAULT_SUBTASK_NAME},
         headers=eng_headers,
     )
     assert r.status_code == 400
@@ -525,7 +511,7 @@ def test_board_week_task_aggregation_and_project_filter(
 
     r = client.post(
         "/api/test-manage/actions",
-        json={"task_id": t1["id"], "title": "A1", "publish": True},
+        json={"task_id": t1["id"], "title": "A1", "subtask_name": DEFAULT_SUBTASK_NAME, "publish": True},
         headers=eng_headers,
     )
     a1 = r.json()["id"]
@@ -541,7 +527,7 @@ def test_board_week_task_aggregation_and_project_filter(
     )
     client.post(
         "/api/test-manage/actions",
-        json={"task_id": t2["id"], "title": "A2", "publish": True},
+        json={"task_id": t2["id"], "title": "A2", "subtask_name": DEFAULT_SUBTASK_NAME, "publish": True},
         headers=eng_headers,
     )
 
@@ -592,6 +578,7 @@ def test_mine_lists_only_owned_actions(client, mgr_headers, eng_headers, eng2_he
         json={
             "task_id": task["id"],
             "title": "eng_test的Action",
+            "subtask_name": DEFAULT_SUBTASK_NAME,
             "owner_id": users["eng_test"]["id"],
             "publish": True,
         },
@@ -613,6 +600,7 @@ def test_mine_lists_only_owned_actions(client, mgr_headers, eng_headers, eng2_he
         json={
             "task_id": task["id"],
             "title": "eng_other的Action",
+            "subtask_name": DEFAULT_SUBTASK_NAME,
             "owner_id": users["eng_other"]["id"],
             "publish": True,
         },
@@ -631,7 +619,7 @@ def test_draft_action_cannot_daily_or_correct(client, mgr_headers, eng_headers):
     task = _seed_task(client, mgr_headers, pid, did, users["eng_test"]["id"])
     r = client.post(
         "/api/test-manage/actions",
-        json={"task_id": task["id"], "title": "未发布", "publish": False},
+        json={"task_id": task["id"], "title": "未发布", "subtask_name": DEFAULT_SUBTASK_NAME, "publish": False},
         headers=eng_headers,
     )
     aid = r.json()["id"]
@@ -655,7 +643,7 @@ def test_invalid_progress_percent_rejected(client, mgr_headers, eng_headers):
     task = _seed_task(client, mgr_headers, pid, did, users["eng_test"]["id"])
     r = client.post(
         "/api/test-manage/actions",
-        json={"task_id": task["id"], "title": "pct", "publish": True},
+        json={"task_id": task["id"], "title": "pct", "subtask_name": DEFAULT_SUBTASK_NAME, "publish": True},
         headers=eng_headers,
     )
     aid = r.json()["id"]
@@ -685,6 +673,7 @@ def test_end_to_end_happy_path(client, mgr_headers, eng_headers, auth_headers):
         json={
             "task_id": task["id"],
             "title": "E2E-Action",
+            "subtask_name": DEFAULT_SUBTASK_NAME,
             "test_content": "测登录",
             "environment": "qa",
             "publish": True,

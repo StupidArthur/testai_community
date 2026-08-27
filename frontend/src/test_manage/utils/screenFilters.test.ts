@@ -37,6 +37,8 @@ function task(partial: Partial<ScreenTaskLike> & { actions: ScreenTaskLike['acti
       status: 'published',
       domain_name: 'Agent',
       lead_id: 1,
+      /** 默认测试中：风险排序按「仅测试中阶段统计风险」口径 */
+      req_stage: 'testing',
       ...(taskPartial || {}),
     },
     week_progress_avg: 50,
@@ -406,5 +408,35 @@ describe('screenFilters blocking/risk', () => {
       't-0block-2risk',
       't-clean',
     ])
+  })
+
+  it('Task 排序：非「测试中」阶段的阻塞 Action 不计入风险（待开发无风险）', () => {
+    const data = [
+      task({
+        task: { id: 't-pending-dev-blocking', status: 'published', req_stage: 'pending_dev' },
+        week_progress_avg: 10,
+        actions: [
+          {
+            status: 'published',
+            latest_risk: '旧风险',
+            latest_is_blocking: true,
+          },
+        ],
+      }),
+      task({
+        task: { id: 't-testing-clean', status: 'published', req_stage: 'testing' },
+        week_progress_avg: 80,
+        actions: [
+          {
+            status: 'published',
+            latest_risk: '',
+            latest_is_blocking: false,
+          },
+        ],
+      }),
+    ]
+    const out = applyScreenFilters(data, { ...baseFilters, actionStatus: 'all' }, false)
+    // 非测试中的阻塞不计：按周进度升序排（10% 在前）
+    expect(out.map((t) => t.task.id)).toEqual(['t-pending-dev-blocking', 't-testing-clean'])
   })
 })

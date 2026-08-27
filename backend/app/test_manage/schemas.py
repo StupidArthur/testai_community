@@ -56,11 +56,29 @@ class UserBrief(BaseModel):
     real_name: str = ""
 
 
+class SubtaskCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    content: str = Field(default="", max_length=TASK_REQUIREMENT_MAX_CHARS)
+
+
+class SubtaskUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    content: str | None = Field(default=None, max_length=TASK_REQUIREMENT_MAX_CHARS)
+
+
+class SubtaskOut(BaseModel):
+    sid: str
+    name: str
+    content: str = ""
+
+
 class TaskCreate(BaseModel):
     project_id: str
     domain_id: str
     title: str = Field(..., min_length=1, max_length=300)
     requirement: str = Field(default="", max_length=TASK_REQUIREMENT_MAX_CHARS)
+    # 初始子需求明细（建 Task 时一次录入；后续走 subtask 管理接口）
+    subtasks: list[SubtaskCreate] = Field(default_factory=list)
     lead_id: int
     tester_ids: list[int] = Field(default_factory=list)
     publish: bool = False
@@ -103,6 +121,7 @@ class TaskOut(BaseModel):
     domain_id: str
     title: str
     requirement: str
+    subtasks: list[SubtaskOut] = Field(default_factory=list)
     lead_id: int
     tester_ids: list[int]
     status: str
@@ -123,6 +142,9 @@ class TaskOut(BaseModel):
     can_edit_req_stage: bool = False
     # 测试中时可新建 / 复制本周 Action
     can_add_action: bool = False
+    # 合并展示状态（req_stage + status 计算得出）：待开发/开发中/待提测/待测试/测试中-进行中/测试中-已完成/已完成
+    display_status: str = ""
+    display_status_label: str = ""
 
     model_config = {"from_attributes": True}
 
@@ -134,10 +156,11 @@ class TaskDetailOut(TaskOut):
 class ActionCreate(BaseModel):
     task_id: str
     title: str = Field(..., min_length=1, max_length=300)
+    # 关联子需求名称（必填；须为该 Task 未删除的 subtask 之一）
+    subtask_name: str = Field(..., min_length=1, max_length=200)
     owner_id: int | None = None  # 默认 Task 负责人
     test_content: str = Field(default="", max_length=ACTION_TEST_CONTENT_MAX_CHARS)
     environment: str = Field(default="", max_length=ACTION_ENVIRONMENT_MAX_CHARS)
-    source_action_id: str | None = None
     publish: bool = False
 
 
@@ -145,15 +168,11 @@ class ActionUpdate(BaseModel):
     """仅草稿可改字段；status 仅允许发布/完成（不支持取消）。"""
 
     title: str | None = Field(default=None, min_length=1, max_length=300)
+    subtask_name: str | None = Field(default=None, min_length=1, max_length=200)
     owner_id: int | None = None
     test_content: str | None = Field(default=None, max_length=ACTION_TEST_CONTENT_MAX_CHARS)
     environment: str | None = Field(default=None, max_length=ACTION_ENVIRONMENT_MAX_CHARS)
     status: str | None = None
-
-
-class ActionCloneRequest(BaseModel):
-    title: str | None = None
-    publish: bool = False
 
 
 class DailyUpdateUpsert(BaseModel):
@@ -201,11 +220,14 @@ class ActionOut(BaseModel):
     week_start: datetime
     week_key: str
     title: str
+    subtask_name: str = ""
     owner_id: int
     test_content: str
     environment: str
     status: str
     source_action_id: str | None
+    # 周继承带入的起始进度（无日更时的当前进度；周报增量 = 当前 - 起始）
+    initial_progress: int = 0
     created_by: int
     published_at: datetime | None
     due_at: datetime | None

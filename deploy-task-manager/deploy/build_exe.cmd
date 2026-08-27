@@ -5,6 +5,10 @@ rem  Build deploy-task-manager.exe with PyInstaller
 rem  Run this on the development machine, not on 62.
 rem  Output: dist\deploy-task-manager.exe
 rem
+rem  必须用仓库里维护的 deploy-task-manager.spec，不要 --onefile 现场生成 spec：
+rem  现场生成会丢掉 alg_monitor 所需的 httpx/boto3/dotenv，62 上任务会 0s 失败。
+rem  main.py 已 import packaging_deps，分析器也会从入口扫到这些库。
+rem
 rem  After building, copy these to 62 server alongside the exe:
 rem    - frontend\dist\   (web UI)
 rem    - tasks\            (task scripts)
@@ -21,6 +25,13 @@ if errorlevel 1 (
     exit /b 1
 )
 
+if not exist deploy-task-manager.spec (
+    echo Missing deploy-task-manager.spec in current directory.
+    echo Run this script from the deploy\ folder.
+    pause
+    exit /b 1
+)
+
 rem --- Install deps from local wheels ---
 echo Installing dependencies from local packages...
 python -m pip install --no-index --find-links=packages -r requirements.txt -q 2>nul
@@ -32,31 +43,13 @@ if errorlevel 1 (
 rem --- Install PyInstaller ---
 python -m pip install pyinstaller -q 2>nul
 
-rem --- Clean previous build ---
+rem --- Clean previous build artifacts only; keep the checked-in spec ---
 if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
-if exist deploy-task-manager.spec del deploy-task-manager.spec
 
-rem --- Build ---
-echo Building exe (this takes ~60s)...
-python -m PyInstaller --onefile --name deploy-task-manager --noconsole --clean ^
-    --hidden-import uvicorn.logging ^
-    --hidden-import uvicorn.protocols ^
-    --hidden-import uvicorn.protocols.http ^
-    --hidden-import uvicorn.protocols.http.auto ^
-    --hidden-import uvicorn.protocols.websockets ^
-    --hidden-import uvicorn.protocols.websockets.auto ^
-    --hidden-import uvicorn.lifespan ^
-    --hidden-import uvicorn.lifespan.on ^
-    --hidden-import apscheduler.schedulers.background ^
-    --hidden-import apscheduler.triggers.cron ^
-    --hidden-import apscheduler.jobstores.memory ^
-    --hidden-import apscheduler.executors.pool ^
-    --hidden-import psutil ^
-    --hidden-import httptools ^
-    --hidden-import watchfiles ^
-    --hidden-import websockets ^
-    main.py
+rem --- Build from maintained spec (hiddenimports + packaging_deps via main.py) ---
+echo Building exe from deploy-task-manager.spec (this takes ~60s)...
+python -m PyInstaller --noconfirm --clean deploy-task-manager.spec
 
 if exist "dist\deploy-task-manager.exe" (
     echo.
@@ -67,6 +60,7 @@ if exist "dist\deploy-task-manager.exe" (
     echo   - frontend\dist\
     echo   - tasks\
     echo   - .env
+    echo Then restart deploy-task-manager in guardian and manually run alg_monitor.
 ) else (
     echo.
     echo ====== Build FAILED ======

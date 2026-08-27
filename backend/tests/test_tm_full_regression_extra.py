@@ -113,13 +113,22 @@ def _task(client, headers, pid, did, lead_id, title, tester_ids=None, publish=Tr
         headers=headers,
     )
     assert r.status_code == 201, r.text
-    return r.json()
+    task = r.json()
+    # Action 必填 subtask_name：预先种一个子需求
+    r = client.post(
+        f"/api/test-manage/tasks/{task['id']}/subtasks",
+        json={"name": "默认子需求", "content": ""},
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    return task
 
 
 def _action(client, headers, tid, title, owner_id, publish=False, **extra):
     body = {
         "task_id": tid,
         "title": title,
+        "subtask_name": extra.pop("subtask_name", "默认子需求"),
         "owner_id": owner_id,
         "publish": publish,
         **extra,
@@ -289,7 +298,7 @@ def test_x_tester_cannot_create_action(client, mgr_headers, lead_headers, tester
     )
     r = client.post(
         "/api/test-manage/actions",
-        json={"task_id": task["id"], "title": f"{TAG} x", "owner_id": tester_id},
+        json={"task_id": task["id"], "title": f"{TAG} x", "subtask_name": "默认子需求", "owner_id": tester_id},
         headers=tester_headers,
     )
     assert r.status_code == 403
@@ -615,11 +624,11 @@ def test_x_done_task_flags(client, mgr_headers, lead_headers):
     r = client.get(
         f"/api/test-manage/tasks/{task['id']}/clone-candidates", headers=lead_headers
     )
-    # 查看候选可读；真正 clone/create 会 400
-    assert r.status_code in (200, 403)
+    # clone-candidates 已随 clone 功能下线
+    assert r.status_code == 404
     r = client.post(
         "/api/test-manage/actions",
-        json={"task_id": task["id"], "title": f"{TAG} no", "owner_id": lead_id},
+        json={"task_id": task["id"], "title": f"{TAG} no", "subtask_name": "默认子需求", "owner_id": lead_id},
         headers=lead_headers,
     )
     assert r.status_code == 400
@@ -728,7 +737,7 @@ def test_x_clone_candidates_and_batch_semantics(
     a1 = _action(client, lead_headers, task["id"], f"{TAG} 源1", owner_id, publish=True)
     a2 = _action(client, lead_headers, task["id"], f"{TAG} 源2", owner_id, publish=True)
 
-    # 挪到上周作为候选
+    # 挪到上周作为未完成 Action
     db = SessionLocal()
     try:
         from app.test_manage.models import TmAction
@@ -742,17 +751,14 @@ def test_x_clone_candidates_and_batch_semantics(
     finally:
         db.close()
 
-    cands = client.get(
+    # clone / clone-candidates 接口已下线：未完成 Action 由切周自动继承
+    r = client.get(
         f"/api/test-manage/tasks/{task['id']}/clone-candidates", headers=lead_headers
-    ).json()
-    assert len(cands) >= 2
-    for c in cands[:2]:
-        r = client.post(
-            f"/api/test-manage/actions/{c['id']}/clone",
-            json={"publish": False},
-            headers=lead_headers,
-        )
-        assert r.status_code == 201
-        assert r.json()["status"] == "draft"
-        assert (r.json().get("latest_risk") or "") == ""
-        assert r.json()["week_key"] == week_key(current_week_start())
+    )
+    assert r.status_code in (404, 405)
+    r = client.post(
+        f"/api/test-manage/actions/{a1['id']}/clone",
+        json={"publish": False},
+        headers=lead_headers,
+    )
+    assert r.status_code in (404, 405)

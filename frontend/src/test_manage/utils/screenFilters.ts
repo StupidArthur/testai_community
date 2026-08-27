@@ -81,6 +81,14 @@ export function isMissingDailyToday(a: ScreenActionLike): boolean {
   return a.status === 'published' && !a.has_daily_today
 }
 
+/**
+ * 风险展示口径：仅「测试中」阶段的 Task 统计/展示风险。
+ * 其他阶段（待开发等）不应有进行中的测试投入；挂着的旧 Action 风险不再上屏。
+ */
+export function taskShowsRisk(bt: Pick<ScreenTaskLike, 'task'>): boolean {
+  return (bt.task.req_stage || '') === 'testing'
+}
+
 /** Action 进度落入指定带 */
 export function matchesActionProgressBand(
   percent: number | undefined,
@@ -256,11 +264,11 @@ export function applyScreenFilters<T extends ScreenTaskLike>(
  * 「风险」含阻塞与未勾阻塞的有风险 Action。
  */
 export function compareScreenTasksByRisk(a: ScreenTaskLike, b: ScreenTaskLike): number {
-  const blockA = a.actions.filter(isOpenBlockingAction).length
-  const blockB = b.actions.filter(isOpenBlockingAction).length
+  const blockA = taskShowsRisk(a) ? a.actions.filter(isOpenBlockingAction).length : 0
+  const blockB = taskShowsRisk(b) ? b.actions.filter(isOpenBlockingAction).length : 0
   if (blockA !== blockB) return blockB - blockA
-  const riskA = a.actions.filter(hasRiskText).length
-  const riskB = b.actions.filter(hasRiskText).length
+  const riskA = taskShowsRisk(a) ? a.actions.filter(hasRiskText).length : 0
+  const riskB = taskShowsRisk(b) ? b.actions.filter(hasRiskText).length : 0
   if (riskA !== riskB) return riskB - riskA
   return a.week_progress_avg - b.week_progress_avg
 }

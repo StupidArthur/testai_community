@@ -69,7 +69,7 @@ export default function TestManageHelpDrawer(props: Props) {
               <br />
               2. 点自己那条 → 填<strong>进度 %</strong> + <strong>进度说明</strong>（有阻塞勾「是否阻塞」）
               <br />
-              3. 保存。做完了 → 进度填 <strong>100%</strong> → 点「标记完成」
+              3. 保存。做完了 → 进度填 <strong>100%</strong> 会<strong>自动标记完成</strong>
               <br />
               <br />
               填错了想改？进度只能往上涨；写错的说明用「更正说明」补一条。
@@ -81,9 +81,9 @@ export default function TestManageHelpDrawer(props: Props) {
             <p className="tm-sheet__body">
               每周三切周后 3 步：
               <br />
-              1. 点「<strong>工作台</strong>」→ 找到自己的 Task
+              1. 点「<strong>工作台</strong>」→ 找到自己的 Task（上周没做完的 Action <strong>已自动带进度过来</strong>）
               <br />
-              2. 点「<strong>+ Action</strong>」新建，或点「操作 → 详情」里<strong>复制上周</strong>（改标题 / 负责人后发布）
+              2. 在「操作 → 详情」维护<strong>子需求</strong>，再点「<strong>+ Action</strong>」给本周新要点建条目（<strong>必须选子需求</strong>）并发布
               <br />
               3. <strong>周三 16:55 前</strong>填「操作 → 进度」里的本周 Task 进度
               <br />

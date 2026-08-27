@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import socket
 from dataclasses import dataclass
 from datetime import date
 import asyncio
@@ -42,43 +43,76 @@ from app.test_manage.screen_capture import (
 log = logging.getLogger("app.test_manage.push")
 
 
+def _probe_localhost_open_ports() -> list[int]:
+    """探测 127.0.0.1 上常见后端端口是否在监听（供截图 URL 选择）。"""
+    candidates = [48010, 48011, 8000, 8080, 8888, 3003]
+    open_ports: list[int] = []
+    for port in candidates:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.3):
+                open_ports.append(port)
+        except OSError:
+            continue
+    return open_ports
+
+
+def _build_local_candidate_urls(view: str) -> list[str]:
+    """按优先级生成本地可访问的大屏 URL 列表（Playwright 截图用）。"""
+    urls: list[str] = []
+    suffix = f"/tm-screen?view={view}&screenshot=1"
+    # 配置端口优先
+    cfg_port = int(BACKEND_PORT or 0)
+    if cfg_port:
+        urls.append(f"http://127.0.0.1:{cfg_port}{suffix}")
+    # 实际探测到的本机监听端口（去重）
+    for p in _probe_localhost_open_ports():
+        u = f"http://127.0.0.1:{p}{suffix}"
+        if u not in urls:
+            urls.append(u)
+    return urls
+
+
 def _capture_daily_screenshot() -> bytes | None:
     """
-    截今日大屏：先走配置的公开 Origin；失败再试本机前端（开发机常见）。
-    必须在线程中调用（Playwright sync API）。
+    截今日大屏：优先本机自监听端口，失败再试配置的公开 Origin 与前端 dev。
+    必须在线程中调用（截图内部为子进程阻塞调用）。
     """
-    png = capture_today_screen_png()
-    if png:
-        return png
-    local_backend = f"http://127.0.0.1:{BACKEND_PORT}/tm-screen?view=today&screenshot=1"
-    for url in (
-        "http://127.0.0.1:3003/tm-screen?view=today&screenshot=1",
-        local_backend,
-    ):
+    for url in _build_local_candidate_urls("today"):
         png = capture_today_screen_png(url=url)
         if png:
-            log.info("daily screenshot fallback url=%s bytes=%s", url, len(png))
+            log.info("daily screenshot url=%s bytes=%s", url, len(png))
             return png
+    log.warning("daily screenshot: local candidates failed, trying public origin")
+    png = capture_today_screen_png()
+    if png:
+        log.info("daily screenshot public ok bytes=%s", len(png))
+        return png
+    log.warning("daily screenshot: public origin failed too, giving up")
     return None
 
 
 def _capture_weekly_screenshot() -> bytes | None:
     """
-    截本周大屏：优先本机前端（含最新「截图自动展开」），再试配置的公开 Origin。
-    必须在线程中调用（Playwright sync API）。
+    截本周大屏：优先本机自监听端口，失败再试前端 dev 与配置的公开 Origin。
+    必须在线程中调用（截图内部为子进程阻塞调用）。
     """
-    local_backend = f"http://127.0.0.1:{BACKEND_PORT}/tm-screen?view=current&screenshot=1"
+    for url in _build_local_candidate_urls("current"):
+        png = capture_week_screen_png(url=url)
+        if png:
+            log.info("weekly screenshot url=%s bytes=%s", url, len(png))
+            return png
     for url in (
         "http://127.0.0.1:3003/tm-screen?view=current&screenshot=1",
-        local_backend,
     ):
         png = capture_week_screen_png(url=url)
         if png:
-            log.info("weekly screenshot local url=%s bytes=%s", url, len(png))
+            log.info("weekly screenshot dev ok url=%s bytes=%s", url, len(png))
             return png
     png = capture_week_screen_png()
     if png:
+        log.info("weekly screenshot public ok bytes=%s", len(png))
         return png
+    log.warning("weekly screenshot: all sources failed")
     return None
 
 

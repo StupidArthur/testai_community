@@ -93,6 +93,27 @@ def sync_test_status_for_stage(stage: str) -> str | None:
     return None
 
 
+def compute_display_status(req_stage: str, task_status: str) -> tuple[str, str]:
+    """
+    合并需求进展 + 测试状态 → 一个展示状态。
+
+    Returns:
+        (display_status_key, display_status_label)
+        如 ('testing_progress', '测试中-进行中') / ('testing_done', '测试中-已完成')
+    """
+    from app.test_manage.config import TASK_STATUS_DONE, TASK_STATUS_PUBLISHED
+
+    stage = normalize_req_stage(req_stage)
+    if stage == REQ_STAGE_TESTING:
+        if task_status == TASK_STATUS_DONE:
+            return ("testing_done", "测试中-已完成")
+        return ("testing_progress", "测试中-进行中")
+    if stage == REQ_STAGE_TEST_DONE:
+        return ("test_done", "已完成")
+    # 测试前阶段：直接用 req_stage 中文标签
+    return (stage, REQ_STAGE_LABELS.get(stage, stage))
+
+
 def stage_node_date_summary(
     *,
     stage: str | None,

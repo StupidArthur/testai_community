@@ -58,51 +58,6 @@
   font-size: 12px;
 }
 
-.tm-clone-panel .ant-card-head {
-  min-height: 40px;
-}
-
-.tm-clone-list {
-  display: flex;
-  flex-direction: column;
-  max-height: 200px;
-  overflow: auto;
-  margin: 0 -4px;
-}
-
-.tm-clone-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 4px;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 55%, transparent);
-}
-
-.tm-clone-row:last-child {
-  border-bottom: none;
-}
-
-.tm-clone-row__title {
-  flex: 1;
-  min-width: 0;
-  padding-inline: 0 !important;
-  height: auto !important;
-  text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: rgba(0, 0, 0, 0.75) !important;
-}
-
-.tm-clone-row__copy {
-  flex-shrink: 0;
-  color: rgba(0, 0, 0, 0.45);
-}
-
-.tm-clone-row__copy:hover {
-  color: var(--color-primary, #1677ff);
-}
-
 .tm-week-summary--slim {
   padding: 12px 14px;
 }
@@ -223,7 +178,7 @@
   color: color-mix(in srgb, var(--color-text) 58%, transparent) !important;
 }
 
-/* 宽屏约 4 列；每页最多 20 张 ≈ 5 行 */
+/* 我的 Action：卡片网格 */
 .tm-action-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -252,21 +207,20 @@
   }
 }
 
-.tm-action-card {
+.tm-action-grid .tm-action-card {
   cursor: pointer;
   border-color: color-mix(in srgb, var(--color-border) 85%, transparent);
   background: var(--color-bg);
   box-shadow: none;
 }
 
-.tm-action-card > .ant-card-head {
+.tm-action-grid .tm-action-card > .ant-card-head {
   min-height: 36px;
   padding: 0 12px;
   border-bottom-color: color-mix(in srgb, var(--color-border) 55%, transparent);
 }
 
-.tm-action-card > .ant-card-head .ant-card-head-title {
-  /* Action 标题：介于 Task(16) 与需求(13) 之间 */
+.tm-action-grid .tm-action-card > .ant-card-head .ant-card-head-title {
   font-size: 14px;
   font-weight: 500;
   line-height: 1.4;
@@ -274,7 +228,7 @@
   color: color-mix(in srgb, var(--color-text) 84%, transparent);
 }
 
-.tm-action-card > .ant-card-body {
+.tm-action-grid .tm-action-card > .ant-card-body {
   padding: 10px 12px;
   font-size: 13px;
 }
@@ -285,7 +239,7 @@
   font-size: 13px !important;
 }
 
-.tm-action-card:hover {
+.tm-action-grid .tm-action-card:hover {
   border-color: #7eb0f0;
   border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
 }
@@ -295,5 +249,103 @@
   margin-top: 6px;
   font-size: 13px !important;
   line-height: 1.45 !important;
+}
+
+/* Task 卡片内 Action 列表：表格式（子需求/标题/负责人/进度/状态/风险/操作） */
+.tm-action-table {
+  margin-top: 4px;
+}
+
+.tm-action-table .ant-table-thead > tr > th {
+  padding: 6px 8px;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.tm-action-table .ant-table-tbody > tr > td {
+  padding: 7px 8px;
+  font-size: 13px;
+}
+
+.tm-action-table__row {
+  cursor: pointer;
+}
+
+.tm-action-table__row:hover > td {
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-bg)) !important;
+}
+
+.tm-action-table__title {
+  font-weight: 600;
+  font-size: 13.5px;
+  color: rgba(0, 0, 0, 0.82);
+  color: color-mix(in srgb, var(--color-text) 88%, transparent);
+}
+
+.tm-action-table__subtask {
+  color: color-mix(in srgb, var(--color-text) 62%, transparent);
+}
+
+.tm-action-table__progress .ant-progress-text {
+  font-size: 12px;
+}
+
+.tm-action-table__risk {
+  font-size: 13px;
+}
+
+/* ===== 卡片内 inline 新建 Action 表单 ===== */
+
+/* ===== 快捷日更弹层（卡片/表格行内触发，免开抽屉） ===== */
+.tm-daily-pop {
+  width: 288px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tm-daily-pop__progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tm-daily-pop__value {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.tm-inline-add {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px dashed var(--color-border, #d9d9d9);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-bg, #fff) 96%, var(--color-primary, #1677ff) 4%);
+}
+
+.tm-inline-add__row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.tm-inline-add__form .ant-form-item-label > label {
+  font-size: 12px;
+  height: 20px;
+}
+
+.tm-inline-add__btns {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding-bottom: 2px;
+}
+
+.tm-inline-add__dropdown-new {
+  border-top: 1px solid var(--color-border, #f0f0f0);
+  padding-top: 2px;
 }
 

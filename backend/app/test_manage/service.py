@@ -1,8 +1,9 @@
 """
-项目管理业务：Project/Domain/Task/Action、权限、看板、日更与更正。
+项目管理业务：Project/Domain/Task（含 subtask）/Action、权限、看板、日更与更正。
 """
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
 
 from fastapi import HTTPException
@@ -50,7 +51,6 @@ from app.test_manage.period import (
     is_week_edit_locked,
 )
 from app.test_manage.schemas import (
-    ActionCloneRequest,
     ActionCorrectionCreate,
     ActionCorrectionOut,
     ActionCreate,
@@ -69,6 +69,9 @@ from app.test_manage.schemas import (
     ProjectCreate,
     ProjectOut,
     ProjectUpdate,
+    SubtaskCreate,
+    SubtaskOut,
+    SubtaskUpdate,
     TaskCreate,
     TaskDetailOut,
     TaskOut,
@@ -81,6 +84,7 @@ from app.test_manage.schemas import (
     WeekOptionOut,
 )
 from app.test_manage.week import (
+    _as_local,
     current_week_start,
     daily_context_week_start,
     previous_week_start,
@@ -90,6 +94,10 @@ from app.test_manage.week import (
 
 
 # ── 权限 ─────────────────────────────────────────────────────
+
+
+def _new_sid() -> str:
+    return uuid.uuid4().hex[:12]
 
 
 def is_tm_admin(user: User) -> bool:
@@ -490,6 +498,7 @@ def _task_out(
 ) -> TaskOut:
     from app.test_manage.config import REQ_STAGE_DEFAULT
     from app.test_manage.req_stage import (
+        compute_display_status,
         normalize_req_stage,
         stage_node_date_summary,
     )
@@ -522,12 +531,21 @@ def _task_out(
         expected_test_end_at=expected_test_end_at,
         test_ended_at=test_ended_at,
     )
+    ds_key, ds_label = compute_display_status(req_stage, task.status)
     return TaskOut(
         id=task.id,
         project_id=task.project_id,
         domain_id=task.domain_id,
         title=task.title,
         requirement=task.requirement or "",
+        subtasks=[
+            SubtaskOut(
+                sid=r.get("sid", ""),
+                name=r.get("name", ""),
+                content=r.get("content", ""),
+            )
+            for r in _task_subtasks(task)
+        ],
         lead_id=task.lead_id,
         tester_ids=_tester_ids(task),
         status=task.status,
@@ -547,7 +565,116 @@ def _task_out(
         can_edit=False if readonly else can_edit_task(user, task),
         can_edit_req_stage=False if readonly else can_edit_req_stage(user),
         can_add_action=False if readonly else can_add_action_to_task(task),
+        display_status=ds_key,
+        display_status_label=ds_label,
     )
+
+
+def _task_subtasks(task: TmTask, *, include_deleted: bool = False) -> list[dict]:
+    """Task 的 subtask 明细（JSON 列）；默认只取未删除项。"""
+    rows = list(task.subtasks or [])
+    if include_deleted:
+        return rows
+    return [r for r in rows if not r.get("deleted")]
+
+
+def _new_subtask_row(name: str, content: str) -> dict:
+    return {"sid": _new_sid(), "name": name, "content": content, "deleted": False}
+
+
+def _build_initial_subtasks(items: list[SubtaskCreate] | None) -> list[dict]:
+    """建 Task 时的初始 subtask 列表：查重（含软删名）。"""
+    rows: list[dict] = []
+    seen: set[str] = set()
+    for it in items or []:
+        name = (it.name or "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        rows.append(_new_subtask_row(name, (it.content or "").strip()))
+    return rows
+
+
+def _assert_subtask_name_free(task: TmTask, name: str, *, exclude_sid: str | None = None) -> None:
+    """同一 Task 下 subtask 不允许重名（含已软删名称，避免关联歧义）。"""
+    for r in _task_subtasks(task, include_deleted=True):
+        if r.get("name") == name and r.get("sid") != exclude_sid:
+            raise HTTPException(status_code=400, detail=f"子需求「{name}」已存在，请勿重名")
+
+
+def _assert_subtask_exists(task: TmTask, name: str) -> None:
+    """Action 关联校验：subtask_name 必须是未删除项之一。"""
+    if name not in {r.get("name") for r in _task_subtasks(task)}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"子需求「{name}」不存在（或已删除），请先在该 Task 下维护子需求",
+        )
+
+
+def add_subtask(db: Session, user: User, task_id: str, data: SubtaskCreate) -> TaskOut:
+    task = _load_task(db, task_id)
+    if not can_edit_task(user, task):
+        raise HTTPException(status_code=403, detail="仅测试管理员或该 Task 负责人可维护子需求")
+    _assert_week_edit_open(db)
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="子需求名称必填")
+    _assert_subtask_name_free(task, name)
+    rows = _task_subtasks(task, include_deleted=True)
+    rows.append(_new_subtask_row(name, (data.content or "").strip()))
+    task.subtasks = rows  # 重新赋值触发 JSON 变更追踪
+    db.commit()
+    return _task_out(user, _load_task(db, task.id))
+
+
+def update_subtask(
+    db: Session, user: User, task_id: str, sid: str, data: SubtaskUpdate
+) -> TaskOut:
+    task = _load_task(db, task_id)
+    if not can_edit_task(user, task):
+        raise HTTPException(status_code=403, detail="仅测试管理员或该 Task 负责人可维护子需求")
+    _assert_week_edit_open(db)
+    rows = _task_subtasks(task, include_deleted=True)
+    row = next((r for r in rows if r.get("sid") == sid), None)
+    if row is None:
+        raise HTTPException(status_code=404, detail="子需求不存在")
+
+    old_name = row.get("name")
+    new_name = (data.name or "").strip() or old_name
+    if new_name != old_name:
+        _assert_subtask_name_free(task, new_name, exclude_sid=sid)
+        # 改名同步刷该 Task 下 Action 的关联名称（弱关联一致性）
+        db.query(TmAction).filter(
+            TmAction.task_id == task.id, TmAction.subtask_name == old_name
+        ).update({"subtask_name": new_name}, synchronize_session=False)
+        row["name"] = new_name
+    if data.content is not None:
+        row["content"] = data.content.strip()
+    task.subtasks = rows
+    db.commit()
+    return _task_out(user, _load_task(db, task.id))
+
+
+def delete_subtask(db: Session, user: User, task_id: str, sid: str) -> TaskOut:
+    """软删除 subtask（保留记录）；其下未完成 Action 置 cancelled（软删，数据保留）。"""
+    task = _load_task(db, task_id)
+    if not can_edit_task(user, task):
+        raise HTTPException(status_code=403, detail="仅测试管理员或该 Task 负责人可维护子需求")
+    _assert_week_edit_open(db)
+    rows = _task_subtasks(task, include_deleted=True)
+    row = next((r for r in rows if r.get("sid") == sid), None)
+    if row is None:
+        raise HTTPException(status_code=404, detail="子需求不存在")
+    row["deleted"] = True
+    task.subtasks = rows
+    name = row.get("name")
+    db.query(TmAction).filter(
+        TmAction.task_id == task.id,
+        TmAction.subtask_name == name,
+        TmAction.status != STATUS_DONE,
+    ).update({"status": STATUS_CANCELLED}, synchronize_session=False)
+    db.commit()
+    return _task_out(user, _load_task(db, task.id))
 
 
 def _set_testers(db: Session, task: TmTask, tester_ids: list[int]) -> None:
@@ -577,6 +704,7 @@ def create_task(db: Session, user: User, data: TaskCreate) -> TaskOut:
         domain_id=data.domain_id,
         title=data.title.strip(),
         requirement=(data.requirement or "").strip(),
+        subtasks=_build_initial_subtasks(data.subtasks),
         lead_id=data.lead_id,
         status=TASK_STATUS_PUBLISHED,
         created_by=user.id,
@@ -857,7 +985,7 @@ def _latest_progress(action: TmAction) -> tuple[int, str, bool]:
     """
     updates = list(action.daily_updates or [])
     if not updates:
-        return 0, "", False
+        return int(getattr(action, "initial_progress", 0) or 0), "", False
 
     def _sort_key(u: TmDailyUpdate) -> tuple:
         ts = u.updated_at or u.created_at or datetime.min
@@ -1061,11 +1189,13 @@ def _action_out(
         week_start=action.week_start,
         week_key=action.week_key,
         title=action.title,
+        subtask_name=action.subtask_name or "",
         owner_id=action.owner_id,
         test_content=action.test_content or "",
         environment=action.environment or "",
         status=action.status,
         source_action_id=action.source_action_id,
+        initial_progress=int(getattr(action, "initial_progress", 0) or 0),
         created_by=action.created_by,
         published_at=action.published_at,
         due_at=action.due_at,
@@ -1125,12 +1255,14 @@ def create_action(db: Session, user: User, data: ActionCreate) -> ActionOut:
         raise HTTPException(status_code=400, detail="仅测试进行中的 Task 可创建 Action")
     _assert_week_edit_open(db)
 
+    subtask_name = (data.subtask_name or "").strip()
+    if not subtask_name:
+        raise HTTPException(status_code=400, detail="请选择关联的子需求（subtask）")
+    _assert_subtask_exists(task, subtask_name)
+
     owner_id = data.owner_id if data.owner_id is not None else task.lead_id
     _ensure_users(db, [owner_id])
     _ensure_action_owner_candidate(task, owner_id)
-    if data.source_action_id:
-        if not db.query(TmAction).filter(TmAction.id == data.source_action_id).first():
-            raise HTTPException(status_code=400, detail="引用的 Action 不存在")
 
     period = get_or_create_active_period(db, user_id=user.id)
     action = TmAction(
@@ -1140,11 +1272,11 @@ def create_action(db: Session, user: User, data: ActionCreate) -> ActionOut:
         week_start=period.week_start,
         week_key=period.week_key,
         title=data.title.strip(),
+        subtask_name=subtask_name,
         owner_id=owner_id,
         test_content=(data.test_content or "").strip(),
         environment=(data.environment or "").strip(),
         status=STATUS_DRAFT,
-        source_action_id=data.source_action_id,
         created_by=user.id,
         due_at=period.week_end,
     )
@@ -1154,25 +1286,6 @@ def create_action(db: Session, user: User, data: ActionCreate) -> ActionOut:
         _publish_action(db, action)
     db.commit()
     return _action_out(user, _load_action(db, action.id))
-
-
-def clone_action(
-    db: Session, user: User, source_id: str, data: ActionCloneRequest
-) -> ActionOut:
-    src = _load_action(db, source_id)
-    return create_action(
-        db,
-        user,
-        ActionCreate(
-            task_id=src.task_id,
-            title=(data.title or src.title).strip(),
-            owner_id=src.owner_id,
-            test_content=src.test_content or "",
-            environment=src.environment or "",
-            source_action_id=src.id,
-            publish=data.publish,
-        ),
-    )
 
 
 def update_action(db: Session, user: User, action_id: str, data: ActionUpdate) -> ActionOut:
@@ -1199,7 +1312,7 @@ def update_action(db: Session, user: User, action_id: str, data: ActionUpdate) -
     # 字段：仅草稿可改（发布后本周负责人亦锁定，一周结束不再改派）
     field_touch = any(
         x is not None
-        for x in (data.title, data.owner_id, data.test_content, data.environment)
+        for x in (data.title, data.subtask_name, data.owner_id, data.test_content, data.environment)
     )
     if field_touch:
         if not _can_edit_action_fields(user, action):
@@ -1209,6 +1322,13 @@ def update_action(db: Session, user: User, action_id: str, data: ActionUpdate) -
             )
         if data.title is not None:
             action.title = data.title.strip()
+        if data.subtask_name is not None:
+            subtask_name = data.subtask_name.strip()
+            if not subtask_name:
+                raise HTTPException(status_code=400, detail="请选择关联的子需求（subtask）")
+            if action.task:
+                _assert_subtask_exists(action.task, subtask_name)
+            action.subtask_name = subtask_name
         if data.owner_id is not None:
             _ensure_users(db, [data.owner_id])
             if action.task:
@@ -1281,6 +1401,9 @@ def upsert_daily_update(
             progress_note=note,
         )
         db.add(row)
+    # 进度达 100% 自动标记完成（防止「实际做完却忘了点完成」导致无谓延续到下周）
+    if progress >= 100 and action.status != STATUS_DONE:
+        action.status = STATUS_DONE
     db.commit()
     db.refresh(row)
     return DailyUpdateOut.model_validate(row)
@@ -1324,32 +1447,58 @@ def list_mine_actions(db: Session, user: User) -> list[ActionOut]:
     return _sort_action_outs([_action_out(user, a) for a in rows])
 
 
-def list_clone_candidates(db: Session, user: User, task_id: str) -> list[ActionOut]:
-    task = _load_task(db, task_id)
-    if not can_edit_task(user, task):
-        raise HTTPException(status_code=403, detail="无权查看可引用列表")
-    if not can_add_action_to_task(task):
-        return []
-    active = get_or_create_active_period(db)
-    prev = (
-        db.query(TmWeekPeriod)
-        .filter(TmWeekPeriod.week_end <= active.week_start)
-        .order_by(TmWeekPeriod.week_end.desc())
-        .first()
-    )
-    prev_key = prev.week_key if prev else week_key(previous_week_start(active.week_start))
+def inherit_open_actions_to_new_week(
+    db: Session, prev_period: TmWeekPeriod, new_period: TmWeekPeriod
+) -> int:
+    """
+    切周自动继承：把上一周「进行中（published 且未完成）」的 Action 带入新周。
+
+    - 进度承接：新 Action initial_progress = 源最新进度（60% 带过来，本周日更从 60 往上填）
+    - 已完成（done）/ 已取消（cancelled，含 subtask 软删连带）/ 草稿（draft）不继承
+    - 幂等：新周已存在 source_action_id 指向源的 Action 时跳过
+    - 新 Action 直接为 published 状态（负责人当周可见可日更）
+    """
     rows = (
         db.query(TmAction)
-        .options(
-            joinedload(TmAction.daily_updates),
-            joinedload(TmAction.task).joinedload(TmTask.domain).joinedload(TmDomain.project),
-        )
-        .filter(TmAction.task_id == task_id)
-        .filter(TmAction.week_key == prev_key)
-        .filter(TmAction.status != STATUS_CANCELLED)
+        .filter(TmAction.week_key == prev_period.week_key)
+        .filter(TmAction.status == STATUS_PUBLISHED)
         .all()
     )
-    return [_action_out(user, a) for a in rows]
+    created = 0
+    for src in rows:
+        exists = (
+            db.query(TmAction.id)
+            .filter(TmAction.week_key == new_period.week_key)
+            .filter(TmAction.source_action_id == src.id)
+            .first()
+        )
+        if exists:
+            continue
+        progress, _risk, _blocking = _latest_progress(src)
+        db.add(
+            TmAction(
+                task_id=src.task_id,
+                project_id=src.project_id,
+                domain_id=src.domain_id,
+                week_start=new_period.week_start,
+                week_key=new_period.week_key,
+                title=src.title,
+                subtask_name=src.subtask_name or "",
+                owner_id=src.owner_id,
+                test_content=src.test_content or "",
+                environment=src.environment or "",
+                status=STATUS_PUBLISHED,
+                source_action_id=src.id,
+                initial_progress=progress,
+                created_by=src.created_by,
+                published_at=now_tm(),
+                due_at=new_period.week_end,
+            )
+        )
+        created += 1
+    if created:
+        db.flush()
+    return created
 
 
 def _action_avg_progress(act_outs: list[ActionOut]) -> int:

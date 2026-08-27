@@ -184,6 +184,19 @@ def _sandbox(client, mgr_headers):
     return pid, r.json()["id"]
 
 
+DEFAULT_SUBTASK = "默认子需求"
+
+
+def _subtask(client, headers, tid, name=DEFAULT_SUBTASK, content=""):
+    r = client.post(
+        f"/api/test-manage/tasks/{tid}/subtasks",
+        json={"name": name, "content": content},
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
 def _task(client, headers, pid, did, lead_id, title, tester_ids=None):
     r = client.post(
         "/api/test-manage/tasks",
@@ -200,7 +213,9 @@ def _task(client, headers, pid, did, lead_id, title, tester_ids=None):
         headers=headers,
     )
     assert r.status_code == 201, r.text
-    return r.json()
+    task = r.json()
+    _subtask(client, headers, task["id"])
+    return task
 
 
 def _action(client, headers, tid, title, owner_id, publish=True):
@@ -209,6 +224,7 @@ def _action(client, headers, tid, title, owner_id, publish=True):
         json={
             "task_id": tid,
             "title": title,
+            "subtask_name": DEFAULT_SUBTASK,
             "owner_id": owner_id,
             "publish": publish,
         },
@@ -334,35 +350,44 @@ def test_w_empty_task_highlight_on_new_week_board(
     assert hit["task"]["can_add_action"] is True
 
 
-def test_w_clone_candidates_after_cutover_are_previous_week(
+def test_w_inherit_open_action_after_cutover(
     client, mgr_headers, lead_headers, owner_headers, monkeypatch
 ):
-    """切周后 clone-candidates = previous_week = 刚结束周。"""
+    """切周后未完成 Action 自动继承到新周（保留进度、published、相同 subtask）。"""
     _install_clock(monkeypatch, WED_AFTER)
     pid, did = _sandbox(client, mgr_headers)
     lead_id = _uid(client, mgr_headers, "tm_lead")
     owner_id = _uid(client, mgr_headers, "tm_owner")
-    task = _task(client, mgr_headers, pid, did, lead_id, f"{TAG} 候选", [owner_id])
-    old_act = _action(client, lead_headers, task["id"], f"{TAG} 候选A", owner_id)
+    task = _task(client, mgr_headers, pid, did, lead_id, f"{TAG} 继承", [owner_id])
+    old_act = _action(client, lead_headers, task["id"], f"{TAG} 待继承", owner_id)
     _force_action_week(old_act["id"], OLD_WEEK)
-    # 新周再建一条，不应进候选
-    _action(client, lead_headers, task["id"], f"{TAG} 本周不候选", owner_id)
-
-    cands = client.get(
-        f"/api/test-manage/tasks/{task['id']}/clone-candidates", headers=lead_headers
-    ).json()
-    ids = {c["id"] for c in cands}
-    assert old_act["id"] in ids
-    assert all(c["week_key"] == week_key(OLD_WEEK) for c in cands if c["id"] == old_act["id"])
-
-    cloned = client.post(
-        f"/api/test-manage/actions/{old_act['id']}/clone",
-        json={"publish": False},
-        headers=lead_headers,
+    # 旧周日更到 60%（未完成）
+    client.put(
+        f"/api/test-manage/actions/{old_act['id']}/daily-updates",
+        json={"progress_percent": 60, "progress_note": "进行中"},
+        headers=owner_headers,
     )
-    assert cloned.status_code == 201
-    assert cloned.json()["week_key"] == week_key(NEW_WEEK)
-    assert (cloned.json().get("latest_risk") or "") == ""
+
+    # 删除预种的新周窗口，强制 board 重新开窗触发自动继承
+    with SessionLocal() as db:
+        from app.test_manage.models import TmWeekPeriod as _WP
+
+        db.query(_WP).filter(_WP.week_key == week_key(NEW_WEEK)).delete()
+        db.commit()
+
+    board = client.get(
+        "/api/test-manage/board", params={"project_id": pid}, headers=mgr_headers
+    ).json()
+    assert board["week_key"] == week_key(NEW_WEEK)
+    hit = next(b for b in board["tasks"] if b["task"]["id"] == task["id"])
+    inherited = [a for a in hit["actions"] if a["title"] == f"{TAG} 待继承"]
+    assert len(inherited) == 1, f"应继承 1 条，实际 {len(inherited)}"
+    assert inherited[0]["id"] != old_act["id"]
+    assert inherited[0]["status"] == "published"
+    assert inherited[0]["progress_percent"] == 60
+    assert inherited[0]["subtask_name"] == DEFAULT_SUBTASK
+    assert inherited[0]["source_action_id"] == old_act["id"]
+    assert inherited[0]["initial_progress"] == 60
 
 
 def test_w_after_cutover_daily_lock_still_applies(

@@ -16,12 +16,14 @@
 Project（组织容器，如 TPT V2.1；创建维度 + 看板可选筛选）
   └── Domain（平台 / Agent / 交付 / 定制…）
         └── Task（需求内容 + 测试负责人 + 测试人员；可更新并记日志）
-              └── Action（周实例：测试内容 / 环境；草稿可改，发布后锁定）
+              └── Subtask（子需求：名称 + 内容；JSON 存于 TmTask.subtasks，不单独建表）
+                    └── Action（周实例：关联子需求名称 + 测试内容 / 环境；草稿可改，发布后锁定）
 ```
 
 - **Project**：创建与组织用；看板上可按项目筛选，主汇总仍是 **周 × Task**。Admin/Manager 可**归档**（列表隐藏）或**永久删除**（级联清理下属数据）。  
 - **Task**：主题线；负责人写其下 Action。需求内容上限 **5000** 字。**Task 周进度**在周结束前由 Admin/Manager/Task 负责人填写，供周报；未填则展示本周 Action 进度平均并提示「未手填」。  
-- **Action**：周轮回（默认周三 17:00 → 下周三 17:00，**周结束可配置**）；本周负责人只能从 Task **测试负责人 + 测试人员** 中选；测试内容上限 **1000** 字，环境上限 **300** 字。可通过 `source_action_id` 查看**延续历史**（跨周次数与每周风险）。
+- **Subtask（子需求）**：Task 下二级维度，仅「名称 + 内容」；**Task 内名称唯一**（查重，含软删名）；改名自动同步关联 Action 的 `subtask_name`；**软删除**（保留记录）并**级联取消**其下未完成 Action（置 `cancelled`，数据保留；已完成不受影响）。  
+- **Action**：周轮回（默认周三 17:00 → 下周三 17:00，**周结束可配置**）；**必须关联一个 Subtask**（`subtask_name`）；本周负责人只能从 Task **测试负责人 + 测试人员** 中选；测试内容上限 **1000** 字，环境上限 **300** 字。可通过 `source_action_id` 查看**延续历史**（跨周次数与每周风险）。**切周时上周进行中（published 且未完成）的 Action 自动继承到新周**：保留进度（`initial_progress`）、直接 published；已完成 / 已取消 / 草稿不继承。手动「复制上周」功能**已删除**。
 
 ---
 
@@ -49,13 +51,15 @@ Project（组织容器，如 TPT V2.1；创建维度 + 看板可选筛选）
 
 | 规则 | 说明 |
 |------|------|
-| 草稿 | 点开 Action 卡片可编辑标题/负责人/测试内容/环境；可保存或发布 |
-| 发布后 | 标题/本周负责人/测试内容/环境等**全部锁定**（本周内不改派）；纠错用「更正说明」 |
-| 状态机 | `draft→published`；`published→done`；**`done` 终态不可重开**；**不支持取消**。**标记完成要求最新日更进度 = 100%**（常量 `ACTION_DONE_MIN_PROGRESS`）。本人 / Task 负责人 / 管理员可操作（抽屉「变更状态」） |
-| 日更 | 仅 **进行中**；owner/管理员；**说明去空白后非空（无最少字数）**；**进度不倒退**；**仅当天**；默认 **19:50** 后锁定（钉钉日报 **20:00**）；**切周日（周结束当天）日更仍写刚结束周**；已完成不可日更；进度取最新一条；**风险文案** + **`is_blocking` 是否阻塞**（无风险文案则阻塞强制为 false） |
+| 草稿 | 点开 Action 行可编辑子需求/标题/负责人/测试内容/环境；可保存或发布 |
+| 发布后 | 子需求/标题/本周负责人/测试内容/环境等**全部锁定**（本周内不改派）；纠错用「更正说明」 |
+| 状态机 | `draft→published`；`published→done`；**`done` 终态不可重开**；**不支持取消**。**日更进度填 100% 时自动置 done**（常量 `ACTION_DONE_MIN_PROGRESS`）；也可手动「标记完成」（要求最新日更进度 = 100%）。本人 / Task 负责人 / 管理员可操作（抽屉「变更状态」） |
+| 日更 | 仅 **进行中**；owner/管理员；**说明去空白后非空（无最少字数）**；**进度不可回退（只涨不降）**；**仅当天**；默认 **19:50** 后锁定（钉钉日报 **20:00**）；**切周日（周结束当天）日更仍写刚结束周**；已完成不可日更；进度取最新一条；**风险文案** + **`is_blocking` 是否阻塞**（无风险文案则阻塞强制为 false） |
+| 子需求 | Action 创建/编辑时**必选** Task 下一个 subtask（下拉，草稿态可选）；subtask 改名自动同步；删除 subtask 级联取消其未完成 Action |
+| 周继承 | 切周（week cutover）时自动把上周 **published（进行中、未完成）** 的 Action 复制到新周：`initial_progress` = 上周进度、状态 published、`source_action_id` 指向原 Action；草稿 / done / cancelled 不继承；幂等（重复触发不重复建） |
 | 更正 | 发布后仅**追加**更正说明；时间线正序（最新在底）；提交成功 toast「追加成功」并自动滚到时间线底部 |
 | 看板 KPI | 「已发布」仅计 `published`，「完成」另计 `done`（与周报口径一致） |
-| 看板风险 | **不**再在 Task 卡片上放大块「风险 N 项」；仅 Action 卡片内最多 **3 行**省略展示 |
+| 看板风险 | **不**再在 Task 卡片上放大块「风险 N 项」；仅 Action 表格内单行省略展示 |
 | 周截止 | `due_at` = 当前活动周 `week_end`（Admin/Manager 可改；改后同步本周 Action） |
 | 延续 | `GET /actions/{id}/lineage`：沿 `source_action_id` 回溯，展示跨越周数与每周风险 |
 
@@ -91,10 +95,10 @@ Project（组织容器，如 TPT V2.1；创建维度 + 看板可选筛选）
 | 表 | 用途 |
 |----|------|
 | tm_projects / tm_domains | 项目、领域 |
-| tm_tasks | Task |
+| tm_tasks | Task（含 `subtasks` JSON 列：`[{"sid","name","content","deleted"}]`） |
 | tm_task_testers | 测试人员 |
 | tm_task_update_logs | Task 更新历史 |
-| tm_actions | 周 Action（`test_content` / `environment`） |
+| tm_actions | 周 Action（`subtask_name` 关联子需求；`initial_progress` 继承起始进度；`test_content` / `environment`） |
 | tm_action_corrections | 更正说明追加 |
 | tm_daily_updates | 日更 |
 | tm_week_periods | 业务周起点/结束（可配） |
@@ -111,8 +115,9 @@ Project（组织容器，如 TPT V2.1；创建维度 + 看板可选筛选）
 - 「工作台」：本周 / 历史（无「今日」）；历史周隐藏新建入口；可看周报预计发送时刻；Admin/Manager 可改周结束。  
 - 大屏本周/历史明细筛选（需关注 / 全部 / 已完成 / 归档、领域）为下拉。  
   - 筛选条在双栏上方；左右面板标题与内容区顶对齐、等高；明细默认「需关注」，多 Action 折叠，表体定高滚动。  
+  - **周汇总按 Subtask 分组明细展示**：Action 标题放大，Subtask/Task 小字（放不下 hover 提示）；日汇总 Action 带 `subtask_name`。  
   - **KPI 分两行**：Task / Action 维度各自统计；Action「均进度」= 算术平均（旁侧文案只反映进度，不绑风险）；「有风险」仅计 **进行中** Action。明细「负责人」：**Task 测试负责人在前**，多人「甲 等N人」。  
-- Tab「工作台」：创建 Project/Domain/Task/Action、卡片操作与日更入口；Task 抽屉填**本周进度**；Action 抽屉看**延续历史**。  
+- Tab「工作台」：创建 Project/Domain/Task/Action、卡片操作与日更入口；Task 抽屉管理**子需求**、填**本周进度**；Action 抽屉看**延续历史**。Task 卡内 Action 为**表格**（子需求/标题/负责人/进度/状态/风险/操作）。  
 - Tab「我的 Action」：仅 **当前周** 且 **负责人是当前登录用户** 的 Action。  
 - 大屏「**已完成**」：仅 `Task.status = done`；「**归档**」：仅 `cancelled`（暂不投入人力）；**需关注 / 全部不含归档**；不因 Action 全做完而归入已完成。
 
@@ -134,7 +139,7 @@ Project（组织容器，如 TPT V2.1；创建维度 + 看板可选筛选）
 | 日报 | **一条消息**：少量说明 + **详情大屏链接** + **今日大屏明细截图**（OpenAPI markdown + media；Webhook 同条；失败仍发链接） |
 | 周报 | **一条消息**：少量说明 + **本周大屏链接**（`/tm-screen?view=current`）+ **本周大屏截图**；截图失败仍发链接 |
 | 需关注 | 开放阻塞（`is_blocking`）或进行中 Action；**不含纯草稿** |
-| 切周 | 工作台标红无 Action 的 Task；负责人「复制上周 / 新建」 |
+| 切周 | 系统自动继承上周未完成 Action（保留进度）；工作台标红无 Action 的 Task |
 | 开放阻塞 | 进行中 + 风险文案非空 + **`is_blocking=true`** |
 | 已解决 / 不计开放阻塞 | 风险文案空，或未勾选阻塞；或 Action 已完成/草稿 |
 | 过长 | 日/周报均为短文+图；Webhook 通道仍压到单条上限 |
@@ -151,7 +156,7 @@ Project（组织容器，如 TPT V2.1；创建维度 + 看板可选筛选）
 
 1. 用 **manager / 123456**（或 Admin）登录 → 项目管理。  
 2. 新建项目 → 领域 → Task（指定负责人与测试人员）。  
-3. 负责人在 Task 下新建本周 Action（负责人下拉仅含参与者）→ 草稿点开可改 → 发布后由 **该 Action 负责人** 写日更。  
+3. 负责人在 Task 下维护**子需求**（详情抽屉），再新建本周 Action（**必选子需求**，负责人下拉仅含参与者）→ 草稿点开可改 → 发布后由 **该 Action 负责人** 写日更；上周未完成 Action 切周后自动出现在本周（带原进度）。  
 4. 字段写错：追加「更正说明」，不要改已发布字段（含本周负责人）。  
 5. **周结束前**在 Task 抽屉填写「本周 Task 进度」（推荐填 Action 平均）；未填大屏/周报会用平均值并提示。  
 6. Admin/Manager 可在工作台改「周结束」；界面会显示推导出的周报发送时刻。  
@@ -161,7 +166,8 @@ Project（组织容器，如 TPT V2.1；创建维度 + 看板可选筛选）
    （清空「TPT v2.1」旧 Task/Action **并清空推送快照**；约 **8 个大 Task**，原表小项作为 Action；原表划掉/无人回落到 Task 负责人；占位账号「无」禁止登录；密码 `123456`。）  
 9. **企微推送调试**：先 `dry_run=true` 预览，再 `force=true` 真发；**推荐** Windows 计划任务（见 §6b），勿依赖 `run.py` 常驻。改周报触发频率后请重跑 `install_wecom_scheduled_tasks.ps1`。  
 10. **schema 重建**：`tm_schema_meta.version` 变更会 DROP 重建 `tm_*` 表并**清空测试任务数据**；重建后执行 `seed_real_test_plan.py`。周周期/进度表为增量建表，一般不必 bump。  
-11. 用户真实姓名：Admin 在「用户管理」维护；启动回填**仅补空值**，不覆盖手工修改。见 [user_manual.md](./user_manual.md) §7。
+11. **TPT v2.3 产品包需求灌数**：`backend` 下执行 `python scripts/seed_tpt_v23_package.py`（读取本地 Excel「TPT V2.3 产品包需求.xlsx」第二个 sheet 的 **SR 系统需求**，生成 Project/Domain/Task + subtasks + 测试中 Task 的 Action 场景：完成/进行中/未日更/周继承/草稿）。  
+12. 用户真实姓名：Admin 在「用户管理」维护；启动回填**仅补空值**，不覆盖手工修改。见 [user_manual.md](./user_manual.md) §7。
 
 ---
 
@@ -186,6 +192,6 @@ $env:E2E_RUN_ID=("e2e" + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
 npm run test:e2e -- e2e/tm-ui-full.spec.ts
 ```
 
-覆盖点含：A1 owner 候选人、B1 日更权限矩阵、Tester 交叉、字数上限、草稿锁定与更正、发布后负责人锁定、19:50 日更锁定、**周三切周日更写刚结束周**、风险已解决语义、空周看板过滤、历史周、clone 不带风险、状态机、企微 dry_run 口径（草稿风险不计、空 Task 不计 KPI）、**周报发送时刻规则 / Task 周进度未填回退** 等。  
+覆盖点含：A1 owner 候选人、B1 日更权限矩阵、Tester 交叉、字数上限、草稿锁定与更正、发布后负责人锁定、19:50 日更锁定、**周三切周日更写刚结束周**、风险已解决语义、空周看板过滤、历史周、**subtask 查重/改名同步/软删级联、Action 必选 subtask、切周自动继承（进度保留/幂等）、100% 自动 done、进度不可回退**、状态机、企微 dry_run 口径（草稿风险不计、空 Task 不计 KPI）、**周报发送时刻规则 / Task 周进度未填回退** 等。  
 **UI E2E**：登录/Admin 建用户 → Manager 建项目/领域/Task/Action → 日更与风险 → 更正 → scope/大屏 → Task 完成 → 历史周只读（前缀 `【E2E】`）。  
 详细矩阵见 [dev/tm_regression_report_2026-07-31.md](./dev/tm_regression_report_2026-07-31.md)。

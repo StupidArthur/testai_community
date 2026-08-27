@@ -53,17 +53,12 @@ export async function openMineTab(page: Page) {
   await page.getByRole('tab', { name: '我的 Action' }).click()
 }
 
-/** 工作台 scope：我的 / 其他 / 全部 */
-export async function selectBoardScope(page: Page, label: '我的' | '其他' | '全部') {
+/** 工作台 scope：我的 / 全部 */
+export async function selectBoardScope(page: Page, label: '我的' | '全部') {
   const root = page.getByTestId('tm-scope-select')
   await root.click()
   const dropdown = page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').last()
-  const re =
-    label === '全部'
-      ? /^全部/
-      : label === '我的'
-        ? /^我的 Task/
-        : /^其他 Task/
+  const re = label === '全部' ? /^全部/ : /^我的 Task/
   await dropdown.locator('.ant-select-item-option-content').filter({ hasText: re }).first().click()
 }
 
@@ -73,7 +68,7 @@ export async function openCreateMenu(page: Page, item: '项目' | '领域' | 'Ta
   await page.getByRole('menuitem', { name: item, exact: true }).click()
 }
 
-/** Ant Design Select：点开 →（可搜时）过滤 → 等选项出现再选中 */
+/** Ant Design Select：点开 →（可搜时）过滤 → 等选项出现再选中（带重试，防下拉竞态） */
 export async function antdSelectByLabel(page: Page, testId: string, optionText: string | RegExp) {
   const root = page.getByTestId(testId)
   await expect(root).toBeVisible({ timeout: 15_000 })
@@ -84,29 +79,52 @@ export async function antdSelectByLabel(page: Page, testId: string, optionText: 
       : optionText.test((await root.textContent()) || '')
   if (already) return
 
-  // 若有其它下拉展开：点一下当前 selector 外区域关闭（勿 Escape，会关掉 Modal）
-  const openDd = page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)')
-  if (await openDd.count()) {
-    await page.locator('.ant-modal-open .ant-modal-title, .tm-sheet__h, h3').first().click({ force: true }).catch(() => undefined)
-  }
-
-  await root.scrollIntoViewIfNeeded()
-  const selector = root.locator('.ant-select-selector')
-  await selector.click({ force: true })
   const q =
     typeof optionText === 'string' ? optionText : optionText.source.replace(/^\^|\$$/g, '').replace(/\\/g, '')
-  // 搜索框必须挂在当前 Select 上，避免串到上一个仍展开的下拉
-  const search = root.locator('input.ant-select-selection-search-input:not([readonly])')
-  const dropdown = page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').last()
-  await expect(dropdown).toBeVisible()
-  const option = dropdown.locator('.ant-select-item-option-content').filter({ hasText: optionText })
-  if ((await search.count()) > 0) {
-    await search.first().fill('')
-    await search.first().type(q, { delay: 15 })
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await root.scrollIntoViewIfNeeded({ timeout: 5_000 }).catch(() => undefined)
+      // 点击目标 Select：antd 会自动关闭其它展开的下拉（无需 Escape / 点标题）
+      await root.locator('.ant-select-selector').click({ force: true })
+
+      // 优先用 antd 的 id 关联精确定位本 Select 的下拉（{id}_list 挂在下拉内层），避免串到其它下拉
+      const inputId = await root
+        .locator('input.ant-select-selection-search-input')
+        .first()
+        .getAttribute('id')
+      let dropdown = inputId
+        ? page.locator(
+            `.ant-select-dropdown:not(.ant-select-dropdown-hidden):has(#${inputId}_list)`,
+          )
+        : page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').last()
+      try {
+        await expect(dropdown.first()).toBeVisible({ timeout: 4_000 })
+      } catch {
+        // 精确定位失败（antd 版本差异）：退回最后一个可见下拉
+        dropdown = page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').last()
+        await expect(dropdown).toBeVisible({ timeout: 3_000 })
+      }
+      const dropdownRoot = dropdown.first()
+
+      const option = dropdownRoot
+        .locator('.ant-select-item-option-content')
+        .filter({ hasText: optionText })
+      const search = root.locator('input.ant-select-selection-search-input:not([readonly])')
+      if ((await search.count()) > 0) {
+        await search.first().fill('')
+        await search.first().type(q, { delay: 15 })
+      }
+      await expect(option.first()).toBeVisible({ timeout: 6_000 })
+      await option.first().click()
+      await expect(root).toContainText(optionText, { timeout: 8_000 })
+      return
+    } catch {
+      // 元素被重渲染 detach / 下拉未开等：稍候重试
+      await page.waitForTimeout(300)
+    }
   }
-  await expect(option.first()).toBeVisible({ timeout: 20_000 })
-  await option.first().click()
-  await expect(root).toContainText(optionText, { timeout: 8_000 })
+  throw new Error(`antdSelectByLabel: 3 次尝试后仍未选中 "${q}"（${testId}）`)
 }
 
 /** 多选 Select */
@@ -169,6 +187,31 @@ export async function openTaskDetail(
 export async function closeTaskDrawer(page: Page) {
   await page.locator('.ant-drawer-open .ant-drawer-close').click()
   await expect(page.getByTestId('tm-drawer-task')).toHaveCount(0)
+}
+
+/**
+ * 在卡片内联表单中新建子需求（Action 必填 subtask_name，建 Action 前先调用）。
+ * 点卡片「+ Action」展开 inline 表单 → 切到「新建子需求」→ 输入 → 创建 → 取消表单。
+ */
+export async function addSubtaskViaInline(
+  page: Page,
+  card: import('@playwright/test').Locator,
+  name: string,
+) {
+  await card.getByTestId('tm-btn-add-action').click()
+  const form = page.getByTestId('tm-inline-add-action')
+  await expect(form).toBeVisible()
+  // 已有子需求时处于选择模式，需要手动切到「新建子需求」
+  if (await form.getByTestId('tm-inline-subtask').isVisible().catch(() => false)) {
+    await form.getByTestId('tm-inline-subtask').click()
+    await form.getByRole('button', { name: /新建子需求/ }).click()
+  }
+  await form.getByTestId('tm-inline-new-subtask').fill(name)
+  await form.getByRole('button', { name: /创建子需求/ }).click()
+  await expectToast(page, '子需求已添加')
+  // 创建成功回到选择模式；点「取消」收起表单
+  await form.getByRole('button', { name: /取\s*消/ }).click()
+  await expect(form).toBeHidden()
 }
 
 /**

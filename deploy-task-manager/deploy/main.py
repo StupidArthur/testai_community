@@ -15,6 +15,10 @@ if getattr(sys, "frozen", False):
 else:
     BASE_DIR = Path(__file__).parent
 
+# 采集动态任务依赖（httpx/boto3/dotenv），必须在业务 import 之前执行，
+# 否则 PyInstaller 打出来的 exe 里没有这些包，alg_monitor 会瞬间 ModuleNotFoundError。
+import packaging_deps  # noqa: F401
+
 import db
 
 
@@ -66,5 +70,34 @@ def _poll_loop(scheduler):
     run_poll_loop(scheduler)
 
 
+def _write_crash_log(exc_text):
+    """崩溃信息写入 task-manager-error.log，让启动失败永远可见。"""
+    try:
+        with open(BASE_DIR / "task-manager-error.log", "a", encoding="utf-8") as f:
+            f.write(f"\n===== CRASH {time.strftime('%Y-%m-%d %H:%M:%S')} =====\n")
+            f.write(exc_text + "\n")
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
-    main()
+    # PyInstaller --noconsole（或被 guardian 以 CREATE_NO_WINDOW 拉起）时
+    # sys.stdout / sys.stderr 是 None，print 和 uvicorn 日志配置都会崩溃。
+    # 重定向到 task-manager.log，保证日志系统可用且错误可见。
+    try:
+        _log = open(BASE_DIR / "task-manager.log", "a", encoding="utf-8", buffering=1)
+        if sys.stdout is None:
+            sys.stdout = _log
+        if sys.stderr is None:
+            sys.stderr = _log
+    except Exception:
+        pass
+
+    try:
+        main()
+    except BaseException:
+        # BaseException：uvicorn 端口被占用时以 SystemExit 退出，
+        # except Exception 抓不到，必须用 BaseException。
+        import traceback
+        _write_crash_log(traceback.format_exc())
+        raise

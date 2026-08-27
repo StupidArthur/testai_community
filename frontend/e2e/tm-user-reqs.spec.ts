@@ -7,6 +7,7 @@
 import { test, expect } from '@playwright/test'
 import {
   PASS,
+  addSubtaskViaInline,
   antdSelectByLabel,
   boardTaskByTitle,
   expectToast,
@@ -30,8 +31,8 @@ const names = {
   project: `${TAG} 项目`,
   domain: `${TAG} 领域`,
   task: `${TAG} Task`,
+  subtask: `${TAG} 子需求`,
   action: `${TAG} Action`,
-  actionClone: `${TAG} Action续`,
 }
 
 test.describe(`TM 三点需求 UI ${RUN}`, () => {
@@ -97,14 +98,17 @@ test.describe(`TM 三点需求 UI ${RUN}`, () => {
     await expect(page.getByText(names.task).first()).toBeVisible({ timeout: 20_000 })
 
     const card = await boardTaskByTitle(page, names.task)
+    // Action 必须关联子需求：先在 inline 表单中创建
+    await addSubtaskViaInline(page, card, names.subtask)
     await setTaskReqStage(page, card, '测试中')
     const cardReady = await boardTaskByTitle(page, names.task)
     await cardReady.getByTestId('tm-btn-add-action').click()
-    await expect(page.getByTestId('tm-modal-new-action')).toBeVisible()
-    await page.getByTestId('tm-action-title').fill(names.action)
-    await page.getByTestId('tm-action-content').fill('测试内容')
-    await page.getByTestId('tm-action-env').fill('qa')
-    await page.getByTestId('tm-submit-action-publish').click()
+    await expect(page.getByTestId('tm-inline-add-action')).toBeVisible()
+    await antdSelectByLabel(page, 'tm-inline-subtask', names.subtask)
+    await page.getByTestId('tm-inline-title').fill(names.action)
+    await page.getByTestId('tm-inline-content').fill('测试内容')
+    await page.getByTestId('tm-inline-env').fill('qa')
+    await page.getByTestId('tm-inline-publish').click()
     await expectToast(page, /已保存|发布|创建/)
 
     await selectProjectFilter(page, names.project)
@@ -133,48 +137,23 @@ test.describe(`TM 三点需求 UI ${RUN}`, () => {
     await page.keyboard.press('Escape')
   })
 
-  test('04 Manager：API 克隆 → UI 见延续历史共 2 周', async ({ page, request }) => {
-    const loginRes = await request.post('http://127.0.0.1:48010/api/auth/login', {
-      data: { username: 'manager', password: PASS },
-    })
-    expect(loginRes.ok()).toBeTruthy()
-    const token = (await loginRes.json()).access_token
-    const headers = { Authorization: `Bearer ${token}` }
-
-    const boardRes = await request.get('http://127.0.0.1:48010/api/test-manage/board', {
-      headers,
-    })
-    expect(boardRes.ok()).toBeTruthy()
-    const board = await boardRes.json()
-    const hit = (board.tasks || []).find((t: { task: { title: string } }) =>
-      t.task.title.includes(TAG),
-    )
-    expect(hit).toBeTruthy()
-    const srcId = hit.actions[0].id as string
-
-    const cloneRes = await request.post(
-      `http://127.0.0.1:48010/api/test-manage/actions/${srcId}/clone`,
-      { headers, data: { title: names.actionClone, publish: false } },
-    )
-    expect(cloneRes.status()).toBe(201)
-    const cloned = await cloneRes.json()
-    expect(cloned.source_action_id).toBe(srcId)
-
+  test('04 Manager：Action 抽屉显示延续历史（当前周）', async ({ page }) => {
+    // 手动「克隆」API 已下线（切周自动继承取代）；单周 Action 抽屉即显示延续历史 1 周
     await login(page, 'manager', PASS)
     await goProjects(page)
     await openBoardTab(page)
     await selectProjectFilter(page, names.project)
     const card = await boardTaskByTitle(page, names.task)
-    const target = card.locator(`[data-testid="tm-action-card-${cloned.id}"]`)
-    if (await target.count()) {
-      await target.click()
-    } else {
-      await card.locator('[data-testid^="tm-action-card-"]').filter({ hasText: '续' }).first().click()
-    }
+    await card
+      .locator('[data-testid^="tm-action-card-"]')
+      .filter({ hasText: names.action })
+      .first()
+      .click()
     await expect(page.getByTestId('tm-drawer-action')).toBeVisible()
     const lineage = page.getByTestId('tm-action-lineage')
     await expect(lineage).toBeVisible({ timeout: 15_000 })
+    // Collapse 默认折叠：仅断言面板标题（周数），不展开断言「当前」标签
     await expect(lineage).toContainText(/延续历史/)
-    await expect(lineage).toContainText(/2\s*周/)
+    await expect(lineage).toContainText(/1\s*周/)
   })
 })

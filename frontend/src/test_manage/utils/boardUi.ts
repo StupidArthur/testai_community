@@ -11,22 +11,27 @@
 
 import { isMissingDailyToday } from './screenFilters'
 
-export type BoardScope = 'mine' | 'other' | 'all'
+export type BoardScope = 'mine' | 'all'
 
 /** Action 卡片列表排序用的最小字段 */
 export type ActionCardSortLike = {
   id: string
   status: string
+  subtask_name?: string | null
   has_daily_today?: boolean
   created_at?: string | null
 }
 
 /**
  * 「我的 Action」/ Task 下 Action 卡片顺序：
- * 1. 进行中且今日未日更优先
- * 2. 同组按创建时间升序（先创建的在前）
+ * 1. 按子需求分组（同子需求连续排列）
+ * 2. 进行中且今日未日更优先
+ * 3. 同组按创建时间升序（先创建的在前）
  */
 export function compareActionCardsForList(a: ActionCardSortLike, b: ActionCardSortLike): number {
+  const sa = (a.subtask_name || '').trim()
+  const sb = (b.subtask_name || '').trim()
+  if (sa !== sb) return sa.localeCompare(sb, 'zh-CN')
   const am = isMissingDailyToday(a) ? 0 : 1
   const bm = isMissingDailyToday(b) ? 0 : 1
   if (am !== bm) return am - bm
@@ -111,33 +116,28 @@ export function taskParticipantUsers(
   return users.filter((u) => ids.has(Number(u.id)))
 }
 
-/** 看板「我的 / 其他 / 全部」过滤（泛型保留 BoardTask 等完整类型） */
+/** 看板「我的 / 全部」过滤（泛型保留 BoardTask 等完整类型） */
 export function filterBoardTasksByScope<T extends BoardTaskLike>(
   list: T[],
   scope: BoardScope,
   currentUserId: number | null | undefined,
 ): T[] {
   if (currentUserId == null || scope === 'all') return list
-  if (scope === 'mine') {
-    return list.filter((bt) => Number(bt.task.lead_id) === currentUserId)
-  }
-  return list.filter((bt) => Number(bt.task.lead_id) !== currentUserId)
+  return list.filter((bt) => Number(bt.task.lead_id) === currentUserId)
 }
 
 export function countBoardTasksByScope(
   list: BoardTaskLike[],
   currentUserId: number | null | undefined,
-): { mine: number; other: number; all: number } {
+): { mine: number; all: number } {
   if (currentUserId == null) {
-    return { mine: 0, other: list.length, all: list.length }
+    return { mine: 0, all: list.length }
   }
   let mine = 0
-  let other = 0
   for (const bt of list) {
     if (Number(bt.task.lead_id) === currentUserId) mine += 1
-    else other += 1
   }
-  return { mine, other, all: list.length }
+  return { mine, all: list.length }
 }
 
 /** 空卡 Empty 文案 */
@@ -146,7 +146,7 @@ export function emptyActionDescription(opts: {
   canAddAction: boolean
 }): string {
   if (opts.readOnly) return '该周无 Action'
-  if (opts.canAddAction) return '本周尚无 Action — 点「+ Action」新建或复制上周'
+  if (opts.canAddAction) return '本周尚无 Action — 点「+ Action」新建（须选子需求）'
   return '本周无 Action（Task 已完成，不可再添加）'
 }
 

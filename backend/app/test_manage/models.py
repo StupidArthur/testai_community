@@ -1,11 +1,12 @@
 """
-项目管理 ORM：Project → Domain → Task → Action。
+项目管理 ORM：Project → Domain → Task（含 subtask 明细）→ Action（按 subtask_name 关联）。
 """
 from __future__ import annotations
 
 import uuid
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     Column,
     Date,
@@ -84,6 +85,8 @@ class TmTask(Base):
     )
     title = Column(String, nullable=False)
     requirement = Column(Text, nullable=False, default="")
+    # 子需求明细：[{"sid","name","content","deleted"}]；Action 以 name 字符串关联（改名时同步刷）
+    subtasks = Column(JSON, nullable=False, default=list)
     lead_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     status = Column(String, nullable=False, default=TASK_STATUS_DRAFT, index=True)
     # 需求进展（整需求生命周期）；测试状态见 status
@@ -160,6 +163,10 @@ class TmAction(Base):
     week_start = Column(DateTime(timezone=True), nullable=False, index=True)
     week_key = Column(String, nullable=False, index=True)
     title = Column(String, nullable=False)
+    # 关联的子需求名称（须为所属 Task subtasks 中未删除项；Task 改名时同步刷）
+    subtask_name = Column(String, nullable=False, default="", index=True)
+    # 周继承带入的起始进度（无日更时的当前进度；周报增量 = 当前 - 起始）
+    initial_progress = Column(Integer, nullable=False, default=0)
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     test_content = Column(Text, nullable=False, default="")
     environment = Column(Text, nullable=False, default="")

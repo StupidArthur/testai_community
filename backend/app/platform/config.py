@@ -206,6 +206,11 @@ DINGTALK_WEEKLY_IDEMPOTENCY_ENABLED = os.getenv(
     "DINGTALK_WEEKLY_IDEMPOTENCY_ENABLED", "true"
 ).strip().lower() in ("1", "true", "yes", "on")
 
+# ---------- 机器人调用密钥（定时任务平台专用） ----------
+# 定时任务平台无需登录，请求头带上 X-Robot-Key: <值> 即可调用发日报/周报接口。
+# 未配置（空字符串）时该通道关闭，仍走登录鉴权。
+PUSH_ROBOT_KEY = os.getenv("PUSH_ROBOT_KEY", "").strip()
+
 
 def dingtalk_openapi_ready() -> bool:
     """应用机器人发群所需四项是否齐全。"""

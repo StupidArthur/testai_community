@@ -127,13 +127,12 @@ describe('filterBoardTasksByScope', () => {
     { task: { lead_id: 10, can_add_action: true }, actions: [] },
     { task: { lead_id: 20, can_add_action: true }, actions: [{}] },
   ]
-  it('mine / other / all', () => {
+  it('mine / all', () => {
     expect(filterBoardTasksByScope(list, 'mine', 10)).toHaveLength(1)
-    expect(filterBoardTasksByScope(list, 'other', 10)).toHaveLength(1)
     expect(filterBoardTasksByScope(list, 'all', 10)).toHaveLength(2)
   })
   it('counts', () => {
-    expect(countBoardTasksByScope(list, 10)).toEqual({ mine: 1, other: 1, all: 2 })
+    expect(countBoardTasksByScope(list, 10)).toEqual({ mine: 1, all: 2 })
   })
 })
 

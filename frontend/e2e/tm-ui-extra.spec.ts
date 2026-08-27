@@ -1,10 +1,11 @@
 /**
- * 补充按钮/场景：复制上周、空说明拒绝、路人更正、帮助抽屉关闭、Portal 顶栏。
+ * 补充按钮/场景：发布流转、空说明拒绝、路人更正、帮助抽屉关闭、Portal 顶栏。
  * 依赖 tm-ui-full 同次 RUN 的数据较难串联，本文件自建一套轻量数据（仍纯 UI）。
  */
 import { test, expect } from '@playwright/test'
 import {
   PASS,
+  addSubtaskViaInline,
   antdSelectByLabel,
   boardTaskByTitle,
   expectToast,
@@ -13,7 +14,6 @@ import {
   login,
   openBoardTab,
   openCreateMenu,
-  openTaskDetail,
   selectBoardScope,
   selectProjectFilter,
   setTaskReqStage,
@@ -28,6 +28,7 @@ const owner = { username: `e2eOb_${RUN}`, realName: `OwnerB${RUN}` }
 const project = `${TAG} P2`
 const domain = `${TAG} D2`
 const task = `${TAG} T2`
+const subtask = `${TAG} S2`
 const action = `${TAG} A2`
 
 async function ensureUser(page: import('@playwright/test').Page, u: { username: string; realName: string }) {
@@ -74,11 +75,13 @@ test.describe(`TM UI 补充 ${RUN}`, () => {
     await selectBoardScope(page, '全部')
     const card = await boardTaskByTitle(page, task)
     await expect(card).toBeVisible({ timeout: 20_000 })
+    // Action 必须关联子需求：Manager 先在 inline 表单中创建
+    await addSubtaskViaInline(page, card, subtask)
     // Lead 不能改需求进展：Manager 先切到测试中，供后续 +Action
     await setTaskReqStage(page, card, '测试中')
   })
 
-  test('C Lead 发布 Action；复制到本周（同周 clone）', async ({ page }) => {
+  test('C Lead 发布 Action；表格内进行中', async ({ page }) => {
     await login(page, lead.username)
     await goProjects(page)
     await openBoardTab(page)
@@ -87,25 +90,20 @@ test.describe(`TM UI 补充 ${RUN}`, () => {
 
     const cardReady = await boardTaskByTitle(page, task)
     await cardReady.getByTestId('tm-btn-add-action').click()
-    await page.getByTestId('tm-action-title').fill(action)
+    await expect(page.getByTestId('tm-inline-add-action')).toBeVisible()
+    await antdSelectByLabel(page, 'tm-inline-subtask', subtask)
+    await page.getByTestId('tm-inline-title').fill(action)
     // 负责人默认当前 Lead；避免用户下拉在 Engineer 会话下不稳定
-    await page.getByTestId('tm-submit-action-publish').click()
+    await page.getByTestId('tm-inline-publish').click()
     await expectToast(page, 'Action 已保存')
 
-    await openTaskDetail(page, cardReady)
-    await page.keyboard.press('Escape')
-    await cardReady.getByTestId('tm-btn-add-action').click()
-    const previewLink = page.getByRole('button', { name: '查看' }).first()
-    if (await previewLink.count()) {
-      await previewLink.click()
-      await expect(page.getByTestId('tm-modal-clone-preview')).toBeVisible()
-      await page.getByTestId('tm-clone-to-week').click()
-      await expectToast(page, /草稿|引用|复制/)
-    } else {
-      // 无上周候选：应看到提示
-      await expect(page.getByText(/上周无可复制|直接新建/)).toBeVisible()
-      await page.keyboard.press('Escape')
-    }
+    // 手动「复制到本周」已下线（由切周自动继承取代）：发布后直接出现在 Task 表格中
+    const row = cardReady
+      .locator('[data-testid^="tm-action-card-"]')
+      .filter({ hasText: action })
+      .first()
+    await expect(row).toBeVisible({ timeout: 15_000 })
+    await expect(row).toContainText('进行中')
   })
 
   test('D Lead 空进度说明被拒', async ({ page }) => {

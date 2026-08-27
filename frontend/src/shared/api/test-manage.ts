@@ -26,12 +26,20 @@ export interface TmUserBrief {
   real_name?: string
 }
 
+export interface TmSubtask {
+  sid: string
+  name: string
+  content: string
+}
+
 export interface TmTask {
   id: string
   project_id: string
   domain_id: string
   title: string
   requirement: string
+  /** 子需求明细（JSON 列存储；未删除项） */
+  subtasks?: TmSubtask[]
   lead_id: number
   tester_ids: number[]
   /** 测试状态：published / done / cancelled */
@@ -52,6 +60,9 @@ export interface TmTask {
   can_edit_req_stage?: boolean
   /** 测试中时可加本周 Action */
   can_add_action?: boolean
+  /** 前端合并计算的状态（req_stage + status） */
+  display_status?: string
+  display_status_label?: string
 }
 
 export interface TmTaskDetail extends TmTask {
@@ -72,11 +83,15 @@ export interface TmAction {
   week_start: string
   week_key: string
   title: string
+  /** 关联子需求名称（必填） */
+  subtask_name: string
   owner_id: number
   test_content: string
   environment: string
   status: string
   source_action_id: string | null
+  /** 周继承带入的起始进度（无日更时的当前进度；周报增量 = 当前 - 起始） */
+  initial_progress?: number
   created_by: number
   published_at: string | null
   due_at: string | null
@@ -216,9 +231,16 @@ export const testManageApi = {
     domain_id: string
     title: string
     requirement?: string
+    subtasks?: { name: string; content?: string }[]
     lead_id: number
     tester_ids?: number[]
     publish?: boolean
+    req_stage?: string
+    expected_handover_at?: string | null
+    actual_handover_at?: string | null
+    test_started_at?: string | null
+    expected_test_end_at?: string | null
+    test_ended_at?: string | null
   }) => apiClient.post<TmTask>('/test-manage/tasks', data),
   getTask: (id: string) => apiClient.get<TmTaskDetail>(`/test-manage/tasks/${id}`),
   getTaskWeekProgress: (id: string, week_key?: string) =>
@@ -251,19 +273,29 @@ export const testManageApi = {
   deleteTask: (id: string) => apiClient.delete(`/test-manage/tasks/${id}`),
 
   mine: () => apiClient.get<TmAction[]>('/test-manage/actions/mine'),
-  cloneCandidates: (taskId: string) =>
-    apiClient.get<TmAction[]>(`/test-manage/tasks/${taskId}/clone-candidates`),
+
+  // ── Subtask（Task 内子需求，JSON 列存储）──────────────────
+  addSubtask: (
+    taskId: string,
+    data: { name: string; content?: string },
+  ) => apiClient.post<TmTask>(`/test-manage/tasks/${taskId}/subtasks`, data),
+  updateSubtask: (
+    taskId: string,
+    sid: string,
+    data: { name?: string; content?: string },
+  ) => apiClient.patch<TmTask>(`/test-manage/tasks/${taskId}/subtasks/${sid}`, data),
+  deleteSubtask: (taskId: string, sid: string) =>
+    apiClient.delete<TmTask>(`/test-manage/tasks/${taskId}/subtasks/${sid}`),
+
   createAction: (data: {
     task_id: string
     title: string
+    subtask_name: string
     owner_id?: number
     test_content?: string
     environment?: string
-    source_action_id?: string
     publish?: boolean
   }) => apiClient.post<TmAction>('/test-manage/actions', data),
-  cloneAction: (id: string, data?: { title?: string; publish?: boolean }) =>
-    apiClient.post<TmAction>(`/test-manage/actions/${id}/clone`, data || {}),
   getAction: (id: string) => apiClient.get<TmActionDetail>(`/test-manage/actions/${id}`),
   getActionLineage: (id: string) =>
     apiClient.get<ActionLineage>(`/test-manage/actions/${id}/lineage`),
@@ -271,6 +303,7 @@ export const testManageApi = {
     id: string,
     data: {
       title?: string
+      subtask_name?: string
       owner_id?: number
       test_content?: string
       environment?: string

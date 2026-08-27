@@ -112,25 +112,54 @@ def get_or_create_active_period(
         if ws < we_last:
             ws = ws + timedelta(days=7)
         we = ws + timedelta(days=7)
-        # 周期表存在空洞（如停机跨多周）时逐周推进，确保窗口覆盖当前时刻
+        # 周期表存在空洞（如停机跨多周）时逐周推进，确保窗口覆盖当前时刻；
+        # 每开一窗即触发「上周未完成 Action 自动继承到新周」（幂等）
+        prev_row = last
         while we <= local:
+            prev_row = _open_period_with_inherit(
+                db, prev_row=prev_row, ws=ws, we=we, user_id=user_id
+            )
             ws = we
             we = ws + timedelta(days=7)
-    else:
-        ws = classic_week_start(local)
-        we = classic_week_end(ws)
+        existing_key = (
+            db.query(TmWeekPeriod).filter(TmWeekPeriod.week_key == week_key(ws)).first()
+        )
+        if existing_key:
+            # 键冲突（历史数据）：扩到能覆盖 now
+            if _as_local(existing_key.week_end) <= local:
+                existing_key.week_end = local + timedelta(days=1)
+                db.flush()
+            return existing_key
+        return _open_period_with_inherit(
+            db, prev_row=prev_row, ws=ws, we=we, user_id=user_id
+        )
 
-    existing_key = (
-        db.query(TmWeekPeriod).filter(TmWeekPeriod.week_key == week_key(ws)).first()
-    )
-    if existing_key:
-        # 键冲突（历史数据）：扩到能覆盖 now
-        if _as_local(existing_key.week_end) <= local:
-            existing_key.week_end = local + timedelta(days=1)
-            db.flush()
-        return existing_key
-
+    ws = classic_week_start(local)
+    we = classic_week_end(ws)
     return _create_period(db, week_start=ws, week_end=we, user_id=user_id)
+
+
+def _open_period_with_inherit(
+    db: Session,
+    *,
+    prev_row: TmWeekPeriod,
+    ws: datetime,
+    we: datetime,
+    user_id: int | None,
+) -> TmWeekPeriod:
+    """开新周窗口，并把上一周未完成 Action 自动继承进来（失败不阻断开周）。"""
+    from app.test_manage.service import inherit_open_actions_to_new_week
+
+    row = _create_period(db, week_start=ws, week_end=we, user_id=user_id)
+    try:
+        inherit_open_actions_to_new_week(db, prev_row, row)
+        db.commit()
+    except Exception:  # noqa: BLE001
+        # 继承失败不阻断开周：回滚半成品继承数据，重开窗口行
+        db.rollback()
+        row = _create_period(db, week_start=ws, week_end=we, user_id=user_id)
+        db.commit()
+    return row
 
 
 def get_daily_context_period(

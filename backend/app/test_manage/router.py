@@ -2,18 +2,21 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
-from app.auth.service import get_current_user, RequireRole
+from app.auth.service import RequireRole, get_current_user
+from app.auth.service import _user_from_jwt  # noqa: SLF001  复用 JWT 解析
+from app.platform.config import PUSH_ROBOT_KEY
 from app.platform.database import get_db
 from app.test_manage import service as svc
 from app.test_manage import push_service as push_svc
 from app.test_manage.config import PUSH_TRIGGER_MANUAL
 from app.test_manage.schemas import (
-    ActionCloneRequest,
     ActionCorrectionCreate,
     ActionCorrectionOut,
     ActionCreate,
@@ -31,6 +34,8 @@ from app.test_manage.schemas import (
     ProjectUpdate,
     PushResultOut,
     PushTriggerRequest,
+    SubtaskCreate,
+    SubtaskUpdate,
     TaskCreate,
     TaskDetailOut,
     TaskOut,
@@ -259,13 +264,41 @@ def api_mine(
     return svc.list_mine_actions(db, current_user)
 
 
-@router.get("/tasks/{task_id}/clone-candidates", response_model=list[ActionOut])
-def api_clone_candidates(
+# ── Subtask（Task 内子需求，JSON 列存储）──────────────────────
+
+
+@router.post("/tasks/{task_id}/subtasks", response_model=TaskOut, status_code=201)
+def api_add_subtask(
     task_id: str,
+    data: SubtaskCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return svc.list_clone_candidates(db, current_user, task_id)
+    """新增子需求（同 Task 下名称唯一）。"""
+    return svc.add_subtask(db, current_user, task_id, data)
+
+
+@router.patch("/tasks/{task_id}/subtasks/{sid}", response_model=TaskOut)
+def api_update_subtask(
+    task_id: str,
+    sid: str,
+    data: SubtaskUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """更新子需求（改名会同步刷新关联 Action 的 subtask_name）。"""
+    return svc.update_subtask(db, current_user, task_id, sid, data)
+
+
+@router.delete("/tasks/{task_id}/subtasks/{sid}", response_model=TaskOut)
+def api_delete_subtask(
+    task_id: str,
+    sid: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """软删除子需求（保留记录）；其未完成 Action 置为已取消。"""
+    return svc.delete_subtask(db, current_user, task_id, sid)
 
 
 @router.post("/actions", response_model=ActionOut, status_code=201)
@@ -275,16 +308,6 @@ def api_create_action(
     current_user: User = Depends(get_current_user),
 ):
     return svc.create_action(db, current_user, data)
-
-
-@router.post("/actions/{action_id}/clone", response_model=ActionOut, status_code=201)
-def api_clone(
-    action_id: str,
-    data: ActionCloneRequest | None = None,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    return svc.clone_action(db, current_user, action_id, data or ActionCloneRequest())
 
 
 @router.get("/actions/{action_id}", response_model=ActionDetailOut)
@@ -340,7 +363,52 @@ def api_correction(
     return svc.add_correction(db, current_user, action_id, data)
 
 
-# ── 企微日报 / 周报推送（Admin / Manager）────────────────────
+# ── 企微日报 / 周报推送（Admin / Manager 或 X-Robot-Key 机器人）────────────────────
+
+_push_bearer = HTTPBearer(auto_error=False)
+
+
+def _push_caller_or_admin(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_push_bearer)],
+    x_robot_key: Annotated[str | None, Header(alias="X-Robot-Key")] = None,
+    db: Session = Depends(get_db),
+) -> User | None:
+    """鉴权：优先 X-Robot-Key（定时任务平台免登录）；否则走 Bearer Token + Admin/Manager。
+
+    机器人通道返回 None（不做角色校验），登录态通过则返回 User。
+    """
+    # 1) 机器人 key 通道
+    robot_key = (x_robot_key or "").strip()
+    if PUSH_ROBOT_KEY:
+        if robot_key:
+            if robot_key == PUSH_ROBOT_KEY:
+                return None
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="X-Robot-Key 无效",
+            )
+    elif robot_key:
+        # 服务端未配置 robot key，但客户端带了 → 拒绝（避免误以为免登可用）
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="服务端未配置 PUSH_ROBOT_KEY，机器人通道未开启",
+        )
+
+    # 2) 登录态通道
+    token = credentials.credentials if credentials else None
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="未认证：请提供 X-Robot-Key 或 Bearer Token",
+        )
+    user = _user_from_jwt(token, db)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的认证令牌",
+        )
+    push_svc.assert_can_push(user)
+    return user
 
 
 @router.get("/push/status")
@@ -348,7 +416,7 @@ def api_push_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(RequireRole(["Admin", "Manager"])),
 ):
-    """查看 webhook 配置状态、快照与最近推送记录。"""
+    """查看 webhook 配置状态、快照与最近推送记录（仅登录管理员）。"""
     push_svc.assert_can_push(current_user)
     return push_svc.push_status(db)
 
@@ -357,15 +425,18 @@ def api_push_status(
 async def api_push_daily(
     body: PushTriggerRequest = PushTriggerRequest(),
     db: Session = Depends(get_db),
-    current_user: User = Depends(RequireRole(["Admin", "Manager"])),
+    caller: User | None = Depends(_push_caller_or_admin),
 ):
     """
     手动触发测试日报推送。
 
+    鉴权：
+      - 定时任务平台：Header 带 ``X-Robot-Key: <PUSH_ROBOT_KEY>`` 即可，无需登录；
+      - 网页端：Bearer Token + Admin/Manager。
+
     dry_run=true：只生成文案不落库不发送；
     force=true：忽略「本日已推送」幂等（仍遵守无内容不发）。
     """
-    push_svc.assert_can_push(current_user)
     result = await push_svc.push_daily(
         db,
         trigger=PUSH_TRIGGER_MANUAL,
@@ -379,10 +450,13 @@ async def api_push_daily(
 async def api_push_weekly(
     body: PushTriggerRequest = PushTriggerRequest(),
     db: Session = Depends(get_db),
-    current_user: User = Depends(RequireRole(["Admin", "Manager"])),
+    caller: User | None = Depends(_push_caller_or_admin),
 ):
-    """手动触发测试周报推送（本周大屏截图 + 详情深链）。"""
-    push_svc.assert_can_push(current_user)
+    """
+    手动触发测试周报推送（本周大屏截图 + 详情深链）。
+
+    鉴权：同 ``/push/daily``，支持 ``X-Robot-Key`` 免登录调用。
+    """
     result = await push_svc.push_weekly(
         db,
         trigger=PUSH_TRIGGER_MANUAL,

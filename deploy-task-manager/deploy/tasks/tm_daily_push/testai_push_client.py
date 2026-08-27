@@ -7,7 +7,8 @@
   周报：tm_daily_push/.env + tm_weekly_push/.env（后者覆盖同名键）
 
 字段：
-  TESTAI_BASE_URL / TESTAI_PUSH_USER / TESTAI_PUSH_PASS
+  TESTAI_BASE_URL / TESTAI_ROBOT_KEY          ← 推荐免登录方式（服务端 .env 的 PUSH_ROBOT_KEY）
+  TESTAI_PUSH_USER / TESTAI_PUSH_PASS         ← 旧方式：未配 ROBOT_KEY 时回退用（登录换 token）
   TESTAI_DRY_RUN=false  才真发；true 只预览
   TESTAI_FORCE=false    平时保持 false
 """
@@ -51,11 +52,19 @@ def _truthy(raw: str | None, default: bool = False) -> bool:
     return str(raw).strip().lower() in ("1", "true", "yes", "y", "on")
 
 
-def _http_json(method: str, url: str, body: dict | None = None, token: str | None = None) -> dict:
+def _http_json(
+    method: str,
+    url: str,
+    body: dict | None = None,
+    token: str | None = None,
+    robot_key: str | None = None,
+) -> dict:
     data = None if body is None else json.dumps(body).encode("utf-8")
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    if robot_key:
+        headers["X-Robot-Key"] = robot_key
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=600) as resp:
@@ -81,29 +90,39 @@ def trigger_push(kind: str) -> str:
         )
 
     base = (cfg.get("TESTAI_BASE_URL") or "http://10.30.144.64:48011").rstrip("/")
+    robot_key = (cfg.get("TESTAI_ROBOT_KEY") or "").strip()
     user = (cfg.get("TESTAI_PUSH_USER") or "manager").strip()
     password = (cfg.get("TESTAI_PUSH_PASS") or "").strip()
-    if not password:
-        raise RuntimeError("未配置 TESTAI_PUSH_PASS（写在任务目录 .env）")
 
     dry_run = _truthy(cfg.get("TESTAI_DRY_RUN"), False)
     force = _truthy(cfg.get("TESTAI_FORCE"), False)
 
-    login = _http_json(
-        "POST",
-        f"{base}/api/auth/login",
-        {"username": user, "password": password},
-    )
-    token = login.get("access_token")
-    if not token:
-        raise RuntimeError(f"登录失败，无 access_token: {login}")
-
-    result = _http_json(
-        "POST",
-        f"{base}/api/test-manage/push/{kind}",
-        {"dry_run": dry_run, "force": force},
-        token=token,
-    )
+    if robot_key:
+        # 免登录通道：X-Robot-Key 与服务端 .env 的 PUSH_ROBOT_KEY 一致即可
+        result = _http_json(
+            "POST",
+            f"{base}/api/test-manage/push/{kind}",
+            {"dry_run": dry_run, "force": force},
+            robot_key=robot_key,
+        )
+    else:
+        # 旧方式回退：账号密码登录换 token（需配置 TESTAI_PUSH_PASS）
+        if not password:
+            raise RuntimeError("未配置 TESTAI_ROBOT_KEY（推荐）也未配置 TESTAI_PUSH_PASS，二者必填其一")
+        login = _http_json(
+            "POST",
+            f"{base}/api/auth/login",
+            {"username": user, "password": password},
+        )
+        token = login.get("access_token")
+        if not token:
+            raise RuntimeError(f"登录失败，无 access_token: {login}")
+        result = _http_json(
+            "POST",
+            f"{base}/api/test-manage/push/{kind}",
+            {"dry_run": dry_run, "force": force},
+            token=token,
+        )
 
     return (
         f"kind={kind} period={result.get('period_key')} "

@@ -40,6 +40,9 @@ def test_week_edit_lock_window(client, auth_headers):
         # 正常时刻（离周结束远）：未锁
         assert is_week_edit_locked(db) is False
 
+        # 提前在未锁窗口种好 Task + 子需求（后续锁定窗内 Action 才能因「锁」被拦）
+        tid = _lock_seed_task(client, auth_headers)
+
         # 把活动周结束拉近到 2 分钟后 → 落入「week_end 前 5 分钟」锁定窗
         per.week_end = now_tm() + timedelta(minutes=2)
         db.commit()
@@ -47,7 +50,7 @@ def test_week_edit_lock_window(client, auth_headers):
 
         # 锁定窗内：更新 Task → 400
         r = client.patch(
-            f"/api/test-manage/tasks/{_lock_seed_task(client, auth_headers)}",
+            f"/api/test-manage/tasks/{tid}",
             json={"requirement": "锁定窗内改需求"},
             headers=auth_headers,
         )
@@ -58,8 +61,9 @@ def test_week_edit_lock_window(client, auth_headers):
         r = client.post(
             "/api/test-manage/actions",
             json={
-                "task_id": _lock_seed_task(client, auth_headers),
+                "task_id": tid,
                 "title": "锁定窗内建 Action",
+                "subtask_name": "默认子需求",
                 "test_content": "内容",
                 "environment": "qa",
                 "publish": True,
@@ -113,4 +117,12 @@ def _lock_seed_task(client, headers) -> str:
     )
     assert r.status_code == 201, r.text
     _LOCK_TASK_CACHE["task_id"] = r.json()["id"]
+    # Action 必填 subtask_name：预先种一个子需求
+    tid = r.json()["id"]
+    r = client.post(
+        f"/api/test-manage/tasks/{tid}/subtasks",
+        json={"name": "默认子需求", "content": ""},
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
     return _LOCK_TASK_CACHE["task_id"]

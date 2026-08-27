@@ -154,7 +154,15 @@ def _create_task(
         headers=headers,
     )
     assert r.status_code == 201, r.text
-    return r.json()
+    task = r.json()
+    # Action 必填 subtask_name：预先种一个子需求
+    r = client.post(
+        f"/api/test-manage/tasks/{task['id']}/subtasks",
+        json={"name": "默认子需求", "content": ""},
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    return task
 
 
 # ── A. 项目 / Domain 烟测 ───────────────────────────────────
@@ -258,7 +266,7 @@ def test_b_task_edit_matrix(
     # done 后不可建 Action
     r = client.post(
         "/api/test-manage/actions",
-        json={"task_id": tid, "title": f"{TAG} 不应创建", "owner_id": lead_id},
+        json={"task_id": tid, "title": f"{TAG} 不应创建", "subtask_name": "默认子需求", "owner_id": lead_id},
         headers=mgr_headers,
     )
     assert r.status_code == 400
@@ -329,6 +337,7 @@ def test_c_action_create_clone_permissions(
         json={
             "task_id": tid,
             "title": f"{TAG} 非法owner",
+            "subtask_name": "默认子需求",
             "owner_id": stranger_id,
             "publish": False,
         },
@@ -342,6 +351,7 @@ def test_c_action_create_clone_permissions(
         json={
             "task_id": tid,
             "title": f"{TAG} 上周源",
+            "subtask_name": "默认子需求",
             "owner_id": owner_id,
             "test_content": "内容",
             "environment": "env",
@@ -363,28 +373,22 @@ def test_c_action_create_clone_permissions(
     # 无关人不可建
     r = client.post(
         "/api/test-manage/actions",
-        json={"task_id": tid, "title": f"{TAG} stranger", "owner_id": owner_id},
+        json={"task_id": tid, "title": f"{TAG} stranger", "subtask_name": "默认子需求", "owner_id": owner_id},
         headers=stranger_headers,
     )
     assert r.status_code == 403
 
-    # 克隆：不带风险
+    # clone 接口已下线（未完成 Action 自动继承，无需手动克隆）
     r = client.post(
         f"/api/test-manage/actions/{src_id}/clone",
         json={"publish": False},
         headers=lead_headers,
     )
-    assert r.status_code == 201, r.text
-    cloned = r.json()
-    assert cloned["week_key"] == r.json()["week_key"]
-    assert (cloned.get("latest_risk") or "").strip() == ""
-    assert cloned["status"] == "draft"
+    assert r.status_code in (404, 405)
 
-    # 候选列表 lead 可见，stranger 不可
+    # clone-candidates 接口已下线
     r = client.get(f"/api/test-manage/tasks/{tid}/clone-candidates", headers=lead_headers)
-    assert r.status_code == 200
-    r = client.get(f"/api/test-manage/tasks/{tid}/clone-candidates", headers=stranger_headers)
-    assert r.status_code == 403
+    assert r.status_code in (404, 405)
 
 
 # ── D/E. 状态机 + 日更 B1 ───────────────────────────────────
@@ -410,6 +414,7 @@ def test_d_e_status_and_daily_matrix(
         json={
             "task_id": task["id"],
             "title": f"{TAG} Act日更",
+            "subtask_name": "默认子需求",
             "owner_id": owner_id,
             "publish": False,
         },
@@ -499,6 +504,7 @@ def test_d_e_status_and_daily_matrix(
         json={
             "task_id": task["id"],
             "title": f"{TAG} 更正用",
+            "subtask_name": "默认子需求",
             "owner_id": owner_id,
             "publish": True,
         },
@@ -570,6 +576,7 @@ def test_g_push_dry_run_and_empty_task_not_in_kpi(
         json={
             "task_id": task["id"],
             "title": f"{TAG} 推送Act",
+            "subtask_name": "默认子需求",
             "owner_id": owner_id,
             "publish": True,
         },

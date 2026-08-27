@@ -9,6 +9,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import {
   PASS,
+  addSubtaskViaInline,
   antdMultiSelect,
   antdSelectByLabel,
   boardTaskByTitle,
@@ -45,6 +46,7 @@ const names = {
   task: `${TAG} Task主`,
   taskEmpty: `${TAG} Task空`,
   taskDone: `${TAG} TaskDone`,
+  subtask: `${TAG} 子需求`,
   actionDraft: `${TAG} 草稿Action`,
   actionPub: `${TAG} 进行中Action`,
   actionTester: `${TAG} TesterAction`,
@@ -153,12 +155,14 @@ test.describe(`TM UI E2E ${RUN}`, () => {
 
     for (const title of [names.taskEmpty, names.taskDone]) {
       await openCreateMenu(page, 'Task')
+      await expect(page.getByTestId('tm-modal-new-task')).toBeVisible()
       await antdSelectByLabel(page, 'tm-task-project', names.project)
       await antdSelectByLabel(page, 'tm-task-domain', names.domain)
       await page.getByTestId('tm-task-title').fill(title)
       await page.getByTestId('tm-task-requirement').fill('x')
       await page.getByTestId('tm-submit-task').click({ force: true })
-      await expect(page.getByText(title).first()).toBeVisible({ timeout: 15_000 })
+      await expectToast(page, 'Task 已保存')
+      await expect(page.getByText(title).first()).toBeVisible({ timeout: 20_000 })
     }
   })
 
@@ -198,12 +202,16 @@ test.describe(`TM UI E2E ${RUN}`, () => {
 
     const card = await boardTaskByTitle(page, names.task)
     await setTaskReqStage(page, card, '测试中')
+    // Action 必须关联子需求：先在 inline 表单中创建
+    const cardSub = await boardTaskByTitle(page, names.task)
+    await addSubtaskViaInline(page, cardSub, names.subtask)
     const cardReady = await boardTaskByTitle(page, names.task)
     await cardReady.getByTestId('tm-btn-add-action').click()
-    await expect(page.getByTestId('tm-modal-new-action')).toBeVisible()
-    await page.getByTestId('tm-action-title').fill(names.actionDraft)
-    await page.getByTestId('tm-action-content').fill('草稿内容')
-    await page.getByTestId('tm-submit-action-publish').click({ force: true })
+    await expect(page.getByTestId('tm-inline-add-action')).toBeVisible()
+    await antdSelectByLabel(page, 'tm-inline-subtask', names.subtask)
+    await page.getByTestId('tm-inline-title').fill(names.actionDraft)
+    await page.getByTestId('tm-inline-content').fill('草稿内容')
+    await page.getByTestId('tm-inline-publish').click({ force: true })
     await expectToast(page, 'Action 已保存')
     await expect(page.locator('.tm-action-card').filter({ hasText: names.actionDraft })).toBeVisible()
   })
@@ -217,8 +225,10 @@ test.describe(`TM UI E2E ${RUN}`, () => {
 
     const card = await boardTaskByTitle(page, names.task)
     await card.getByTestId('tm-btn-add-action').click()
-    await page.getByTestId('tm-action-title').fill(names.actionPub)
-    await page.getByTestId('tm-submit-action-publish').click({ force: true })
+    await expect(page.getByTestId('tm-inline-add-action')).toBeVisible()
+    await antdSelectByLabel(page, 'tm-inline-subtask', names.subtask)
+    await page.getByTestId('tm-inline-title').fill(names.actionPub)
+    await page.getByTestId('tm-inline-publish').click({ force: true })
     await expectToast(page, 'Action 已保存')
     await expect(page.locator('.tm-action-card').filter({ hasText: names.actionPub })).toBeVisible()
   })
@@ -232,8 +242,9 @@ test.describe(`TM UI E2E ${RUN}`, () => {
 
     const card = await boardTaskByTitle(page, names.task)
     await card.getByTestId('tm-btn-add-action').click()
-    await page.getByTestId('tm-action-title').fill(names.actionTester)
-    await page.getByTestId('tm-submit-action-publish').click({ force: true })
+    await antdSelectByLabel(page, 'tm-inline-subtask', names.subtask)
+    await page.getByTestId('tm-inline-title').fill(names.actionTester)
+    await page.getByTestId('tm-inline-publish').click({ force: true })
     await expectToast(page, 'Action 已保存')
   })
 
@@ -314,7 +325,7 @@ test.describe(`TM UI E2E ${RUN}`, () => {
     await expect(page.getByText(names.actionPub)).toBeVisible()
   })
 
-  test('16 看板 scope：我的/其他/全部', async ({ page }) => {
+  test('16 看板 scope：我的/全部', async ({ page }) => {
     await login(page, 'manager', PASS)
     await goProjects(page)
     await openBoardTab(page)
@@ -324,9 +335,6 @@ test.describe(`TM UI E2E ${RUN}`, () => {
 
     await selectBoardScope(page, '我的')
     await expect(boardTitle).toBeVisible()
-
-    await selectBoardScope(page, '其他')
-    await expect(boardTitle).toHaveCount(0)
 
     await selectBoardScope(page, '全部')
     await expect(boardTitle).toBeVisible()
@@ -369,7 +377,7 @@ test.describe(`TM UI E2E ${RUN}`, () => {
     await expect(card2.getByTestId('tm-btn-add-action')).toHaveCount(0)
   })
 
-  test('19 Manager：日更到 100% 并标记完成', async ({ page }) => {
+  test('19 Manager：日更到 100% 自动标记完成', async ({ page }) => {
     await login(page, 'manager', PASS)
     await goProjects(page)
     await openBoardTab(page)
@@ -382,8 +390,10 @@ test.describe(`TM UI E2E ${RUN}`, () => {
     await page.getByTestId('tm-daily-note').fill('收尾完成')
     await page.getByTestId('tm-submit-daily').click()
     await expectToast(page, '日更已保存')
-    await page.getByTestId('tm-btn-mark-done').click({ force: true })
-    await expectToast(page, /完成/)
+    // 日更到 100% 后端自动标记完成（产品逻辑：无需手动点「标记完成」）
+    await expect(
+      page.getByTestId('tm-drawer-action').getByText('完成', { exact: true }),
+    ).toBeVisible({ timeout: 10_000 })
   })
 
   test('20 历史周只读：工作台 Alert；无新建', async ({ page }) => {

@@ -20,15 +20,17 @@ import {
   hasRiskText,
   isMissingDailyToday,
   isOpenBlockingAction,
+  taskShowsRisk,
   type ScreenFilters,
 } from '../utils/screenFilters'
+import {
+  displayStatusLabel,
+  displayStatusTagColor,
+} from '../utils/displayStatus'
 import {
   REQ_STAGE_OPTIONS,
   REQ_STAGES_SCREEN_FOCUS,
   comparePipelineTasksByReqStage,
-  reqStageLabel,
-  reqStageTagColor,
-  showTestStatus,
 } from '../utils/reqStage'
 import ScreenFilterOverflowRow, { type ScreenFilterOverflowItem } from './ScreenFilterOverflowRow'
 import WeekViewSwitcher, { type WeekViewMode } from './WeekViewSwitcher'
@@ -121,7 +123,9 @@ function progressHealthLabel(progress: number) {
 
 function summarizeFiltered(tasks: BoardTask[]) {
   const actions = tasks.flatMap((bt) => bt.actions)
-  const riskActions = actions.filter(isOpenBlockingAction)
+  /** 风险仅在「测试中」阶段的 Task 上统计（旧 Action 残留风险不上屏） */
+  const testingActions = tasks.filter(taskShowsRisk).flatMap((bt) => bt.actions)
+  const riskActions = testingActions.filter(isOpenBlockingAction)
   const missingDaily = actions.filter(isMissingDailyToday)
   const progressAvg = actions.length
     ? Math.round(actions.reduce((s, a) => s + (a.progress_percent || 0), 0) / actions.length)
@@ -134,7 +138,9 @@ function summarizeFiltered(tasks: BoardTask[]) {
       done: tasks.filter((bt) => bt.task.status === 'done').length,
       draft: tasks.filter((bt) => bt.task.status === 'draft').length,
       cancelled: tasks.filter((bt) => bt.task.status === 'cancelled').length,
-      with_risk: tasks.filter((bt) => bt.actions.some(isOpenBlockingAction)).length,
+      with_risk: tasks.filter(
+        (bt) => taskShowsRisk(bt) && bt.actions.some(isOpenBlockingAction),
+      ).length,
     },
     action: {
       total: actions.length,
@@ -152,22 +158,87 @@ function summarizeFiltered(tasks: BoardTask[]) {
 type FlatActionRow = {
   action: BoardTask['actions'][number]
   taskTitle: string
+  subtaskName: string
+  /** 所属 Task 是否「测试中」：非测试中不展示风险/阻塞（旧 Action 残留） */
+  showsRisk: boolean
+}
+
+type SubtaskRow = {
+  key: string
+  taskId: string
+  taskTitle: string
+  domainName: string
+  subtaskName: string
+  statusKey: string
+  statusLabel: string
+  statusColor: string
+  leadName: string
+  actionCount: number
+  actionProgressAvg: number
+  hasBlocking: boolean
+  hasRiskOnly: boolean
+  progressIsManual: boolean
+}
+
+/** 本周/历史：按 subtask 压平为行（取代 TaskGroup 展开收起）；风险从高到低排序 */
+function flattenToSubtaskRows(tasks: BoardTask[], userName: (id: number) => string): SubtaskRow[] {
+  const rows: SubtaskRow[] = []
+  for (const bt of tasks) {
+    const showRisk = taskShowsRisk(bt)
+    const groups = new Map<string, BoardTask['actions']>()
+    for (const a of bt.actions) {
+      const key = (a.subtask_name || '').trim() || '未分组子需求'
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key)!.push(a)
+    }
+    for (const [subName, acts] of groups) {
+      const progressAvg = acts.length
+        ? Math.round(acts.reduce((s, a) => s + (a.progress_percent || 0), 0) / acts.length)
+        : 0
+      rows.push({
+        key: `${bt.task.id}-${subName}`,
+        taskId: bt.task.id,
+        taskTitle: bt.task.title,
+        domainName: bt.task.domain_name || '—',
+        subtaskName: subName,
+        statusKey: bt.task.display_status || 'pending_dev',
+        statusLabel: displayStatusLabel(bt.task.display_status),
+        statusColor: displayStatusTagColor(bt.task.display_status),
+        leadName: userName(Number(bt.task.lead_id)),
+        actionCount: acts.length,
+        actionProgressAvg: progressAvg,
+        hasBlocking: showRisk && acts.some(isOpenBlockingAction),
+        hasRiskOnly: showRisk && acts.some((a) => hasRiskText(a) && !isOpenBlockingAction(a)),
+        progressIsManual: bt.progress_is_manual === true,
+      })
+    }
+  }
+  // 风险从高到低：有阻塞 > 仅风险 > 其余；同级进度低者在前（进度落后风险更高）
+  return rows.sort((a, b) => {
+    if (a.hasBlocking !== b.hasBlocking) return a.hasBlocking ? -1 : 1
+    if (a.hasRiskOnly !== b.hasRiskOnly) return a.hasRiskOnly ? -1 : 1
+    if (a.actionProgressAvg !== b.actionProgressAvg) return a.actionProgressAvg - b.actionProgressAvg
+    return a.taskTitle.localeCompare(b.taskTitle, 'zh-CN')
+  })
 }
 
 /** 今日明细：压平为 Action 行；阻塞优先，其次未日更，再按进度升序 */
 function flattenActionsForToday(tasks: BoardTask[]): FlatActionRow[] {
   const rows: FlatActionRow[] = []
   for (const bt of tasks) {
+    const showsRisk = taskShowsRisk(bt)
     for (const a of bt.actions) {
       rows.push({
         action: a,
         taskTitle: bt.task.title,
+        subtaskName: a.subtask_name || '',
+        showsRisk,
       })
     }
   }
   return rows.sort((x, y) => {
-    const xb = isOpenBlockingAction(x.action) ? 0 : 1
-    const yb = isOpenBlockingAction(y.action) ? 0 : 1
+    const xb = x.showsRisk && isOpenBlockingAction(x.action) ? 0 : 1
+    const yb = y.showsRisk && isOpenBlockingAction(y.action) ? 0 : 1
     if (xb !== yb) return xb - yb
     const xm = isMissingDailyToday(x.action) ? 0 : 1
     const ym = isMissingDailyToday(y.action) ? 0 : 1
@@ -629,6 +700,10 @@ export default function WeekScreenTab(props: {
     () => (isToday ? flattenActionsForToday(filteredTasks) : []),
     [isToday, filteredTasks],
   )
+  const subtaskRows = useMemo(
+    () => (!isToday && !isPipeline ? flattenToSubtaskRows(filteredTasks, props.userName) : []),
+    [isToday, isPipeline, filteredTasks, props.userName],
+  )
 
   /** 截图模式：展开当前筛选下全部 Task，露出 Action 明细（需求总览不展开） */
   useEffect(() => {
@@ -803,6 +878,7 @@ export default function WeekScreenTab(props: {
                 value={filteredSummary.task.with_risk}
                 danger={filteredSummary.task.with_risk > 0}
               />
+              <Kpi label="总 Subtask" value={subtaskRows.length} />
               <Kpi label="总 Action" value={filteredSummary.action.total} />
               <div
                 className="tm-screen__kpi tm-screen__kpi--pulse"
@@ -850,14 +926,14 @@ export default function WeekScreenTab(props: {
                 ? '今日 × Action 明细'
                 : isPipeline
                   ? '需求 × Task 明细'
-                  : '周 × Task 明细'}
+                  : '周 × Subtask 明细'}
             </h2>
             <span>
               {isToday
                 ? `展示 ${todayActionRows.length} 个 Action`
                 : isPipeline
                   ? `展示 ${filteredTasks.length} 个 Task`
-                  : `展示 ${filteredTasks.length} 个 Task · ${filteredTasks.reduce(
+                  : `展示 ${subtaskRows.length} 个 Subtask · ${filteredTasks.reduce(
                       (n, bt) => n + bt.actions.length,
                       0,
                     )} 个 Action`}
@@ -902,57 +978,64 @@ export default function WeekScreenTab(props: {
                 </tbody>
               </table>
             </div>
+          ) : isPipeline ? (
+            <div className="tm-screen__table-scroll" data-testid="tm-screen-table">
+              <table className="tm-screen__table tm-screen__table--dense">
+                <thead>
+                  <tr>
+                    <th>Task</th>
+                    <th>领域</th>
+                    <th>需求进展</th>
+                    <th>负责人</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredTasks.map((bt) => {
+                    const st = {
+                      color: displayStatusTagColor(bt.task.display_status),
+                      text: displayStatusLabel(bt.task.display_status),
+                    }
+                    return (
+                      <TaskGroup
+                        key={bt.task.id}
+                        bt={bt}
+                        open={false}
+                        status={st}
+                        hasRisk={false}
+                        readOnly={Boolean(props.readOnly)}
+                        hideActions={true}
+                        userName={props.userName}
+                        onToggle={() => {}}
+                        onOpenAction={props.onOpenAction}
+                      />
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <div className="tm-screen__table-scroll" data-testid="tm-screen-table">
               <table className="tm-screen__table tm-screen__table--dense">
                 <thead>
                   <tr>
-                    {isPipeline ? null : <th style={{ width: 28 }} />}
                     <th>Task</th>
+                    <th>Subtask</th>
                     <th>领域</th>
-                    <th>需求进展</th>
-                    <th
-                      title={
-                        isPipeline
-                          ? 'Task 测试负责人（每人 Task 仅一名）'
-                          : 'Task 测试负责人优先；多人时「负责人 等N人」'
-                      }
-                    >
-                      负责人
-                    </th>
-                    {isPipeline ? null : (
-                      <>
-                        <th>进度</th>
-                        <th>风险 / 阻塞</th>
-                      </>
-                    )}
+                    <th>状态</th>
+                    <th>负责人</th>
+                    <th>Action 数</th>
+                    <th>均进度</th>
+                    <th>风险 / 阻塞</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredTasks.map((bt) => {
-                    const open =
-                      !isPipeline &&
-                      (Boolean(props.expandAllTasks) || expandedIds.has(bt.task.id))
-                    const st = STATUS_LABEL[bt.task.status] || {
-                      color: 'default',
-                      text: bt.task.status,
-                    }
-                    const hasRisk = bt.actions.some(isOpenBlockingAction)
-                    return (
-                      <TaskGroup
-                        key={bt.task.id}
-                        bt={bt}
-                        open={open}
-                        status={st}
-                        hasRisk={hasRisk}
-                        readOnly={Boolean(props.readOnly)}
-                        hideActions={isPipeline}
-                        userName={props.userName}
-                        onToggle={() => toggleExpand(bt.task.id)}
-                        onOpenAction={props.onOpenAction}
-                      />
-                    )
-                  })}
+                  {subtaskRows.map((row) => (
+                    <SubtaskRowComponent
+                      key={row.key}
+                      row={row}
+                      readOnly={Boolean(props.readOnly)}
+                    />
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -976,18 +1059,18 @@ function Kpi(props: { label: string; value: number; danger?: boolean; muted?: bo
   )
 }
 
-/** 今日扁平 Action 行：Action 为主，Task 弱化为副标题 */
+/** 今日扁平 Action 行：Action 为主，Subtask/Task 弱化为副信息（hover 显示） */
 function TodayActionRow(props: {
   row: FlatActionRow
   readOnly?: boolean
   userName: (id: number) => string
   onOpenAction: (id: string) => void
 }) {
-  const { action: a, taskTitle } = props.row
-  const risk = (a.latest_risk || '').trim()
-  const blocking = isOpenBlockingAction(a)
+  const { action: a, taskTitle, subtaskName, showsRisk } = props.row
+  const blocking = showsRisk && isOpenBlockingAction(a)
   const missingDaily = isMissingDailyToday(a)
-  const riskOnly = hasRiskText(a) && !blocking
+  const riskOnly = showsRisk && hasRiskText(a) && !blocking
+  const risk = showsRisk ? (a.latest_risk || '').trim() : ''
   const normal = !blocking && !missingDaily && !riskOnly
   const st = STATUS_LABEL[a.status] || { color: 'default', text: a.status }
 
@@ -1001,9 +1084,20 @@ function TodayActionRow(props: {
       data-testid="tm-screen-action-flat-row"
     >
       <td className="tm-screen__td-action-main">
-        <div className="tm-screen__action-name">{a.title}</div>
-        <div className="tm-screen__action-meta" title={taskTitle}>
-          Task: {taskTitle}
+        <div className="tm-screen__action-name tm-screen__action-name--lg">{a.title}</div>
+        <div className="tm-screen__action-meta">
+          {subtaskName ? (
+            <span className="tm-screen__action-subtask" title={`子需求：${subtaskName}`}>
+              {subtaskName}
+            </span>
+          ) : null}
+          <span
+            className="tm-screen__action-task-tip"
+            title={`Task：${taskTitle}`}
+            data-testid="tm-screen-action-task-tip"
+          >
+            · {taskTitle}
+          </span>
         </div>
       </td>
       <td className="tm-screen__td-flags">
@@ -1048,6 +1142,51 @@ function TodayActionRow(props: {
   )
 }
 
+/** 本周/历史 Subtask 行（取代 TaskGroup 展开收起） */
+function SubtaskRowComponent(props: {
+  row: SubtaskRow
+  readOnly?: boolean
+}) {
+  const { row } = props
+  return (
+    <tr className="tm-screen__subtask-row">
+      <td className="tm-screen__td-task-ref">{row.taskTitle}</td>
+      <td>
+        <span className="tm-screen__subtask-name">{row.subtaskName}</span>
+      </td>
+      <td>{row.domainName}</td>
+      <td>
+        <Tag color={row.statusColor}>{row.statusLabel}</Tag>
+      </td>
+      <td>{row.leadName}</td>
+      <td>
+        <span className="tm-screen__action-count">{row.actionCount} 项</span>
+      </td>
+      <td className="tm-screen__td-progress">
+        <Progress percent={row.actionProgressAvg} size="small" strokeColor="#0070f3" />
+      </td>
+      <td>
+        {row.hasBlocking || row.hasRiskOnly ? (
+          <div className="tm-screen__risk-stack">
+            {row.hasBlocking ? (
+              <span className="tm-screen__risk-inline tm-screen__risk-inline--count">
+                <WarningOutlined /> 阻塞
+              </span>
+            ) : null}
+            {row.hasRiskOnly ? (
+              <span className="tm-screen__risk-inline tm-screen__risk-inline--risk-only">
+                有风险
+              </span>
+            ) : null}
+          </div>
+        ) : (
+          <span className="tm-screen__ok">无</span>
+        )}
+      </td>
+    </tr>
+  )
+}
+
 function TaskGroup(props: {
   bt: BoardTask
   open: boolean
@@ -1062,11 +1201,15 @@ function TaskGroup(props: {
 }) {
   const { bt, open, status, hasRisk, hideActions } = props
   const hasActions = !hideActions && bt.actions.length > 0
-  const blockingN = hideActions ? 0 : bt.actions.filter(isOpenBlockingAction).length
+  /** 风险口径：仅「测试中」阶段统计（非测试中挂着的旧 Action 风险不展示） */
+  const showRisk = taskShowsRisk(bt)
+  const blockingN =
+    !hideActions && showRisk ? bt.actions.filter(isOpenBlockingAction).length : 0
   /** 有风险文案但未勾阻塞（与「阻塞」拆开展示） */
-  const riskOnlyN = hideActions
-    ? 0
-    : bt.actions.filter((a) => hasRiskText(a) && !isOpenBlockingAction(a)).length
+  const riskOnlyN =
+    !hideActions && showRisk
+      ? bt.actions.filter((a) => hasRiskText(a) && !isOpenBlockingAction(a)).length
+      : 0
 
   return (
     <>
@@ -1100,14 +1243,7 @@ function TaskGroup(props: {
         </td>
         <td>{bt.task.domain_name || '—'}</td>
         <td>
-          <Tag color={reqStageTagColor(bt.task.req_stage)}>{reqStageLabel(bt.task.req_stage)}</Tag>
-          {!hideActions && showTestStatus(bt.task.req_stage) ? (
-            <div style={{ marginTop: 4 }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                测试：{status.text}
-              </Text>
-            </div>
-          ) : null}
+          <Tag color={displayStatusTagColor(bt.task.display_status)}>{displayStatusLabel(bt.task.display_status)}</Tag>
         </td>
         <td>{actionOwnersLabel(bt, props.userName, { taskLeadOnly: hideActions })}</td>
         {hideActions ? null : (
@@ -1149,63 +1285,83 @@ function TaskGroup(props: {
           </>
         )}
       </tr>
-      {open &&
-        hasActions &&
-        bt.actions.map((a) => {
-          const risk = (a.latest_risk || '').trim()
-          const blocking = isOpenBlockingAction(a)
-          const missingDaily = isMissingDailyToday(a)
-          return (
-            <tr
-              key={a.id}
-              className={`tm-screen__action-row${blocking ? ' tm-screen__row--risk' : ''}${
-                missingDaily && !blocking ? ' tm-screen__row--missing-daily' : ''
-              }`}
-              data-testid="tm-screen-action-row"
-              onClick={(e) => {
-                e.stopPropagation()
-                if (!props.readOnly) props.onOpenAction(a.id)
-              }}
-              style={props.readOnly ? { cursor: 'default' } : undefined}
-            >
+      {open && hasActions && (() => {
+        const groups = new Map<string, typeof bt.actions>()
+        for (const a of bt.actions) {
+          const key = (a.subtask_name || '').trim() || '未分组子需求'
+          if (!groups.has(key)) groups.set(key, [])
+          groups.get(key)!.push(a)
+        }
+        const rows: React.ReactNode[] = []
+        for (const [subName, acts] of groups) {
+          rows.push(
+            <tr key={`st-${bt.task.id}-${subName}`} className="tm-screen__subtask-head-row">
               <td />
-              <td colSpan={2} className="tm-screen__action-title">
-                └ {a.title}
+              <td colSpan={6} className="tm-screen__subtask-head">
+                <span className="tm-screen__subtask-head-badge" />
+                <span className="tm-screen__subtask-head-title">周{subName} subtask明细</span>
+                <span className="tm-screen__subtask-head-count">{acts.length} 项</span>
               </td>
-              <td>
-                <Tag color={STATUS_LABEL[a.status]?.color}>
-                  {STATUS_LABEL[a.status]?.text}
-                </Tag>
-                {blocking ? (
-                  <Tag color="orange" style={{ marginLeft: 4 }}>
-                    阻塞
-                  </Tag>
-                ) : null}
-                {missingDaily ? (
-                  <Tag color="gold" style={{ marginLeft: 4 }}>
-                    未日更
-                  </Tag>
-                ) : null}
-              </td>
-              <td>{props.userName(a.owner_id)}</td>
-              <td className="tm-screen__td-progress">
-                <Progress percent={a.progress_percent} size="small" strokeColor="#0070f3" />
-              </td>
-              <td>
-                {risk ? (
-                  <span
-                    className="tm-screen__risk-inline tm-screen__risk-inline--detail"
-                    title={risk}
-                  >
-                    {blocking ? <Tag color="orange">阻塞</Tag> : <Tag>风险</Tag>} {risk}
-                  </span>
-                ) : (
-                  <span className="tm-screen__ok">无</span>
-                )}
-              </td>
-            </tr>
+            </tr>,
           )
-        })}
+          for (const a of acts) {
+            const risk = showRisk ? (a.latest_risk || '').trim() : ''
+            const blocking = showRisk && isOpenBlockingAction(a)
+            const missingDaily = isMissingDailyToday(a)
+            rows.push(
+              <tr
+                key={a.id}
+                className={`tm-screen__action-row${blocking ? ' tm-screen__row--risk' : ''}${
+                  missingDaily && !blocking ? ' tm-screen__row--missing-daily' : ''
+                }`}
+                data-testid="tm-screen-action-row"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (!props.readOnly) props.onOpenAction(a.id)
+                }}
+                style={props.readOnly ? { cursor: 'default' } : undefined}
+              >
+                <td />
+                <td colSpan={2} className="tm-screen__action-title">
+                  <div className="tm-screen__action-name">{a.title}</div>
+                </td>
+                <td>
+                  <Tag color={STATUS_LABEL[a.status]?.color}>
+                    {STATUS_LABEL[a.status]?.text}
+                  </Tag>
+                  {blocking ? (
+                    <Tag color="orange" style={{ marginLeft: 4 }}>
+                      阻塞
+                    </Tag>
+                  ) : null}
+                  {missingDaily ? (
+                    <Tag color="gold" style={{ marginLeft: 4 }}>
+                      未日更
+                    </Tag>
+                  ) : null}
+                </td>
+                <td>{props.userName(a.owner_id)}</td>
+                <td className="tm-screen__td-progress">
+                  <Progress percent={a.progress_percent} size="small" strokeColor="#0070f3" />
+                </td>
+                <td>
+                  {risk ? (
+                    <span
+                      className="tm-screen__risk-inline tm-screen__risk-inline--detail"
+                      title={risk}
+                    >
+                      {blocking ? <Tag color="orange">阻塞</Tag> : <Tag>风险</Tag>} {risk}
+                    </span>
+                  ) : (
+                    <span className="tm-screen__ok">无</span>
+                  )}
+                </td>
+              </tr>,
+            )
+          }
+        }
+        return rows
+      })()}
     </>
   )
 }

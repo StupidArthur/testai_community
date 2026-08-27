@@ -103,6 +103,7 @@ class OpenRisk:
     project_name: str
     progress: int
     task_id: str = ""
+    subtask_name: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -115,6 +116,7 @@ class OpenRisk:
             "project_name": self.project_name,
             "progress": self.progress,
             "task_id": self.task_id,
+            "subtask_name": self.subtask_name,
         }
 
     @classmethod
@@ -129,6 +131,7 @@ class OpenRisk:
             project_name=str(data.get("project_name") or ""),
             progress=int(data.get("progress") or 0),
             task_id=str(data.get("task_id") or ""),
+            subtask_name=str(data.get("subtask_name") or ""),
         )
 
 
@@ -205,6 +208,7 @@ class TodayActionLine:
     risk: str
     note: str
     status: str
+    subtask_name: str = ""
 
 
 @dataclass
@@ -339,6 +343,7 @@ def collect_week_risk_snapshot(
             project_name=(project.name if project else "") or "—",
             progress=progress,
             task_id=a.task_id or "",
+            subtask_name=(getattr(a, "subtask_name", "") or "").strip(),
         )
         if is_blocking:
             blocking.append(item)
@@ -612,6 +617,7 @@ def collect_today_action_lines(
                 risk=risk,
                 note=(du.progress_note or "").strip(),
                 status=a.status,
+                subtask_name=(getattr(a, "subtask_name", "") or "").strip(),
             )
         )
     lines.sort(
@@ -2067,6 +2073,7 @@ async def fit_daily_markdown(
             risk=r.risk,
             note="",
             status=STATUS_PUBLISHED,
+            subtask_name=r.subtask_name,
         )
         for r in open_all
     ]
@@ -2151,8 +2158,11 @@ def _format_daily_action_skeleton(lines: list[TodayActionLine]) -> list[str]:
         note_bit = (
             f"　{_font('comment', _brief_text(row.note, 10))}" if row.note else ""
         )
+        subtask_bit = (
+            f"{_font('comment', _clip(row.subtask_name, 20))} " if row.subtask_name else ""
+        )
         parts.append(
-            f"- {_font('text', _clip(row.action_title, 26))} {prog}{note_bit}"
+            f"- {subtask_bit}{_font('text', _clip(row.action_title, 26))} {prog}{note_bit}"
         )
     parts.append("")
     return parts
@@ -2172,9 +2182,12 @@ def _format_daily_risk_skeleton(diff: RiskDiff) -> list[str]:
     for r in open_rows:
         risk_txt = _brief_text(r.risk, 40) or (r.risk or "").strip()
         domain = (r.domain_name or "—").strip() or "—"
+        subtask_bit = (
+            f"{_font('comment', _clip(r.subtask_name, 16))} " if r.subtask_name else ""
+        )
         parts.append(
             f"- {_font('domain', f'[{domain}]')} "
-            f"{_font('text', _clip(r.action_title, 22))}"
+            f"{subtask_bit}{_font('text', _clip(r.action_title, 22))}"
             f"　{_font('warning', risk_txt)}"
         )
     parts.append("")
