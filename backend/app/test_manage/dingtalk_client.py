@@ -470,17 +470,41 @@ async def send_openapi_daily_one_message(
     brief: str = DINGTALK_DAILY_BRIEF_TEXT,
     keyword: str | None = None,
     image_filename: str = DINGTALK_DAILY_SCREENSHOT_FILENAME,
+    images: list[tuple[str, bytes, str]] | None = None,
 ) -> dict[str, Any]:
     """
-    日/周报只发【一条】markdown：少量说明 + 明细截图 + 详情链接（无底部按钮）。
+    日/周报只发【一条】markdown。
 
     使用 sampleMarkdown，避免 ActionCard 底部按钮。
+    images：多项目模式，[(项目名, png, 免鉴权深链)]，结构为
+    「大标题 + 每项目：项目名(深链) + 截图」，不带 brief 与底部链接；
+    优先于 screenshot_png 单图。
     """
     kw = DINGTALK_KEYWORD if keyword is None else keyword
-    safe_title = _ensure_keyword(title or "测试任务日报", kw)
+    safe_title = _ensure_keyword(title or "项目测试日报", kw)
+    if images:
+        # 多项目：大标题 + 每项目「项目名(深链) + 截图」分段，一条消息
+        parts = [f"### {title or '项目测试日报'}", ""]
+        for label, data, link in images:
+            media_id = await upload_image_media(
+                data, filename=image_filename or DINGTALK_DAILY_SCREENSHOT_FILENAME
+            )
+            if label and (link or "").strip():
+                # 项目名纯文本标题 + 明文"详情请点击"链接（钉钉自动渲染 URL 为可点链接）
+                parts.extend(["", f"**{label}**", f"详情请点击：{link.strip()}", f"![]({media_id})"])
+            elif label:
+                parts.extend(["", f"**{label}**", f"![]({media_id})"])
+            else:
+                parts.extend(["", f"![]({media_id})"])
+        text = "\n".join(parts)
+        return await send_openapi_group_message(
+            msg_key=DINGTALK_OPENAPI_MARKDOWN_MSG_KEY,
+            msg_param={"title": safe_title, "text": text},
+        )
+
     url = (detail_url or "").strip()
     parts = [
-        f"### {title or '测试任务日报'}",
+        f"### {title or '项目测试日报'}",
         "",
         (brief or "").strip() or DINGTALK_DAILY_BRIEF_TEXT,
     ]
@@ -512,16 +536,19 @@ async def send_daily_report_messages(
     webhook_url: str | None = None,
     brief: str = DINGTALK_DAILY_BRIEF_TEXT,
     image_filename: str = DINGTALK_DAILY_SCREENSHOT_FILENAME,
+    images: list[tuple[str, bytes, str]] | None = None,
 ) -> dict[str, Any]:
     """
     日/周报发送：【一条】少量说明 + 链接 + 截图。
 
     优先 OpenAPI；未配置则回退 Webhook 单条 markdown。
+    images：多项目模式 [(项目名, png, 免鉴权深链)]；
+    webhook 回退时受 4096 字节限制需拆多条（首条说明+链接，其后每项目一条）。
     """
     result: dict[str, Any] = {
         "channel": "",
         "ok": False,
-        "image_ok": bool(screenshot_png),
+        "image_ok": bool(screenshot_png or images),
     }
     if dingtalk_openapi_ready():
         result["channel"] = "openapi"
@@ -531,6 +558,7 @@ async def send_daily_report_messages(
             screenshot_png=screenshot_png,
             brief=brief,
             image_filename=image_filename,
+            images=images,
         )
         result["ok"] = True
         return result
@@ -541,6 +569,44 @@ async def send_daily_report_messages(
     result["channel"] = "webhook"
     # Webhook：短文 + 链接；截图尽量压进同条 markdown（体积不够则仅文字链接）
     from app.test_manage.push_report import build_daily_brief_markdown
+
+    if images:
+        # 多图超单条 4096 字节限制：先发说明+链接，再逐项目各发一条（项目名深链+压缩图）
+        md = build_daily_brief_markdown(
+            title=title,
+            detail_url=detail_url,
+            brief=brief,
+            image_data_uri=None,
+        )
+        await send_markdown(url, md, title=title)
+        image_ok_any = False
+        for label, data, link in images:
+            img_title = f"{title} · {label}" if label else title
+            label_md = (
+                f"**[{label}]({link.strip()})**"
+                if label and (link or "").strip()
+                else (f"**{label}**" if label else "")
+            )
+            try:
+                raw = _compress_image_for_webhook(data)
+                b64 = base64.b64encode(raw).decode("ascii")
+                uri = f"data:image/jpeg;base64,{b64}"
+                md_img = build_daily_brief_markdown(
+                    title=img_title,
+                    detail_url=detail_url,
+                    brief=label_md,
+                    image_data_uri=uri,
+                )
+                if len(md_img.encode("utf-8")) <= DINGTALK_MSG_MAX_BYTES_WITH_EMBED:
+                    await send_markdown(url, md_img, title=img_title)
+                    image_ok_any = True
+                else:
+                    log.warning("webhook embed too large for %s, image skipped", label)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("webhook embed screenshot failed for %s: %s", label, exc)
+        result["image_ok"] = image_ok_any
+        result["ok"] = True
+        return result
 
     md = build_daily_brief_markdown(
         title=title,
