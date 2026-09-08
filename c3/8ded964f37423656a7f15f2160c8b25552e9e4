@@ -1,0 +1,59 @@
+backend/app/test_manage/dingtalk_client.py
+  s_57863cb9476e90::t_004100074392b0 481,485,489-491,496-498
+  s_57863cb9476e90::t_ce4815a307858e 551,561,573,575-577,579-581,608-609
+  s_57863cb9476e90::t_eabd70ad02f31a 574,583,585,587-589,597
+  s_57863cb9476e90::t_81cba3a197c2dd 578,582,584,590-596,598-607
+  s_57863cb9476e90::t_e47d5c52c35f57 539,545-546
+  s_57863cb9476e90::t_4da12a30553162 473,476,479-480,484,486-488,492,495,499-504,507
+  s_c568d0712ef37b::t_22875cb2285c7f 493-494,586
+  s_57863cb9476e90::t_07314b6e3db4af 610
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "c38ded964f37423656a7f15f2160c8b25552e9e4",
+  "prompts": {},
+  "sessions": {
+    "s_57863cb9476e90": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a73e3c900ac84f27c3a9cbb",
+        "model": "glm-5.3"
+      },
+      "human_author": "complay123 <675328403@qq.com>",
+      "custom_attributes": {
+        "external_session_id": "6a73e3c900ac84f27c3a9cbb",
+        "dedupe_key": "6a73e3c900ac84f27c3a9cbb:6a9ffd5eadf6cb0f0f86c53f:afterEdit:8b56f84b",
+        "operation_id": "6a9ffd5eadf6cb0f0f86c53f",
+        "client_type": "ide",
+        "tool_type": "agent",
+        "source_scene": "unknown",
+        "tool_use_id": "6a9ffd5eadf6cb0f0f86c53f",
+        "edit_kind": "file_edit",
+        "tool_id": "SearchReplace",
+        "runtime_client": "trae-tob-git-ai",
+        "session_id": "6a73e3c900ac84f27c3a9cbb"
+      }
+    },
+    "s_c568d0712ef37b": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a9a387ac01a71810696e4eb",
+        "model": "glm-5.3-flash"
+      },
+      "human_author": "complay123 <675328403@qq.com>",
+      "custom_attributes": {
+        "edit_kind": "file_edit",
+        "runtime_client": "trae-tob-git-ai",
+        "client_type": "ide",
+        "tool_use_id": "6aa0016aadf6cb0f0f86c669",
+        "session_id": "6a9a387ac01a71810696e4eb",
+        "tool_name": "SearchReplace",
+        "display_model_name": "glm-5.3-flash",
+        "source_scene": "agent",
+        "external_session_id": "6a9a387ac01a71810696e4eb",
+        "operation_id": "6aa0016aadf6cb0f0f86c669"
+      }
+    }
+  }
+}
