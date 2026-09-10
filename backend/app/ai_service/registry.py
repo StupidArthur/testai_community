@@ -4,16 +4,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.platform.config import MINIMAX_MODEL
+from app.platform.config import LLM_GATEWAY_MODEL
 
 from .providers.base import LLMProvider
 from .providers.minimax import MiniMaxProvider
+from .providers.gateway import GatewayProvider
 
 # 默认平台模型 ID（chat 未指定 model 时使用）
-DEFAULT_MODEL_ID = "minimax-default"
+DEFAULT_MODEL_ID = "gateway-default"
 
 _providers: dict[str, LLMProvider] = {
     "minimax": MiniMaxProvider(),
+    "gateway": GatewayProvider(),
 }
 
 
@@ -31,8 +33,8 @@ class ModelSpec:
 MODELS: tuple[ModelSpec, ...] = (
     ModelSpec(
         model_id=DEFAULT_MODEL_ID,
-        provider_name="minimax",
-        provider_model=MINIMAX_MODEL,
+        provider_name="gateway",
+        provider_model=LLM_GATEWAY_MODEL,
         supports_think=True,
     ),
 )
@@ -54,15 +56,15 @@ def resolve_model(model: str | None) -> tuple[LLMProvider, str, bool]:
 
     - None / 空：使用 DEFAULT_MODEL_ID
     - 命中 platform model_id：走注册表
-    - 否则：视为 MiniMax 厂商模型名（向后兼容 MINIMAX_MODEL 直传）
+    - 否则：视为 Gateway 厂商模型名（向后兼容）
     """
     model_key = (model or DEFAULT_MODEL_ID).strip()
     spec = _MODEL_BY_ID.get(model_key)
     if spec is not None:
         return get_provider(spec.provider_name), spec.provider_model, spec.supports_think
 
-    # 向后兼容：调用方传入 MINIMAX_MODEL 等厂商模型名
-    return get_provider("minimax"), model_key, True
+    # 向后兼容：调用方传入厂商模型名
+    return get_provider("gateway"), model_key, True
 
 
 def list_models() -> list[ModelSpec]:

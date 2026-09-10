@@ -8,7 +8,6 @@ import {
   Checkbox,
   Collapse,
   DatePicker,
-  Drawer,
   Dropdown,
   Empty,
   Form,
@@ -65,9 +64,8 @@ import {
   shouldHighlightEmptyTask,
   shouldShowAddActionButton,
   sortActionCardsForList,
-  taskParticipantUsers,
 } from '../utils/boardUi'
-import { isMissingDailyToday, isBlockingFlag } from '../utils/screenFilters'
+import { isMissingDailyToday, isBlockingFlag, dailyContextWeekKey, isWeekSwitchDay } from '../utils/screenFilters'
 import {
   DISPLAY_STATUS_OPTIONS,
   DISPLAY_STATUS_TAG_COLOR,
@@ -77,6 +75,7 @@ import {
 } from '../utils/displayStatus'
 import {
   REQ_STAGE_OPTIONS,
+  REQ_STAGE_PENDING_DEV,
   REQ_STAGE_TESTING,
 } from '../utils/reqStage'
 import './ProjectManagePage.css'
@@ -123,6 +122,20 @@ function formatWeekShort(weekStart?: string, weekEnd?: string) {
   return `${a}-${e.getMonth() + 1}.${e.getDate()}`
 }
 
+/** 业务「今天」（UTC+8，与后端 today_tm 对齐），YYYY-MM-DD；offsetDays=-1 即昨天 */
+function tmTodayYmd(offsetDays = 0) {
+  return new Date(Date.now() + 8 * 3600_000 + offsetDays * 86_400_000).toISOString().slice(0, 10)
+}
+
+/** 日更记录日期标签：今天/昨天，其余 MM-DD */
+function dailyDateLabel(reportDate?: string) {
+  const ymd = (reportDate || '').slice(0, 10)
+  if (!ymd) return ''
+  if (ymd === tmTodayYmd()) return '今天'
+  if (ymd === tmTodayYmd(-1)) return '昨天'
+  return ymd.slice(5)
+}
+
 /**
  * 项目管理：默认看板（周×Task），Task/Action 创建与日更。
  */
@@ -165,10 +178,40 @@ export default function ProjectManagePage() {
   const [boardDomainFilter, setBoardDomainFilter] = useState<string | null>(null)
   /** 工作台筛选：状态 */
   const [boardStatusFilter, setBoardStatusFilter] = useState<string | null>(null)
+  /** 工作台筛选：Task 名称模糊搜索 */
+  const [boardTaskNameKeyword, setBoardTaskNameKeyword] = useState<string>('')
+  /** 工作台筛选：子类/模块 */
+  const [boardModuleFilter, setBoardModuleFilter] = useState<string | null>(null)
+  /** 工作台筛选：需求类型 */
+  const [boardReqTypeFilter, setBoardReqTypeFilter] = useState<string | null>(null)
+  /** 工作台筛选：优先级 */
+  const [boardPriorityFilter, setBoardPriorityFilter] = useState<string | null>(null)
+  /** 工作台筛选：变更标识 */
+  const [boardChangeFlagFilter, setBoardChangeFlagFilter] = useState<string | null>(null)
+  /** 工作台筛选：验证人 */
+  const [boardVerifierFilter, setBoardVerifierFilter] = useState<number | null>(null)
+  /** 工作台筛选：验证结果 */
+  const [boardVerifyResultFilter, setBoardVerifyResultFilter] = useState<string | null>(null)
+  /** 工作台筛选：SR 编号模糊搜索 */
+  const [boardSrCodeKeyword, setBoardSrCodeKeyword] = useState<string>('')
+  /** 工作台筛选：子需求/Action 名称模糊搜索 */
+  const [boardActionKeyword, setBoardActionKeyword] = useState<string>('')
+  /** 工作台筛选：开发/产品人员模糊搜索（匹配 Task/子需求/Action 三级人员标签） */
+  const [boardMemberKeyword, setBoardMemberKeyword] = useState<string>('')
+  /** 工作台排序：字段（名称/SR编号/进度）+ 方向（升序/降序） */
+  const [boardSortField, setBoardSortField] = useState<'title' | 'sr_code' | 'progress'>('title')
+  const [boardSortOrder, setBoardSortOrder] = useState<'asc' | 'desc'>('asc')
   /** 工作台 Task 分页 */
   const [boardTaskPage, setBoardTaskPage] = useState(1)
   const [boardTaskPageSize, setBoardTaskPageSize] = useState<number>(BOARD_TASK_PAGE_SIZE_DEFAULT)
   const [mineActionPage, setMineActionPage] = useState(1)
+  /** 子需求移动弹窗（移到同项目下其他 Task） */
+  const [moveSubtaskModal, setMoveSubtaskModal] = useState<{
+    open: boolean
+    sid: string
+    name: string
+    targetId?: string
+  }>({ open: false, sid: '', name: '' })
 
   const { data: week } = useQuery({
     queryKey: ['tm-week'],
@@ -185,6 +228,8 @@ export default function ProjectManagePage() {
       message.success('本周 Task 进度已保存')
       void qc.invalidateQueries({ queryKey: ['tm-task-week-progress'] })
       void qc.invalidateQueries({ queryKey: ['tm-board'] })
+      // 同步刷新 Task 详情（弹窗内周进度区依赖 taskDetail.req_stage/can_edit）
+      void qc.invalidateQueries({ queryKey: ['tm-task'] })
     },
     onError: (e: any) => message.error(e?.response?.data?.detail || '保存周进度失败'),
   })
@@ -409,13 +454,38 @@ export default function ProjectManagePage() {
 
   /** 子需求 CRUD（JSON 列存 Task 上；改名同步刷 Action，软删连带取消未完成 Action） */
   const addSubtaskMut = useMutation({
-    mutationFn: (p: { taskId: string; name: string; content?: string }) =>
-      testManageApi.addSubtask(p.taskId, { name: p.name, content: p.content }),
+    mutationFn: (p: {
+      taskId: string
+      name: string
+      content?: string
+      dev_members?: string[]
+      pm_members?: string[]
+    }) =>
+      testManageApi.addSubtask(p.taskId, {
+        name: p.name,
+        content: p.content,
+        dev_members: p.dev_members,
+        pm_members: p.pm_members,
+      }),
     onSuccess: () => {
       message.success('子需求已添加')
       invalidate()
     },
     onError: (e: any) => message.error(e?.response?.data?.detail || '添加失败'),
+  })
+
+  /** 子需求人员维护（信息性字段，所有角色当前周均可改） */
+  const updateSubtaskMut = useMutation({
+    mutationFn: (p: {
+      taskId: string
+      sid: string
+      data: { dev_members?: string[]; pm_members?: string[] }
+    }) => testManageApi.updateSubtask(p.taskId, p.sid, p.data),
+    onSuccess: () => {
+      message.success('子需求人员已更新')
+      invalidate()
+    },
+    onError: (e: any) => message.error(e?.response?.data?.detail || '更新失败'),
   })
 
   const deleteSubtaskMut = useMutation({
@@ -428,13 +498,40 @@ export default function ProjectManagePage() {
     onError: (e: any) => message.error(e?.response?.data?.detail || '删除失败'),
   })
 
+  const moveSubtaskMut = useMutation({
+    mutationFn: (p: { taskId: string; sid: string; targetTaskId: string }) =>
+      testManageApi.moveSubtask(p.taskId, p.sid, p.targetTaskId),
+    onSuccess: () => {
+      message.success('子需求已移动（关联 Action 一并随迁）')
+      setMoveSubtaskModal({ open: false, sid: '', name: '' })
+      invalidate()
+    },
+    onError: (e: any) => message.error(e?.response?.data?.detail || '移动失败'),
+  })
+
   /** 工作台列表：归档 Task 默认不展示（与归档确认文案一致） */
   const boardTasksScoped = useMemo(() => {
     const list = (board?.tasks || []).filter((bt) => bt.task.status !== 'cancelled')
     const uid = user?.id != null ? Number(user.id) : null
     let scoped = filterBoardTasksByScope(list, boardTaskScope, uid)
     if (boardLeadFilter != null) {
-      scoped = scoped.filter((bt) => Number(bt.task.lead_id) === boardLeadFilter)
+      // 负责人筛选：匹配 Task 负责人 / 子需求人员 / Action 负责人或人员
+      const leadName = userName(boardLeadFilter)
+      const nameHit = (arr?: string[]) =>
+        (arr || []).some((m) => (m || '').trim() === leadName)
+      scoped = scoped.filter(
+        (bt) =>
+          Number(bt.task.lead_id) === boardLeadFilter ||
+          (bt.task.subtasks || []).some(
+            (s) => nameHit(s.dev_members) || nameHit(s.pm_members),
+          ) ||
+          (bt.actions || []).some(
+            (a) =>
+              Number(a.owner_id) === boardLeadFilter ||
+              nameHit(a.dev_members) ||
+              nameHit(a.pm_members),
+          ),
+      )
     }
     if (boardDomainFilter) {
       scoped = scoped.filter((bt) => bt.task.domain_id === boardDomainFilter)
@@ -442,7 +539,77 @@ export default function ProjectManagePage() {
     if (boardStatusFilter) {
       scoped = scoped.filter((bt) => bt.task.display_status === boardStatusFilter)
     }
-    return scoped
+    if (boardModuleFilter) {
+      scoped = scoped.filter((bt) => (bt.task.module || '') === boardModuleFilter)
+    }
+    if (boardReqTypeFilter) {
+      scoped = scoped.filter((bt) => (bt.task.req_type || '') === boardReqTypeFilter)
+    }
+    if (boardPriorityFilter) {
+      scoped = scoped.filter((bt) => (bt.task.priority || '') === boardPriorityFilter)
+    }
+    if (boardChangeFlagFilter) {
+      scoped = scoped.filter((bt) => (bt.task.change_flag || '') === boardChangeFlagFilter)
+    }
+    if (boardVerifierFilter != null) {
+      scoped = scoped.filter((bt) => Number(bt.task.verifier_id ?? -1) === boardVerifierFilter)
+    }
+    if (boardVerifyResultFilter) {
+      scoped = scoped.filter((bt) => (bt.task.verify_result || '') === boardVerifyResultFilter)
+    }
+    const srKw = boardSrCodeKeyword.trim().toLowerCase()
+    if (srKw) {
+      scoped = scoped.filter((bt) => (bt.task.sr_code || '').toLowerCase().includes(srKw))
+    }
+    const kw = boardTaskNameKeyword.trim().toLowerCase()
+    if (kw) {
+      scoped = scoped.filter((bt) => (bt.task.title || '').toLowerCase().includes(kw))
+    }
+    const actionKw = boardActionKeyword.trim().toLowerCase()
+    if (actionKw) {
+      // 模糊匹配子需求名或 Action 名称，命中任一即保留该 Task 卡片
+      scoped = scoped.filter((bt) =>
+        (bt.actions || []).some(
+          (a) =>
+            (a.title || '').toLowerCase().includes(actionKw) ||
+            (a.subtask_name || '').toLowerCase().includes(actionKw),
+        ),
+      )
+    }
+    const memberKw = boardMemberKeyword.trim().toLowerCase()
+    if (memberKw) {
+      // 模糊匹配 Task / 子需求 / Action 任一级的开发或产品人员标签
+      const hit = (arr?: string[]) =>
+        (arr || []).some((m) => (m || '').toLowerCase().includes(memberKw))
+      scoped = scoped.filter(
+        (bt) =>
+          hit(bt.task.dev_members) ||
+          hit(bt.task.pm_members) ||
+          (bt.task.subtasks || []).some((s) => hit(s.dev_members) || hit(s.pm_members)) ||
+          (bt.actions || []).some((a) => hit(a.dev_members) || hit(a.pm_members)),
+      )
+    }
+    // 排序：名称（默认）/ SR 编号 / 进度；方向升序/降序（无 SR 编号固定排最后，不随方向翻转）
+    const dir = boardSortOrder === 'desc' ? -1 : 1
+    const sorted = [...scoped].sort((a, b) => {
+      if (boardSortField === 'sr_code') {
+        const sa = (a.task.sr_code || '').trim()
+        const sb = (b.task.sr_code || '').trim()
+        if (!sa || !sb) {
+          // 无 SR 编号的固定排最后（不随排序方向翻转）
+          if (!sa && !sb) return (a.task.title || '').localeCompare(b.task.title || '', 'zh') * dir
+          return sa ? -1 : 1
+        }
+        return sa.localeCompare(sb, 'zh') * dir
+      }
+      if (boardSortField === 'progress') {
+        const diff = (a.week_progress_avg || 0) - (b.week_progress_avg || 0)
+        if (diff !== 0) return diff * dir
+        return (a.task.title || '').localeCompare(b.task.title || '', 'zh') * dir
+      }
+      return (a.task.title || '').localeCompare(b.task.title || '', 'zh') * dir
+    })
+    return sorted
   }, [
     board?.tasks,
     boardTaskScope,
@@ -450,6 +617,18 @@ export default function ProjectManagePage() {
     boardLeadFilter,
     boardDomainFilter,
     boardStatusFilter,
+    boardModuleFilter,
+    boardReqTypeFilter,
+    boardPriorityFilter,
+    boardChangeFlagFilter,
+    boardVerifierFilter,
+    boardVerifyResultFilter,
+    boardSrCodeKeyword,
+    boardTaskNameKeyword,
+    boardActionKeyword,
+    boardMemberKeyword,
+    boardSortField,
+    boardSortOrder,
   ])
 
   /** 筛选下拉选项：从当前看板数据去重（只列实际存在的负责人/领域/状态） */
@@ -458,14 +637,39 @@ export default function ProjectManagePage() {
     const leads = new Map<number, string>()
     const domainsMap = new Map<string, string>()
     const statusSet = new Set<string>()
+    const moduleSet = new Set<string>()
+    const reqTypeSet = new Set<string>()
+    const prioritySet = new Set<string>()
+    const changeFlagSet = new Set<string>()
+    const verifiers = new Map<number, string>()
+    const verifyResultSet = new Set<string>()
     for (const bt of list) {
       const lid = Number(bt.task.lead_id)
       if (!leads.has(lid)) leads.set(lid, userName(lid))
+      // 负责人筛选项同时聚合 Action 负责人（子需求/Action 人员为自由文本，不进下拉）
+      for (const a of bt.actions || []) {
+        const oid = Number(a.owner_id)
+        if (!leads.has(oid)) leads.set(oid, userName(oid))
+      }
       if (!domainsMap.has(bt.task.domain_id)) {
         domainsMap.set(bt.task.domain_id, bt.task.domain_name || '未分领域')
       }
       const ds = (bt.task.display_status || '').trim()
       if (ds) statusSet.add(ds)
+      const mod = (bt.task.module || '').trim()
+      if (mod) moduleSet.add(mod)
+      const rt = (bt.task.req_type || '').trim()
+      if (rt) reqTypeSet.add(rt)
+      const pr = (bt.task.priority || '').trim()
+      if (pr) prioritySet.add(pr)
+      const cf = (bt.task.change_flag || '').trim()
+      if (cf) changeFlagSet.add(cf)
+      if (bt.task.verifier_id != null) {
+        const vid = Number(bt.task.verifier_id)
+        if (!verifiers.has(vid)) verifiers.set(vid, userName(vid))
+      }
+      const vr = (bt.task.verify_result || '').trim()
+      if (vr) verifyResultSet.add(vr)
     }
     const leadOpts = [...leads.entries()]
       .sort((a, b) => a[1].localeCompare(b[1], 'zh'))
@@ -477,17 +681,66 @@ export default function ProjectManagePage() {
     const statusOpts = [...statusSet]
       .map((v) => ({ value: v, label: labelMap.get(v) || v }))
       .sort((a, b) => a.label.localeCompare(b.label, 'zh'))
-    return { leadOpts, domainOpts, statusOpts }
+    const sortByZh = (arr: string[]) => arr.sort((a, b) => a.localeCompare(b, 'zh'))
+    const moduleOpts = sortByZh([...moduleSet]).map((v) => ({ value: v, label: v }))
+    const reqTypeOpts = sortByZh([...reqTypeSet]).map((v) => ({ value: v, label: v }))
+    const priorityOpts = sortByZh([...prioritySet]).map((v) => ({ value: v, label: v }))
+    const changeFlagOpts = sortByZh([...changeFlagSet]).map((v) => ({ value: v, label: v }))
+    const verifierOpts = [...verifiers.entries()]
+      .sort((a, b) => a[1].localeCompare(b[1], 'zh'))
+      .map(([value, label]) => ({ value, label }))
+    const verifyResultOpts = sortByZh([...verifyResultSet]).map((v) => ({ value: v, label: v }))
+    return {
+      leadOpts,
+      domainOpts,
+      statusOpts,
+      moduleOpts,
+      reqTypeOpts,
+      priorityOpts,
+      changeFlagOpts,
+      verifierOpts,
+      verifyResultOpts,
+    }
   }, [board?.tasks, userName])
 
   /** 工作台筛选是否有生效条件（空态文案用） */
   const boardFiltersActive =
-    boardLeadFilter != null || !!boardDomainFilter || !!boardStatusFilter
+    boardLeadFilter != null ||
+    !!boardDomainFilter ||
+    !!boardStatusFilter ||
+    !!boardTaskNameKeyword.trim() ||
+    !!boardModuleFilter ||
+    !!boardReqTypeFilter ||
+    !!boardPriorityFilter ||
+    !!boardChangeFlagFilter ||
+    boardVerifierFilter != null ||
+    !!boardVerifyResultFilter ||
+    !!boardSrCodeKeyword.trim() ||
+    !!boardActionKeyword.trim() ||
+    !!boardMemberKeyword.trim()
 
   /** 筛选/周切换后回到第 1 页 */
   useEffect(() => {
     setBoardTaskPage(1)
-  }, [boardTaskScope, projectId, boardWeekStart, weekMode, boardLeadFilter, boardDomainFilter, boardStatusFilter])
+  }, [
+    boardTaskScope,
+    projectId,
+    boardWeekStart,
+    weekMode,
+    boardLeadFilter,
+    boardDomainFilter,
+    boardStatusFilter,
+    boardTaskNameKeyword,
+    boardModuleFilter,
+    boardReqTypeFilter,
+    boardPriorityFilter,
+    boardChangeFlagFilter,
+    boardVerifierFilter,
+    boardVerifyResultFilter,
+    boardSrCodeKeyword,
+    boardActionKeyword,
+    boardMemberKeyword,
+  ])
 
   /** 切项目后领域选项变化，清掉已失效的领域筛选 */
   useEffect(() => {
@@ -569,16 +822,6 @@ export default function ProjectManagePage() {
     onError: (e: any) => message.error(e?.response?.data?.detail || '失败'),
   })
 
-  const changeActionStatusMut = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) =>
-      testManageApi.updateAction(id, { status }),
-    onSuccess: (_data, vars) => {
-      message.success(`状态已更新为「${STATUS_LABEL[vars.status]?.text || vars.status}」`)
-      invalidate()
-    },
-    onError: (e: any) => message.error(e?.response?.data?.detail || '状态更新失败'),
-  })
-
   const updateActionMut = useMutation({
     mutationFn: ({
       id,
@@ -594,6 +837,26 @@ export default function ProjectManagePage() {
       invalidate()
     },
     onError: (e: any) => message.error(e?.response?.data?.detail || '保存失败'),
+  })
+
+  const deleteActionMut = useMutation({
+    mutationFn: (id: string) => testManageApi.deleteAction(id),
+    onSuccess: () => {
+      message.success('Action 已删除（含其日报与更正记录）')
+      setDetailActionId(null)
+      invalidate()
+    },
+    onError: (e: any) => message.error(e?.response?.data?.detail || '删除失败'),
+  })
+
+  const deleteDailyMut = useMutation({
+    mutationFn: ({ id, reportDate }: { id: string; reportDate: string }) =>
+      testManageApi.deleteDaily(id, reportDate),
+    onSuccess: () => {
+      message.success('日报已删除（已自动记入更正记录）')
+      invalidate()
+    },
+    onError: (e: any) => message.error(e?.response?.data?.detail || '删除失败'),
   })
 
   const screenTab = {
@@ -679,13 +942,13 @@ export default function ProjectManagePage() {
           />
         ) : null}
 
-        <Space wrap style={{ marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8, marginBottom: 16 }}>
           <Select
-            style={{ minWidth: 160 }}
+            style={{ width: '100%' }}
             value={boardTaskScope}
             onChange={setBoardTaskScope}
             options={[
-              { value: 'mine', label: `我的 Task（${boardScopeCounts.mine}）` },
+              { value: 'mine', label: `我的Task（${boardScopeCounts.mine}）` },
               { value: 'all', label: `全部（${boardScopeCounts.all}）` },
             ]}
             data-testid="tm-scope-select"
@@ -694,8 +957,8 @@ export default function ProjectManagePage() {
             allowClear
             showSearch
             optionFilterProp="label"
-            placeholder="按项目筛选"
-            style={{ minWidth: 200 }}
+            placeholder="项目"
+            style={{ width: '100%' }}
             value={projectId}
             onChange={setProjectId}
             options={projects.map((p) => ({ value: p.id, label: p.name }))}
@@ -705,8 +968,8 @@ export default function ProjectManagePage() {
             allowClear
             showSearch
             optionFilterProp="label"
-            placeholder="按负责人筛选"
-            style={{ minWidth: 150 }}
+            placeholder="负责人"
+            style={{ width: '100%' }}
             value={boardLeadFilter ?? undefined}
             onChange={(v) => setBoardLeadFilter(v ?? null)}
             options={boardFilterOptions.leadOpts}
@@ -716,8 +979,8 @@ export default function ProjectManagePage() {
             allowClear
             showSearch
             optionFilterProp="label"
-            placeholder="按领域筛选"
-            style={{ minWidth: 150 }}
+            placeholder="领域"
+            style={{ width: '100%' }}
             value={boardDomainFilter ?? undefined}
             onChange={(v) => setBoardDomainFilter(v ?? null)}
             options={boardFilterOptions.domainOpts}
@@ -725,30 +988,123 @@ export default function ProjectManagePage() {
           />
           <Select
             allowClear
-            placeholder="按状态筛选"
-            style={{ minWidth: 130 }}
+            placeholder="状态"
+            style={{ width: '100%' }}
             value={boardStatusFilter ?? undefined}
             onChange={(v) => setBoardStatusFilter(v ?? null)}
             options={boardFilterOptions.statusOpts}
             data-testid="tm-status-filter"
           />
-          {tmAdmin && !viewingHistory && (
+          <BoardSearchInput
+            placeholder="搜索Task名称"
+            value={boardTaskNameKeyword}
+            onChange={setBoardTaskNameKeyword}
+            testId="tm-task-name-search"
+          />
+          <BoardSearchInput
+            placeholder="SR编号"
+            value={boardSrCodeKeyword}
+            onChange={setBoardSrCodeKeyword}
+            testId="tm-sr-code-search"
+          />
+          <BoardSearchInput
+            placeholder="搜索子需求/Action名称"
+            value={boardActionKeyword}
+            onChange={setBoardActionKeyword}
+            testId="tm-action-name-search"
+          />
+          <BoardSearchInput
+            placeholder="搜索开发/产品人员"
+            value={boardMemberKeyword}
+            onChange={setBoardMemberKeyword}
+            testId="tm-member-search"
+          />
+          <Select
+            style={{ width: '100%' }}
+            value={boardSortField}
+            onChange={setBoardSortField}
+            options={[
+              { value: 'title', label: '按名称排序' },
+              { value: 'sr_code', label: '按SR编号排序' },
+              { value: 'progress', label: '按进度排序' },
+            ]}
+            data-testid="tm-sort-field"
+          />
+          <Segmented
+            block
+            value={boardSortOrder}
+            onChange={(v) => setBoardSortOrder(v as 'asc' | 'desc')}
+            options={[
+              { value: 'asc', label: '升序' },
+              { value: 'desc', label: '降序' },
+            ]}
+            data-testid="tm-sort-order"
+          />
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder="子类/模块"
+            style={{ width: '100%' }}
+            value={boardModuleFilter ?? undefined}
+            onChange={(v) => setBoardModuleFilter(v ?? null)}
+            options={boardFilterOptions.moduleOpts}
+            data-testid="tm-module-filter"
+          />
+          <Select
+            allowClear
+            placeholder="需求类型"
+            style={{ width: '100%' }}
+            value={boardReqTypeFilter ?? undefined}
+            onChange={(v) => setBoardReqTypeFilter(v ?? null)}
+            options={boardFilterOptions.reqTypeOpts}
+            data-testid="tm-req-type-filter"
+          />
+          <Select
+            allowClear
+            placeholder="优先级"
+            style={{ width: '100%' }}
+            value={boardPriorityFilter ?? undefined}
+            onChange={(v) => setBoardPriorityFilter(v ?? null)}
+            options={boardFilterOptions.priorityOpts}
+            data-testid="tm-priority-filter"
+          />
+          <Select
+            allowClear
+            placeholder="变更标识"
+            style={{ width: '100%' }}
+            value={boardChangeFlagFilter ?? undefined}
+            onChange={(v) => setBoardChangeFlagFilter(v ?? null)}
+            options={boardFilterOptions.changeFlagOpts}
+            data-testid="tm-change-flag-filter"
+          />
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder="验证人"
+            style={{ width: '100%' }}
+            value={boardVerifierFilter ?? undefined}
+            onChange={(v) => setBoardVerifierFilter(v ?? null)}
+            options={boardFilterOptions.verifierOpts}
+            data-testid="tm-verifier-filter"
+          />
+          <Select
+            allowClear
+            placeholder="验证结果"
+            style={{ width: '100%' }}
+            value={boardVerifyResultFilter ?? undefined}
+            onChange={(v) => setBoardVerifyResultFilter(v ?? null)}
+            options={boardFilterOptions.verifyResultOpts}
+            data-testid="tm-verify-result-filter"
+          />
+          {tmAdmin && !viewingHistory ? (
             <Dropdown
               menu={{
                 items: [
-                  {
-                    key: 'project',
-                    label: '项目',
-                  },
-                  {
-                    key: 'domain',
-                    label: '领域',
-                    disabled: !projectId,
-                  },
-                  {
-                    key: 'task',
-                    label: 'Task',
-                  },
+                  { key: 'project', label: '项目' },
+                  { key: 'domain', label: '领域', disabled: !projectId },
+                  { key: 'task', label: 'Task' },
                 ],
                 onClick: ({ key }) => {
                   if (key === 'project') setProjectModal(true)
@@ -760,12 +1116,14 @@ export default function ProjectManagePage() {
                 },
               }}
             >
-              <Button type="primary" icon={<PlusOutlined />} data-testid="tm-btn-create-menu">
+              <Button type="primary" icon={<PlusOutlined />} style={{ width: '100%' }} data-testid="tm-btn-create-menu">
                 新建 <DownOutlined />
               </Button>
             </Dropdown>
+          ) : (
+            <span />
           )}
-        </Space>
+        </div>
 
         {boardLoading ? (
           <Text type="secondary">加载中…</Text>
@@ -788,6 +1146,7 @@ export default function ProjectManagePage() {
                 key={bt.task.id}
                 bt={bt}
                 readOnly={viewingHistory}
+                leadFilter={boardLeadFilter}
                 highlightEmpty={shouldHighlightEmptyTask({
                   viewingHistory,
                   actionCount: bt.actions.length,
@@ -806,8 +1165,14 @@ export default function ProjectManagePage() {
                 onCreateAction={(values, publish) =>
                   createActionMut.mutate({ task_id: bt.task.id, ...values, publish })
                 }
-                onCreateSubtask={(name, content) =>
-                  addSubtaskMut.mutate({ taskId: bt.task.id, name, content })
+                onCreateSubtask={(name, content, devMembers, pmMembers) =>
+                  addSubtaskMut.mutate({
+                    taskId: bt.task.id,
+                    name,
+                    content,
+                    dev_members: devMembers,
+                    pm_members: pmMembers,
+                  })
                 }
                 createActionLoading={createActionMut.isPending}
                 createSubtaskLoading={addSubtaskMut.isPending}
@@ -883,17 +1248,6 @@ export default function ProjectManagePage() {
               title={a.title}
               extra={
                 <Space size={4} wrap onClick={(e) => e.stopPropagation()}>
-                  {canQuickDaily ? (
-                    <DailyQuickPopover
-                      action={a}
-                      loading={dailyMut.isPending}
-                      onSubmit={(p) => dailyMut.mutate(p)}
-                    >
-                      <Button size="small" data-testid={`tm-mine-quick-daily-${a.id}`}>
-                        日更
-                      </Button>
-                    </DailyQuickPopover>
-                  ) : null}
                   {missingDaily ? (
                     <Tag color="gold" data-testid="tm-mine-missing-daily-tag">
                       今日未日更
@@ -974,6 +1328,8 @@ export default function ProjectManagePage() {
         footer={null}
         destroyOnClose
         width={560}
+        centered
+        styles={{ body: { maxHeight: 'calc(100vh - 140px)', overflowY: 'auto' } }}
         afterOpenChange={(open) => {
           if (open) void refetchUsers()
         }}
@@ -1001,6 +1357,7 @@ export default function ProjectManagePage() {
               project_id: projectId,
               lead_id: user?.id != null ? Number(user.id) : undefined,
               publish: true,
+              req_stage: REQ_STAGE_PENDING_DEV,
             }}
             onFinish={(v) =>
               createTaskMut.mutate({
@@ -1008,8 +1365,21 @@ export default function ProjectManagePage() {
                 domain_id: v.domain_id,
                 title: v.title,
                 requirement: v.requirement || '',
+                sr_code: v.sr_code || '',
+                ir_codes: v.ir_codes || '',
+                module: v.module,
+                req_type: v.req_type || '',
+                priority: v.priority || '',
+                change_flag: v.change_flag || '',
+                acceptance_criteria: v.acceptance_criteria || '',
+                verifier_id: v.verifier_id ?? null,
+                verified_at: v.verified_at || null,
+                verify_result: v.verify_result || '',
+                remark: v.remark || '',
                 lead_id: Number(v.lead_id),
-                tester_ids: (v.tester_ids || []).map((x: number | string) => Number(x)),
+                req_stage: v.req_stage,
+                dev_members: v.dev_members || [],
+                pm_members: v.pm_members || [],
                 publish: true,
               })
             }
@@ -1047,6 +1417,62 @@ export default function ProjectManagePage() {
                 data-testid="tm-task-title"
               />
             </Form.Item>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 12 }}>
+              <Form.Item name="sr_code" label="SR 编号">
+                <Input placeholder="如 SR-TPT-00017" maxLength={64} data-testid="tm-task-sr-code" />
+              </Form.Item>
+              <Form.Item name="ir_codes" label="关联 IR 编号">
+                <Input placeholder="多个用逗号分隔" maxLength={256} data-testid="tm-task-ir-codes" />
+              </Form.Item>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 12 }}>
+              <Form.Item
+                name="module"
+                label="子类/模块"
+                rules={[{ required: true, message: '请填写子类/模块' }]}
+              >
+                <Input placeholder="如 回路优化" maxLength={100} data-testid="tm-task-module" />
+              </Form.Item>
+              <Form.Item name="req_type" label="需求类型">
+                <Select
+                  allowClear
+                  options={[
+                    { value: '功能', label: '功能' },
+                    { value: '性能', label: '性能' },
+                    { value: '接口', label: '接口' },
+                    { value: '安全', label: '安全' },
+                    { value: '可靠性', label: '可靠性' },
+                  ]}
+                  placeholder="可选"
+                  data-testid="tm-task-req-type"
+                />
+              </Form.Item>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 12 }}>
+              <Form.Item name="priority" label="优先级">
+                <Select
+                  allowClear
+                  options={[
+                    { value: '高', label: '高' },
+                    { value: '中', label: '中' },
+                    { value: '低', label: '低' },
+                  ]}
+                  placeholder="可选"
+                  data-testid="tm-task-priority"
+                />
+              </Form.Item>
+              <Form.Item name="change_flag" label="变更标识">
+                <Select
+                  allowClear
+                  options={[
+                    { value: '原始', label: '原始' },
+                    { value: '变更', label: '变更' },
+                  ]}
+                  placeholder="可选"
+                  data-testid="tm-task-change-flag"
+                />
+              </Form.Item>
+            </div>
             <Form.Item
               name="requirement"
               label="需求内容"
@@ -1065,28 +1491,71 @@ export default function ProjectManagePage() {
                 data-testid="tm-task-requirement"
               />
             </Form.Item>
-            <Form.Item name="lead_id" label="测试负责人" rules={[{ required: true, message: '请选择' }]}>
-              <Select
-                options={userOptions}
-                showSearch
-                optionFilterProp="label"
-                loading={usersLoading}
-                placeholder={usersLoading ? '加载中…' : '选择负责人'}
-                notFoundContent={usersLoading ? '加载中…' : '无用户'}
-                data-testid="tm-task-lead"
-              />
+            <Form.Item name="acceptance_criteria" label="验收标准">
+              <TextArea rows={2} placeholder="可选" maxLength={4000} data-testid="tm-task-acceptance" />
             </Form.Item>
-            <Form.Item name="tester_ids" label="测试人员">
-              <Select
-                mode="multiple"
-                options={userOptions}
-                showSearch
-                optionFilterProp="label"
-                loading={usersLoading}
-                placeholder={usersLoading ? '加载中…' : '可选多人'}
-                notFoundContent={usersLoading ? '加载中…' : '无用户'}
-                data-testid="tm-task-testers"
-              />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 12 }}>
+              <Form.Item
+                name="req_stage"
+                label="需求状态"
+                rules={[{ required: true, message: '请选择需求状态' }]}
+              >
+                <Select options={REQ_STAGE_OPTIONS} placeholder="选择" data-testid="tm-task-req-stage" />
+              </Form.Item>
+              <Form.Item name="lead_id" label="测试负责人" rules={[{ required: true, message: '请选择' }]}>
+                <Select
+                  options={userOptions}
+                  showSearch
+                  optionFilterProp="label"
+                  loading={usersLoading}
+                  placeholder={usersLoading ? '加载中…' : '选择负责人'}
+                  notFoundContent={usersLoading ? '加载中…' : '无用户'}
+                  data-testid="tm-task-lead"
+                />
+              </Form.Item>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 12 }}>
+              <Form.Item name="dev_members" label="开发人员">
+                <MemberTagsSelect testId="tm-task-dev-members" />
+              </Form.Item>
+              <Form.Item name="pm_members" label="产品人员">
+                <MemberTagsSelect testId="tm-task-pm-members" />
+              </Form.Item>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', columnGap: 12 }}>
+              <Form.Item name="verifier_id" label="验证人">
+                <Select
+                  allowClear
+                  options={userOptions}
+                  showSearch
+                  optionFilterProp="label"
+                  loading={usersLoading}
+                  placeholder="可选"
+                  data-testid="tm-task-verifier"
+                />
+              </Form.Item>
+              <Form.Item name="verify_result" label="验证结果">
+                <Select
+                  allowClear
+                  options={[
+                    { value: '通过', label: '通过' },
+                    { value: '不通过', label: '不通过' },
+                    { value: '未验证', label: '未验证' },
+                  ]}
+                  placeholder="可选"
+                  data-testid="tm-task-verify-result"
+                />
+              </Form.Item>
+              <Form.Item name="verified_at" label="验证时间">
+                <DatePicker
+                  style={{ width: '100%' }}
+                  placeholder="可选"
+                  data-testid="tm-task-verified-at"
+                />
+              </Form.Item>
+            </div>
+            <Form.Item name="remark" label="备注">
+              <TextArea rows={2} placeholder="可选" maxLength={4000} data-testid="tm-task-remark" />
             </Form.Item>
             <Button
               type="primary"
@@ -1101,21 +1570,22 @@ export default function ProjectManagePage() {
         </div>
       </Modal>
 
-      {/* Task 抽屉：详情 | 进展（需求流程 + 本周进度） */}
-      <Drawer
+      {/* Task 弹窗：进度/状态 + 详情（合并原抽屉） */}
+      <Modal
         title={
           taskDrawerFocus === 'progress'
-            ? `进展 · ${taskDetail?.title || 'Task'}`
+            ? `进度/状态 · ${taskDetail?.title || 'Task'}`
             : taskDetail?.title || 'Task 详情'
         }
         open={!!editTaskId}
-        onClose={() => {
+        onCancel={() => {
           setEditTaskId(null)
           setTaskSaveTip(null)
           setTaskInfoEditing(false)
           setTaskDrawerFocus('progress')
         }}
-        width={480}
+        footer={null}
+        width={560}
         destroyOnClose
         styles={{ body: { paddingTop: 12, paddingBottom: 24 } }}
       >
@@ -1135,12 +1605,12 @@ export default function ProjectManagePage() {
               {taskDrawerFocus === 'progress' ? (
                 <>
                   <section className="tm-sheet__section" data-testid="tm-task-flow">
-                    <h3 className="tm-sheet__h">状态</h3>
+                    <h3 className="tm-sheet__h">状态 / 进度</h3>
                     {!viewingHistory &&
                     (taskDetail.can_edit_req_stage ||
                       (taskDetail.can_edit && taskDetail.req_stage === 'testing')) ? (
                       <Form
-                        key={`flow-${taskDetail.id}-${taskFormEpoch}`}
+                        key={`flow-${taskDetail.id}-${taskFormEpoch}-${taskDetail.updated_at || ''}`}
                         layout="vertical"
                         className="tm-sheet__form"
                         initialValues={{
@@ -1184,7 +1654,6 @@ export default function ProjectManagePage() {
                         <Form.Item
                           name="display_status"
                           label="状态"
-                          extra="阶段决定能否建 Action、能否填本周进度"
                         >
                           <Select
                             data-testid="tm-task-display-status"
@@ -1205,7 +1674,6 @@ export default function ProjectManagePage() {
                                     <Form.Item
                                       name="expected_handover_at"
                                       label="预计提测时间"
-                                      extra="可清空表示待定"
                                     >
                                       <DatePicker
                                         allowClear
@@ -1218,7 +1686,6 @@ export default function ProjectManagePage() {
                                     <Form.Item
                                       name="actual_handover_at"
                                       label="实际提测时间"
-                                      extra="可清空表示待定"
                                     >
                                       <DatePicker
                                         allowClear
@@ -1232,7 +1699,6 @@ export default function ProjectManagePage() {
                                       <Form.Item
                                         name="test_started_at"
                                         label="测试开始时间"
-                                        extra="可清空表示待定"
                                       >
                                         <DatePicker
                                           allowClear
@@ -1243,7 +1709,6 @@ export default function ProjectManagePage() {
                                       <Form.Item
                                         name="expected_test_end_at"
                                         label="预计测试结束"
-                                        extra="可清空表示待定"
                                       >
                                         <DatePicker
                                           allowClear
@@ -1257,7 +1722,6 @@ export default function ProjectManagePage() {
                                     <Form.Item
                                       name="test_ended_at"
                                       label="测试结束时间"
-                                      extra="可清空表示待定"
                                     >
                                       <DatePicker
                                         allowClear
@@ -1377,7 +1841,7 @@ export default function ProjectManagePage() {
                     )}
                   </section>
                 </>
-              ) : (
+              ) : taskDrawerFocus === 'detail' ? (
                 <>
                   <section
                     id="tm-task-drawer-info"
@@ -1401,22 +1865,46 @@ export default function ProjectManagePage() {
 
                     {taskDetail.can_edit && taskInfoEditing ? (
                       <Form
-                        key={`${taskDetail.id}-${taskFormEpoch}`}
+                        key={`${taskDetail.id}-${taskFormEpoch}-${taskDetail.updated_at || ''}`}
                         layout="vertical"
                         className="tm-sheet__form"
                         initialValues={{
                           title: taskDetail.title,
                           requirement: taskDetail.requirement,
+                          sr_code: taskDetail.sr_code || '',
+                          ir_codes: taskDetail.ir_codes || '',
+                          module: taskDetail.module || '',
+                          req_type: taskDetail.req_type || undefined,
+                          priority: taskDetail.priority || undefined,
+                          change_flag: taskDetail.change_flag || undefined,
+                          acceptance_criteria: taskDetail.acceptance_criteria || '',
+                          verifier_id: taskDetail.verifier_id != null ? Number(taskDetail.verifier_id) : undefined,
+                          verified_at: taskDetail.verified_at ? dayjs(taskDetail.verified_at) : undefined,
+                          verify_result: taskDetail.verify_result || undefined,
+                          remark: taskDetail.remark || '',
                           lead_id: Number(taskDetail.lead_id),
-                          tester_ids: (taskDetail.tester_ids || []).map(Number),
+                          dev_members: taskDetail.dev_members || [],
+                          pm_members: taskDetail.pm_members || [],
                           change_summary: '',
                         }}
                         onFinish={(v) => {
                           const payload: Parameters<typeof testManageApi.updateTask>[1] = {
                             title: v.title,
                             requirement: v.requirement,
+                            sr_code: v.sr_code || '',
+                            ir_codes: v.ir_codes || '',
+                            module: v.module,
+                            req_type: v.req_type || '',
+                            priority: v.priority || '',
+                            change_flag: v.change_flag || '',
+                            acceptance_criteria: v.acceptance_criteria || '',
+                            verifier_id: v.verifier_id ?? null,
+                            verified_at: v.verified_at ? v.verified_at.format('YYYY-MM-DD') : null,
+                            verify_result: v.verify_result || '',
+                            remark: v.remark || '',
                             lead_id: Number(v.lead_id),
-                            tester_ids: (v.tester_ids || []).map((x: number | string) => Number(x)),
+                            dev_members: v.dev_members || [],
+                            pm_members: v.pm_members || [],
                             change_summary: v.change_summary,
                           }
                           updateTaskMut.mutate({ id: taskDetail.id, data: payload })
@@ -1425,8 +1913,61 @@ export default function ProjectManagePage() {
                         <Form.Item name="title" label="标题" rules={[{ required: true }]}>
                           <Input />
                         </Form.Item>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 12 }}>
+                          <Form.Item name="sr_code" label="SR 编号">
+                            <Input maxLength={64} />
+                          </Form.Item>
+                          <Form.Item name="ir_codes" label="关联 IR 编号">
+                            <Input maxLength={256} />
+                          </Form.Item>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 12 }}>
+                          <Form.Item
+                            name="module"
+                            label="子类/模块"
+                            rules={[{ required: true, message: '请填写子类/模块' }]}
+                          >
+                            <Input maxLength={100} />
+                          </Form.Item>
+                          <Form.Item name="req_type" label="需求类型">
+                            <Select
+                              allowClear
+                              options={[
+                                { value: '功能', label: '功能' },
+                                { value: '性能', label: '性能' },
+                                { value: '接口', label: '接口' },
+                                { value: '安全', label: '安全' },
+                                { value: '可靠性', label: '可靠性' },
+                              ]}
+                            />
+                          </Form.Item>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 12 }}>
+                          <Form.Item name="priority" label="优先级">
+                            <Select
+                              allowClear
+                              options={[
+                                { value: '高', label: '高' },
+                                { value: '中', label: '中' },
+                                { value: '低', label: '低' },
+                              ]}
+                            />
+                          </Form.Item>
+                          <Form.Item name="change_flag" label="变更标识">
+                            <Select
+                              allowClear
+                              options={[
+                                { value: '原始', label: '原始' },
+                                { value: '变更', label: '变更' },
+                              ]}
+                            />
+                          </Form.Item>
+                        </div>
                         <Form.Item name="requirement" label="需求内容">
                           <TextArea rows={4} maxLength={TASK_REQUIREMENT_MAX_CHARS} showCount />
+                        </Form.Item>
+                        <Form.Item name="acceptance_criteria" label="验收标准">
+                          <TextArea rows={2} maxLength={4000} />
                         </Form.Item>
                         <Form.Item name="lead_id" label="测试负责人">
                           <Select
@@ -1436,14 +1977,40 @@ export default function ProjectManagePage() {
                             loading={usersLoading}
                           />
                         </Form.Item>
-                        <Form.Item name="tester_ids" label="测试人员">
-                          <Select
-                            mode="multiple"
-                            options={userOptions}
-                            showSearch
-                            optionFilterProp="label"
-                            loading={usersLoading}
-                          />
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 12 }}>
+                          <Form.Item name="dev_members" label="开发人员">
+                            <MemberTagsSelect testId="tm-task-detail-dev-members" />
+                          </Form.Item>
+                          <Form.Item name="pm_members" label="产品人员">
+                            <MemberTagsSelect testId="tm-task-detail-pm-members" />
+                          </Form.Item>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', columnGap: 12 }}>
+                          <Form.Item name="verifier_id" label="验证人">
+                            <Select
+                              allowClear
+                              options={userOptions}
+                              showSearch
+                              optionFilterProp="label"
+                              loading={usersLoading}
+                            />
+                          </Form.Item>
+                          <Form.Item name="verify_result" label="验证结果">
+                            <Select
+                              allowClear
+                              options={[
+                                { value: '通过', label: '通过' },
+                                { value: '不通过', label: '不通过' },
+                                { value: '未验证', label: '未验证' },
+                              ]}
+                            />
+                          </Form.Item>
+                          <Form.Item name="verified_at" label="验证时间">
+                            <DatePicker style={{ width: '100%' }} />
+                          </Form.Item>
+                        </div>
+                        <Form.Item name="remark" label="备注">
+                          <TextArea rows={2} maxLength={4000} />
                         </Form.Item>
                         <Form.Item name="change_summary" label="变更说明">
                           <Input placeholder="写入更新日志" />
@@ -1474,7 +2041,7 @@ export default function ProjectManagePage() {
                               <Text type="secondary"> {taskDetail.stage_summary}</Text>
                             ) : null}
                             <div className="tm-sheet__muted" style={{ marginTop: 4 }}>
-                              改状态请用「操作 → 进度」
+                              改状态请在「操作 · 进度/状态」入口
                             </div>
                           </dd>
                         </div>
@@ -1484,22 +2051,83 @@ export default function ProjectManagePage() {
                             {taskDetail.project_name} / {taskDetail.domain_name}
                           </dd>
                         </div>
+                        {taskDetail.sr_code ? (
+                          <div>
+                            <dt>SR 编号</dt>
+                            <dd>{taskDetail.sr_code}</dd>
+                          </div>
+                        ) : null}
+                        {taskDetail.ir_codes ? (
+                          <div>
+                            <dt>关联 IR 编号</dt>
+                            <dd>{taskDetail.ir_codes}</dd>
+                          </div>
+                        ) : null}
+                        {taskDetail.module ? (
+                          <div>
+                            <dt>子类/模块</dt>
+                            <dd>{taskDetail.module}</dd>
+                          </div>
+                        ) : null}
+                        {taskDetail.req_type || taskDetail.priority || taskDetail.change_flag ? (
+                          <div>
+                            <dt>类型 / 优先级 / 变更</dt>
+                            <dd>
+                              {[
+                                taskDetail.req_type || '—',
+                                taskDetail.priority || '—',
+                                taskDetail.change_flag || '—',
+                              ].join(' / ')}
+                            </dd>
+                          </div>
+                        ) : null}
                         <div>
                           <dt>负责人</dt>
                           <dd>{userName(taskDetail.lead_id)}</dd>
                         </div>
-                        <div>
-                          <dt>测试人员</dt>
-                          <dd>
-                            {(taskDetail.tester_ids || []).length
-                              ? (taskDetail.tester_ids || []).map((id) => userName(Number(id))).join('、')
-                              : '—'}
-                          </dd>
-                        </div>
+                        {taskDetail.dev_members?.length || taskDetail.pm_members?.length ? (
+                          <div>
+                            <dt>开发 / 产品人员</dt>
+                            <dd>
+                              {[
+                                taskDetail.dev_members?.length ? `开发 ${taskDetail.dev_members.join('、')}` : '',
+                                taskDetail.pm_members?.length ? `产品 ${taskDetail.pm_members.join('、')}` : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' · ') || '—'}
+                            </dd>
+                          </div>
+                        ) : null}
+                        {taskDetail.verifier_id != null ||
+                        taskDetail.verify_result ||
+                        taskDetail.verified_at ? (
+                          <div>
+                            <dt>验证</dt>
+                            <dd>
+                              {[
+                                taskDetail.verifier_id != null ? userName(taskDetail.verifier_id) : '—',
+                                taskDetail.verify_result || '—',
+                                taskDetail.verified_at || '—',
+                              ].join(' / ')}
+                            </dd>
+                          </div>
+                        ) : null}
                         <div>
                           <dt>需求</dt>
                           <dd>{taskDetail.requirement?.trim() || '—'}</dd>
                         </div>
+                        {taskDetail.acceptance_criteria?.trim() ? (
+                          <div>
+                            <dt>验收标准</dt>
+                            <dd>{taskDetail.acceptance_criteria}</dd>
+                          </div>
+                        ) : null}
+                        {taskDetail.remark?.trim() ? (
+                          <div>
+                            <dt>备注</dt>
+                            <dd>{taskDetail.remark}</dd>
+                          </div>
+                        ) : null}
                       </dl>
                     )}
                   </section>
@@ -1533,31 +2161,94 @@ export default function ProjectManagePage() {
                         size="small"
                         rowKey="sid"
                         pagination={false}
+                        tableLayout="fixed"
                         columns={[
-                          { title: '名称', dataIndex: 'name', key: 'name', width: 180, render: (t: string) => <Text strong>{t}</Text> },
-                          { title: '内容', dataIndex: 'content', key: 'content', ellipsis: true, render: (t?: string) => t || <Text type="secondary">—</Text> },
+                          { title: '名称', dataIndex: 'name', key: 'name', width: 116, ellipsis: true, render: (t: string) => <Text strong>{t}</Text> },
+                          { title: '内容', dataIndex: 'content', key: 'content', width: 40, ellipsis: true, render: (t?: string) => t || <Text type="secondary">—</Text> },
+                          {
+                            title: '开发人员',
+                            dataIndex: 'dev_members',
+                            key: 'dev_members',
+                            width: 130,
+                            render: (v: string[] | undefined, r: TmSubtask) =>
+                              !viewingHistory && taskDetail.can_manage_children ? (
+                                <MemberTagsSelect
+                                  size="small"
+                                  value={v || []}
+                                  onChange={(nv) =>
+                                    updateSubtaskMut.mutate({
+                                      taskId: taskDetail.id,
+                                      sid: r.sid,
+                                      data: { dev_members: nv },
+                                    })
+                                  }
+                                  testId="tm-subtask-dev-members"
+                                />
+                              ) : v?.length ? (
+                                <Text>{v.join('、')}</Text>
+                              ) : (
+                                <Text type="secondary">—</Text>
+                              ),
+                          },
+                          {
+                            title: '产品人员',
+                            dataIndex: 'pm_members',
+                            key: 'pm_members',
+                            width: 130,
+                            render: (v: string[] | undefined, r: TmSubtask) =>
+                              !viewingHistory && taskDetail.can_manage_children ? (
+                                <MemberTagsSelect
+                                  size="small"
+                                  value={v || []}
+                                  onChange={(nv) =>
+                                    updateSubtaskMut.mutate({
+                                      taskId: taskDetail.id,
+                                      sid: r.sid,
+                                      data: { pm_members: nv },
+                                    })
+                                  }
+                                  testId="tm-subtask-pm-members"
+                                />
+                              ) : v?.length ? (
+                                <Text>{v.join('、')}</Text>
+                              ) : (
+                                <Text type="secondary">—</Text>
+                              ),
+                          },
                           {
                             title: '操作',
                             key: 'op',
-                            width: 60,
+                            width: 92,
                             render: (_: unknown, r: TmSubtask) =>
-                              !viewingHistory && taskDetail.can_edit ? (
-                                <Popconfirm
-                                  title="删除该子需求？"
-                                  description="其下未完成的 Action 将一并取消"
-                                  okText="删除"
-                                  okButtonProps={{ danger: true }}
-                                  onConfirm={() =>
-                                    deleteSubtaskMut.mutate({
-                                      taskId: taskDetail.id,
-                                      sid: r.sid,
-                                    })
-                                  }
-                                >
-                                  <Button size="small" type="link" danger>
-                                    删除
+                              !viewingHistory && taskDetail.can_manage_children ? (
+                                <Space size={2}>
+                                  <Button
+                                    size="small"
+                                    type="link"
+                                    style={{ paddingInline: 4 }}
+                                    onClick={() =>
+                                      setMoveSubtaskModal({ open: true, sid: r.sid, name: r.name })
+                                    }
+                                  >
+                                    移动
                                   </Button>
-                                </Popconfirm>
+                                  <Popconfirm
+                                    title="删除该子需求？"
+                                    description="其下未完成的 Action 将一并取消"
+                                    okText="删除"
+                                    okButtonProps={{ danger: true }}
+                                    onConfirm={() =>
+                                      deleteSubtaskMut.mutate({
+                                        taskId: taskDetail.id,
+                                        sid: r.sid,
+                                      })
+                                    }
+                                  >
+                                    <Button size="small" type="link" danger style={{ paddingInline: 4 }}>
+                                      删除
+                                    </Button>
+                                  </Popconfirm>
+                                </Space>
                               ) : null,
                           },
                         ]}
@@ -1566,7 +2257,7 @@ export default function ProjectManagePage() {
                     </section>
                   ) : null}
 
-                  {taskDetail.can_edit && !viewingHistory && taskDetail.can_add_action ? (
+                  {!viewingHistory && taskDetail.can_manage_children && taskDetail.can_add_action ? (
                     <section className="tm-sheet__section">
                       <Button
                         type="dashed"
@@ -1586,11 +2277,47 @@ export default function ProjectManagePage() {
                     <p className="tm-sheet__tip">已完成 · 不可再加本周 Action</p>
                   ) : null}
                 </>
-              )}
+              ) : null}
             </div>
           </div>
         ) : null}
-      </Drawer>
+      </Modal>
+
+      <Modal
+        title={`移动子需求「${moveSubtaskModal.name}」`}
+        open={moveSubtaskModal.open}
+        onCancel={() => setMoveSubtaskModal({ open: false, sid: '', name: '' })}
+        onOk={() => {
+          if (!moveSubtaskModal.targetId || !taskDetail) return
+          moveSubtaskMut.mutate({
+            taskId: taskDetail.id,
+            sid: moveSubtaskModal.sid,
+            targetTaskId: moveSubtaskModal.targetId,
+          })
+        }}
+        okText="移动"
+        okButtonProps={{
+          disabled: !moveSubtaskModal.targetId,
+          loading: moveSubtaskMut.isPending,
+        }}
+        destroyOnClose
+      >
+        <p className="tm-sheet__muted" style={{ marginTop: 0 }}>
+          将移动到同项目下的其他 Task，其关联 Action 一并随迁
+        </p>
+        <Select
+          style={{ width: '100%' }}
+          placeholder="选择目标 Task"
+          showSearch
+          optionFilterProp="label"
+          value={moveSubtaskModal.targetId}
+          onChange={(v) => setMoveSubtaskModal((s) => ({ ...s, targetId: v }))}
+          options={(board?.tasks || [])
+            .filter((bt) => bt.task.id !== taskDetail?.id && bt.task.status !== 'cancelled')
+            .map((bt) => ({ value: bt.task.id, label: bt.task.title }))}
+          data-testid="tm-subtask-move-target"
+        />
+      </Modal>
 
       <Modal
         title="新建项目"
@@ -1664,13 +2391,18 @@ export default function ProjectManagePage() {
           await correctMut.mutateAsync({ id, note })
         }}
         onPublish={(id) => publishActionMut.mutate(id)}
-        onChangeStatus={(id, status) => changeActionStatusMut.mutate({ id, status })}
         onSaveDraft={(id, data) => updateActionMut.mutate({ id, data })}
+        onSaveMembers={(id, data) => updateActionMut.mutate({ id, data })}
+        membersLoading={updateActionMut.isPending}
+        onSaveOwner={(id, owner_id) => updateActionMut.mutate({ id, data: { owner_id } })}
+        ownerLoading={updateActionMut.isPending}
+        onDeleteAction={(id) => deleteActionMut.mutate(id)}
+        onDeleteDaily={(id, reportDate) => deleteDailyMut.mutate({ id, reportDate })}
+        deleteLoading={deleteActionMut.isPending || deleteDailyMut.isPending}
         dailyLoading={dailyMut.isPending}
         correctLoading={correctMut.isPending}
         saveDraftLoading={updateActionMut.isPending}
         publishLoading={publishActionMut.isPending}
-        statusLoading={changeActionStatusMut.isPending}
       />
     </div>
   )
@@ -1815,15 +2547,18 @@ function DailyQuickPopover(props: {
               data-testid="tm-daily-pop-risk-text"
             />
           ) : null}
-          <Button
-            type="primary"
-            block
-            loading={props.loading}
-            onClick={submit}
-            data-testid="tm-daily-pop-submit"
-          >
-            提交日更
-          </Button>
+          <div className="tm-sheet__actions">
+            <Button
+              color="primary"
+              variant="outlined"
+              size="small"
+              loading={props.loading}
+              onClick={submit}
+              data-testid="tm-daily-pop-submit"
+            >
+              提交日更
+            </Button>
+          </div>
         </div>
       }
     >
@@ -1832,9 +2567,104 @@ function DailyQuickPopover(props: {
   )
 }
 
+/** 共享 canvas 上下文（placeholder 溢出检测用） */
+const measureCtx = (() => {
+  let ctx: CanvasRenderingContext2D | null | undefined
+  return () => {
+    if (ctx === undefined) ctx = document.createElement('canvas').getContext('2d')
+    return ctx
+  }
+})()
+
+/** 工作台搜索框：placeholder 过长被截断时，鼠标悬停可查看完整提示 */
+function BoardSearchInput(props: {
+  placeholder: string
+  value?: string
+  onChange?: (v: string) => void
+  testId?: string
+}) {
+  const [tip, setTip] = useState('')
+  const measure = (e: {
+    currentTarget: EventTarget & HTMLInputElement
+  }) => {
+    const el = e.currentTarget
+    // 有值时 placeholder 不展示，无需提示
+    if (props.value) {
+      setTip('')
+      return
+    }
+    const ctx = measureCtx()
+    if (!ctx) return
+    const style = getComputedStyle(el)
+    ctx.font = style.font
+    const padding =
+      parseFloat(style.paddingLeft || '0') + parseFloat(style.paddingRight || '0')
+    // 留 1px 容差，避免临界情况抖动
+    setTip(
+      ctx.measureText(props.placeholder).width > el.clientWidth - padding + 1
+        ? props.placeholder
+        : '',
+    )
+  }
+  return (
+    <Tooltip title={tip} mouseEnterDelay={0.2}>
+      <Input
+        allowClear
+        placeholder={props.placeholder}
+        style={{ width: '100%' }}
+        value={props.value}
+        onChange={(e) => props.onChange?.(e.target.value)}
+        onMouseEnter={measure}
+        onFocus={measure}
+        data-testid={props.testId}
+      />
+    </Tooltip>
+  )
+}
+
+/** 人员自由文本 → 数组（逗号/中文逗号分隔） */
+const parseMembers = (s: string) =>
+  s
+    .split(/[,，]/)
+    .map((v) => v.trim())
+    .filter(Boolean)
+
+/** 开发/产品人员输入：自由文本（逗号分隔，可多个；人员名为手填，无联想候选） */
+function MemberTagsSelect(props: {
+  value?: string[]
+  onChange?: (v: string[]) => void
+  placeholder?: string
+  size?: 'small' | 'middle'
+  testId?: string
+}) {
+  // 本地文本镜像：保留输入中的尾随逗号等中间态，避免解析回写把分隔符吃掉
+  const [text, setText] = useState(() => (props.value || []).join(','))
+  useEffect(() => {
+    const external = (props.value || []).join(',')
+    if (parseMembers(text).join(',') !== external) setText(external)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.value])
+  return (
+    <Input
+      size={props.size}
+      value={text}
+      placeholder={props.placeholder || '多人用逗号分隔'}
+      maxLength={TEXT_FIELD_MAX_CHARS}
+      onChange={(e) => {
+        setText(e.target.value)
+        props.onChange?.(parseMembers(e.target.value))
+      }}
+      style={{ width: '100%' }}
+      data-testid={props.testId}
+    />
+  )
+}
+
 function BoardTaskCard(props: {
   bt: BoardTask
   readOnly?: boolean
+  /** 负责人筛选（工作台）：非空时卡片内仅显示该负责人相关的子需求/Action 行 */
+  leadFilter?: number | null
   highlightEmpty?: boolean
   userName: (id: number) => string
   users: { id: number; username: string; real_name: string }[]
@@ -1850,10 +2680,17 @@ function BoardTaskCard(props: {
       owner_id: number
       test_content: string
       environment: string
+      dev_members?: string[]
+      pm_members?: string[]
     },
     publish: boolean,
   ) => void
-  onCreateSubtask: (name: string, content?: string) => void
+  onCreateSubtask: (
+    name: string,
+    content?: string,
+    devMembers?: string[],
+    pmMembers?: string[],
+  ) => void
   createActionLoading?: boolean
   createSubtaskLoading?: boolean
   onPublishAction: (id: string) => void
@@ -1898,17 +2735,50 @@ function BoardTaskCard(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.forceInlineAdd])
 
-  useEffect(() => {
-    const maxPage = Math.max(1, Math.ceil(bt.actions.length / ACTION_CARD_PAGE_SIZE) || 1)
-    if (actionPage > maxPage) setActionPage(maxPage)
-  }, [bt.actions.length, actionPage])
-
   const actionsSorted = useMemo(() => sortActionCardsForList(bt.actions), [bt.actions])
+
+  /** 负责人筛选（工作台）：选中负责人时，卡片内仅保留其相关的子需求/Action 行 */
+  const leadName = props.leadFilter != null ? userName(props.leadFilter) : ''
+  const nameHit = (arr?: string[]) => (arr || []).some((m) => (m || '').trim() === leadName)
+  const actionLeadHit = (a: TmAction) =>
+    props.leadFilter == null ||
+    Number(a.owner_id) === props.leadFilter ||
+    nameHit(a.dev_members) ||
+    nameHit(a.pm_members)
+  const subtaskLeadHit = (s: { dev_members?: string[]; pm_members?: string[] }) =>
+    props.leadFilter == null || nameHit(s.dev_members) || nameHit(s.pm_members)
+
+  /** 将未被任何 Action 引用的子需求补成占位行（无 Action 的子需求也在表格中展示一行） */
+  type ActionRow =
+    | TmAction
+    | { id: string; __empty_subtask__: true; subtask_name: string; task_id: string }
+  const rowsWithSubtasks: ActionRow[] = useMemo(() => {
+    const filteredActions = actionsSorted.filter(actionLeadHit)
+    const used = new Set(filteredActions.map((a) => (a.subtask_name || '').trim()).filter(Boolean))
+    const emptySubtasks = (bt.task.subtasks || [])
+      .filter((s) => s.name && !used.has(s.name.trim()) && subtaskLeadHit(s))
+      .map(
+        (s) =>
+          ({
+            id: `__empty_subtask__${bt.task.id}__${s.sid}`,
+            __empty_subtask__: true,
+            subtask_name: s.name,
+            task_id: bt.task.id,
+          }) as ActionRow,
+      )
+    return [...emptySubtasks, ...filteredActions]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actionsSorted, bt.task.subtasks, bt.task.id, props.leadFilter, leadName])
+
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(rowsWithSubtasks.length / ACTION_CARD_PAGE_SIZE) || 1)
+    if (actionPage > maxPage) setActionPage(maxPage)
+  }, [rowsWithSubtasks.length, actionPage])
 
   const actionsPaged = useMemo(() => {
     const start = (actionPage - 1) * ACTION_CARD_PAGE_SIZE
-    return actionsSorted.slice(start, start + ACTION_CARD_PAGE_SIZE)
-  }, [actionsSorted, actionPage])
+    return rowsWithSubtasks.slice(start, start + ACTION_CARD_PAGE_SIZE)
+  }, [rowsWithSubtasks, actionPage])
 
   const subtaskRowSpans = useMemo(() => {
     const spans: number[] = new Array(actionsPaged.length).fill(1)
@@ -1925,9 +2795,9 @@ function BoardTaskCard(props: {
 
   const taskMenuItems: MenuProps['items'] = [
     { key: 'detail', label: '详情' },
+    { key: 'progress', label: '进度/状态' },
     ...(!readOnly && bt.task.can_edit
       ? [
-          { key: 'progress', label: '进度' },
           {
             key: 'archive-delete',
             label: '归档/删除',
@@ -1961,11 +2831,14 @@ function BoardTaskCard(props: {
           <span className="tm-board-task-title" data-testid="tm-board-task-title">
             {bt.task.title}
           </span>
+          {bt.task.sr_code ? (
+            <Tag data-testid="tm-board-task-sr">{bt.task.sr_code}</Tag>
+          ) : null}
           <Tag color={stColor}>{stLabel}</Tag>
           <Tag>
             {bt.task.project_name}/{bt.task.domain_name}
           </Tag>
-          {highlightEmpty ? (
+          {highlightEmpty && rowsWithSubtasks.length === 0 ? (
             <Tag color="error" data-testid="tm-empty-action-tag">
               本周无 Action
             </Tag>
@@ -1999,10 +2872,9 @@ function BoardTaskCard(props: {
             </Button>
           </Dropdown>
           {!readOnly &&
-          bt.task.can_edit &&
           shouldShowAddActionButton({
             readOnly: !!readOnly,
-            canEdit: !!bt.task.can_edit,
+            canEdit: !!bt.task.can_manage_children,
             canAddAction: !!bt.task.can_add_action,
           }) ? (
             <Button
@@ -2014,16 +2886,21 @@ function BoardTaskCard(props: {
               }}
               data-testid="tm-btn-add-action"
             >
-              + Action
+              增加一行
             </Button>
           ) : null}
         </Space>
       }
     >
       <Paragraph type="secondary" className="tm-board-task-req" ellipsis={{ rows: 2 }}>
-        需求：{bt.task.requirement || '（无）'} · 负责人 {userName(bt.task.lead_id)}
+        {[
+          `需求：${bt.task.requirement || '（无）'}`,
+          `负责人 ${userName(bt.task.lead_id)}`,
+          ...(bt.task.dev_members?.length ? [`开发 ${bt.task.dev_members.join('、')}`] : []),
+          ...(bt.task.pm_members?.length ? [`产品 ${bt.task.pm_members.join('、')}`] : []),
+        ].join(' · ')}
       </Paragraph>
-      {bt.actions.length === 0 ? (
+      {rowsWithSubtasks.length === 0 ? (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
           description={emptyActionDescription({
@@ -2040,12 +2917,16 @@ function BoardTaskCard(props: {
             rowKey="id"
             dataSource={actionsPaged}
             pagination={false}
-            onRow={(a): any => ({
-              onClick: () => props.onOpenAction(a.id),
-              className: 'tm-action-card tm-action-table__row',
-              'data-testid': `tm-action-card-${a.id}`,
-              'data-action-title': a.title,
-            })}
+            onRow={(a: ActionRow): any => {
+              const isEmpty = !!(a as any).__empty_subtask__
+              return {
+                onClick: isEmpty ? undefined : () => props.onOpenAction(a.id),
+                className: `tm-action-card tm-action-table__row${isEmpty ? ' tm-action-table__row--empty' : ''}`,
+                'data-testid': `tm-action-card-${a.id}`,
+                'data-action-title': isEmpty ? '' : (a as TmAction).title,
+                style: isEmpty ? { cursor: 'default' } : undefined,
+              }
+            }}
             columns={[
               {
                 title: '子需求',
@@ -2062,7 +2943,7 @@ function BoardTaskCard(props: {
                       <span className="tm-action-table__subtask">{v}</span>
                     </Tooltip>
                   ) : (
-                    <Text type="secondary">—</Text>
+                    <Text type="secondary">未关联</Text>
                   )
                 },
               },
@@ -2070,44 +2951,64 @@ function BoardTaskCard(props: {
                 title: 'Action',
                 dataIndex: 'title',
                 ellipsis: true,
-                render: (v: string) => <span className="tm-action-table__title">{v}</span>,
+                render: (v: string, a: any) =>
+                  a.__empty_subtask__ ? (
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      （暂无 Action，可点 +Action 添加）
+                    </Text>
+                  ) : (
+                    <span className="tm-action-table__title">{v}</span>
+                  ),
               },
               {
                 title: '负责人',
                 dataIndex: 'owner_id',
                 width: 90,
                 ellipsis: true,
-                render: (v: number) => userName(v),
+                render: (v: number, a: any) => (a.__empty_subtask__ ? <Text type="secondary">—</Text> : userName(v)),
               },
               {
                 title: '进度',
                 dataIndex: 'progress_percent',
                 width: 150,
-                render: (v: number) => (
-                  <Progress percent={v} size="small" className="tm-action-table__progress" />
-                ),
+                render: (v: number, a: any) =>
+                  a.__empty_subtask__ ? <Text type="secondary">—</Text> : (
+                    <Progress percent={v} size="small" className="tm-action-table__progress" />
+                  ),
               },
               {
                 title: '状态',
                 dataIndex: 'status',
-                width: 96,
-                render: (v: string, a: TmAction) => (
-                  <Space size={4} wrap={false}>
-                    <Tag color={STATUS_LABEL[v]?.color}>{STATUS_LABEL[v]?.text}</Tag>
-                    {!readOnly && v === 'draft' && a.can_edit_fields ? (
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        点开可编辑
-                      </Text>
-                    ) : null}
-                  </Space>
-                ),
+                width: 110,
+                render: (v: string, a: any) => {
+                  if (a.__empty_subtask__) return <Text type="secondary">—</Text>
+                  const act = a as TmAction
+                  return (
+                    <Space size={4} wrap={false}>
+                      <Tag color={STATUS_LABEL[v]?.color}>{STATUS_LABEL[v]?.text}</Tag>
+                      {!readOnly && v === 'draft' && act.can_edit_fields ? (
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          点开可编辑
+                        </Text>
+                      ) : null}
+                      {v === 'done' && act.completed_at ? (
+                        <Tooltip title={`完成时间：${dayjs(act.completed_at).format('YYYY-MM-DD HH:mm')}`}>
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            {dayjs(act.completed_at).format('MM-DD HH:mm')}
+                          </Text>
+                        </Tooltip>
+                      ) : null}
+                    </Space>
+                  )
+                },
               },
               {
                 title: '风险',
                 dataIndex: 'latest_risk',
                 ellipsis: true,
-                render: (v: string | undefined, a: TmAction) =>
-                  a.status === 'published' && v ? (
+                render: (v: string | undefined, a: any) => {
+                  if (a.__empty_subtask__) return <Text type="secondary">—</Text>
+                  return a.status === 'published' && v ? (
                     <Tooltip title={v}>
                       <Text type="danger" className="tm-action-table__risk">
                         <WarningOutlined /> {v}
@@ -2115,42 +3016,30 @@ function BoardTaskCard(props: {
                     </Tooltip>
                   ) : (
                     <Text type="secondary">—</Text>
-                  ),
+                  )
+                },
               },
               {
                 title: '操作',
                 key: 'op',
-                width: 108,
-                render: (_: unknown, a: TmAction) =>
-                  !readOnly ? (
+                width: 80,
+                render: (_: unknown, a: any) =>
+                  !readOnly && !a.__empty_subtask__ && a.status === 'draft' && a.can_edit_fields ? (
                     <Space size={0} wrap={false} onClick={(e) => e.stopPropagation()}>
-                      {a.status === 'published' && (props.canQuickDaily?.(a) ?? true) ? (
-                        <DailyQuickPopover
-                          action={a}
-                          loading={props.dailyLoading}
-                          onSubmit={props.onDaily}
-                        >
-                          <Button size="small" type="link" data-testid={`tm-quick-daily-${a.id}`}>
-                            日更
-                          </Button>
-                        </DailyQuickPopover>
-                      ) : null}
-                      {a.status === 'draft' && a.can_edit_fields ? (
-                        <Button
-                          size="small"
-                          type="link"
-                          icon={<SendOutlined />}
-                          onClick={() => props.onPublishAction(a.id)}
-                        >
-                          发布
-                        </Button>
-                      ) : null}
+                      <Button
+                        size="small"
+                        type="link"
+                        icon={<SendOutlined />}
+                        onClick={() => props.onPublishAction(a.id)}
+                      >
+                        发布
+                      </Button>
                     </Space>
                   ) : null,
               },
             ]}
           />
-          {bt.actions.length > ACTION_CARD_PAGE_SIZE ? (
+          {rowsWithSubtasks.length > ACTION_CARD_PAGE_SIZE ? (
             <div
               className="tm-board-pagination"
               data-testid={`tm-task-action-pagination-${bt.task.id}`}
@@ -2158,9 +3047,9 @@ function BoardTaskCard(props: {
               <Pagination
                 current={actionPage}
                 pageSize={ACTION_CARD_PAGE_SIZE}
-                total={bt.actions.length}
+                total={rowsWithSubtasks.length}
                 showSizeChanger={false}
-                showTotal={(t) => `共 ${t} 个 Action`}
+                showTotal={(t) => `共 ${t} 项`}
                 onChange={(page) => setActionPage(page)}
               />
             </div>
@@ -2187,11 +3076,18 @@ function BoardTaskCard(props: {
           onCreateSubtask={() => {
             const name = newSubtaskName.trim()
             if (!name) return
-            props.onCreateSubtask(name, newSubtaskContent.trim())
+            const fv = addForm.getFieldsValue()
+            props.onCreateSubtask(
+              name,
+              newSubtaskContent.trim(),
+              fv.subtask_dev_members || [],
+              fv.subtask_pm_members || [],
+            )
             setNewSubtaskName('')
             setNewSubtaskContent('')
             setNewSubtaskMode(false)
-            addForm.setFieldsValue({ subtask_name: name })
+            setInlineAddOpen(false)
+            addForm.resetFields()
           }}
           onCancel={() => {
             setInlineAddOpen(false)
@@ -2205,17 +3101,38 @@ function BoardTaskCard(props: {
               const subName = newSubtaskMode
                 ? newSubtaskName.trim()
                 : (v.subtask_name || '').trim()
-              if (!subName) {
-                message.warning('请选择或新建子需求')
+              if (newSubtaskMode && !subName) {
+                message.warning('请填写新子需求名称')
+                return
+              }
+              const title = (v.title || '').trim()
+              if (!title) {
+                // Action 标题留空：只新建子需求（若为新建模式），不创建 Action
+                if (newSubtaskMode) {
+                  props.onCreateSubtask(
+                    subName,
+                    newSubtaskContent.trim(),
+                    v.subtask_dev_members || [],
+                    v.subtask_pm_members || [],
+                  )
+                } else {
+                  message.info('Action 标题为空，无需保存')
+                }
+                setInlineAddOpen(false)
+                setNewSubtaskMode(false)
+                setNewSubtaskName('')
+                addForm.resetFields()
                 return
               }
               props.onCreateAction(
                 {
-                  title: v.title.trim(),
+                  title,
                   subtask_name: subName,
                   owner_id: Number(v.owner_id),
                   test_content: v.test_content || '',
                   environment: v.environment || '',
+                  dev_members: v.dev_members || [],
+                  pm_members: v.pm_members || [],
                 },
                 publish,
               )
@@ -2250,11 +3167,13 @@ function InlineAddAction(props: {
   const { task, users, form } = props
   const ownerOptions = userSelectOptions(users.map((u) => ({ ...u, real_name: u.real_name || u.username })))
   const subtaskOptions = useMemo(
-    () =>
-      (task.subtasks || []).map((s) => ({
+    () => [
+      { value: '', label: '暂不关联（未关联）' },
+      ...(task.subtasks || []).map((s) => ({
         value: s.name,
         label: s.name,
       })),
+    ],
     [task.subtasks],
   )
   const defaultOwner = task.lead_id && users.some((u) => Number(u.id) === Number(task.lead_id))
@@ -2267,12 +3186,7 @@ function InlineAddAction(props: {
     <div className="tm-inline-add" data-testid="tm-inline-add-action">
       <Form form={form} layout="vertical" size="small" className="tm-inline-add__form" initialValues={{ owner_id: defaultOwner }}>
         <div className="tm-inline-add__row">
-          <Form.Item
-            name="subtask_name"
-            label="子需求"
-            style={{ width: 140, marginBottom: 0 }}
-            rules={props.newSubtaskMode ? [] : [{ required: true, message: '必填' }]}
-          >
+          <Form.Item name="subtask_name" label="子需求" style={{ width: 140, marginBottom: 0 }}>
             {props.newSubtaskMode ? (
               <Input
                 placeholder="新子需求名称"
@@ -2323,9 +3237,9 @@ function InlineAddAction(props: {
             name="title"
             label="Action 标题"
             style={{ flex: 1, marginBottom: 0, minWidth: 160 }}
-            rules={[{ required: true, message: '必填' }]}
+            tooltip="可留空：留空时仅新建/关联子需求，不创建 Action"
           >
-            <Input placeholder="本周 Action" maxLength={300} data-testid="tm-inline-title" />
+            <Input placeholder="本周 Action（可留空）" maxLength={300} data-testid="tm-inline-title" />
           </Form.Item>
           <Form.Item
             name="owner_id"
@@ -2375,10 +3289,27 @@ function InlineAddAction(props: {
           </div>
         </div>
         {!props.newSubtaskMode ? (
-          <Form.Item name="test_content" label="测试内容" style={{ marginBottom: 0, marginTop: 8 }}>
-            <Input placeholder="可选" maxLength={TEXT_FIELD_MAX_CHARS} data-testid="tm-inline-content" />
-          </Form.Item>
-        ) : null}
+          <div className="tm-inline-add__row" style={{ marginTop: 8 }}>
+            <Form.Item name="test_content" label="测试内容" style={{ flex: 1, marginBottom: 0, minWidth: 160 }}>
+              <Input placeholder="可选" maxLength={TEXT_FIELD_MAX_CHARS} data-testid="tm-inline-content" />
+            </Form.Item>
+            <Form.Item name="dev_members" label="开发人员" style={{ width: 200, marginBottom: 0 }}>
+              <MemberTagsSelect size="small" testId="tm-inline-dev-members" />
+            </Form.Item>
+            <Form.Item name="pm_members" label="产品人员" style={{ width: 200, marginBottom: 0 }}>
+              <MemberTagsSelect size="small" testId="tm-inline-pm-members" />
+            </Form.Item>
+          </div>
+        ) : (
+          <div className="tm-inline-add__row" style={{ marginTop: 8 }}>
+            <Form.Item name="subtask_dev_members" label="开发人员" style={{ width: 200, marginBottom: 0 }}>
+              <MemberTagsSelect size="small" testId="tm-inline-subtask-dev-members" />
+            </Form.Item>
+            <Form.Item name="subtask_pm_members" label="产品人员" style={{ width: 200, marginBottom: 0 }}>
+              <MemberTagsSelect size="small" testId="tm-inline-subtask-pm-members" />
+            </Form.Item>
+          </div>
+        )}
       </Form>
     </div>
   )
@@ -2401,7 +3332,6 @@ function ActionDetailDrawer(props: {
   }) => void
   onCorrect: (id: string, note: string) => Promise<void>
   onPublish: (id: string) => void
-  onChangeStatus: (id: string, status: string) => void
   onSaveDraft: (
     id: string,
     data: {
@@ -2410,26 +3340,50 @@ function ActionDetailDrawer(props: {
       owner_id?: number
       test_content?: string
       environment?: string
+      dev_members?: string[]
+      pm_members?: string[]
     },
   ) => void
+  /** 发布后维护开发/产品人员（信息性字段，所有角色当前周均可改） */
+  onSaveMembers: (id: string, data: { dev_members?: string[]; pm_members?: string[] }) => void
+  membersLoading: boolean
+  /** 发布后改派负责人（走同一 PATCH，后端强制留痕） */
+  onSaveOwner: (id: string, owner_id: number) => void
+  ownerLoading: boolean
+  /** 删除 Action（宽松模式，二次确认；级联删除其日报与更正记录） */
+  onDeleteAction: (id: string) => void
+  /** 删除指定日期日报（宽松模式，后端自动留痕更正记录） */
+  onDeleteDaily: (id: string, reportDate: string) => void
+  deleteLoading: boolean
   dailyLoading: boolean
   correctLoading: boolean
   saveDraftLoading: boolean
   publishLoading: boolean
-  statusLoading: boolean
 }) {
   const d = props.detail
   const forceReadOnly = !!props.forceReadOnly
   const canEditFields = !forceReadOnly && !!d?.can_edit_fields
   const canDaily = !forceReadOnly && !!d?.can_daily
   const canCorrect = !forceReadOnly && !!d?.can_correct
-  const canChangeStatus = !forceReadOnly && !!d?.can_change_status
-  const canMarkDone = !forceReadOnly && !!d?.can_mark_done
+  /** 发布后改派负责人入口（草稿态走上方编辑表单，不重复展示） */
+  const canChangeOwner =
+    !forceReadOnly && !!d?.can_change_owner && d.status !== 'draft'
+  /** 数据删除入口（宽松模式） */
+  const canDeleteAction = !forceReadOnly && !!d?.can_delete
+  const canDeleteDaily = !forceReadOnly && !!d?.can_delete_daily
   const [correctForm] = Form.useForm()
   const [draftForm] = Form.useForm()
   const [dailyForm] = Form.useForm()
+  const [ownerForm] = Form.useForm()
+  const [membersForm] = Form.useForm()
+  /** 负责人编辑态：默认收起，点「更改」展开表单，改派成功后自动收起 */
+  const [ownerEditing, setOwnerEditing] = useState(false)
+  /** 开发/产品人员编辑态：默认收起，点「更改」展开表单，保存成功后自动收起 */
+  const [membersEditing, setMembersEditing] = useState(false)
   const correctionEndRef = useRef<HTMLDivElement>(null)
   const pendingScrollToCorrection = useRef(false)
+  /** 记录区 tab：daily=日更记录，corr=更正记录 */
+  const [logTab, setLogTab] = useState<'daily' | 'corr'>('daily')
 
   const { data: draftTask } = useQuery({
     queryKey: ['tm-task', d?.task_id, 'for-draft'],
@@ -2443,7 +3397,7 @@ function ActionDetailDrawer(props: {
     enabled: !!d?.id && props.open,
   })
 
-  const ownerCandidates = taskParticipantUsers(draftTask, props.users)
+  const ownerCandidates = props.users
 
   /** 时间线按时间正序：最旧在上、最新在下，滚到底即可看到刚追加的 */
   const correctionsAsc = useMemo(() => {
@@ -2455,6 +3409,22 @@ function ActionDetailDrawer(props: {
     })
   }, [d?.corrections])
 
+  /** 日更记录（按日期倒序，最新在上） */
+  const dailyLog = useMemo(() => {
+    const list = d?.daily_updates ? [...d.daily_updates] : []
+    list.sort((a, b) => (b.report_date || '').localeCompare(a.report_date || ''))
+    return list
+  }, [d?.daily_updates])
+
+  /** 今天（业务日）已提交的日更：用于表单回显，提交后立即可见 */
+  const todayDaily = dailyLog.find(
+    (u) => (u.report_date || '').slice(0, 10) === tmTodayYmd(),
+  )
+  const todayNote = todayDaily?.progress_note || ''
+  const todayProgress = todayDaily?.progress_percent ?? null
+  const todayRisk = todayDaily?.risk_blocker ?? null
+  const todayBlocking = todayDaily?.is_blocking ?? null
+
   useEffect(() => {
     if (!pendingScrollToCorrection.current) return
     if (!props.open) return
@@ -2465,14 +3435,23 @@ function ActionDetailDrawer(props: {
     return () => window.clearTimeout(t)
   }, [correctionsAsc.length, props.open, d?.id])
 
-  /** 详情异步加载后同步日更表单，避免 initialValues 只生效一次导致「是否阻塞」被旧值覆盖写丢 */
+  /** 切换 Action 或重新打开时，记录区回到「日更」tab、负责人/人员编辑态收起；
+   *  改派成功（owner_id 变化）后也自动收起编辑态 */
+  useEffect(() => {
+    setLogTab('daily')
+    setOwnerEditing(false)
+    setMembersEditing(false)
+  }, [props.open, d?.id, d?.owner_id])
+
+  /** 详情异步加载后同步日更表单，避免 initialValues 只生效一次导致「是否阻塞」被旧值覆盖写丢；
+   *  今天已提交过日更时回显当日内容（进度/完成/风险/阻塞），提交后无需刷新即可见 */
   useEffect(() => {
     if (!props.open || !d || !canDaily) return
     dailyForm.setFieldsValue({
-      progress_percent: d.progress_percent,
-      risk_blocker: d.latest_risk || '',
-      is_blocking: Boolean(d.latest_is_blocking),
-      progress_note: '',
+      progress_percent: todayProgress ?? d.progress_percent,
+      risk_blocker: todayRisk ?? (d.latest_risk || ''),
+      is_blocking: Boolean(todayBlocking ?? d.latest_is_blocking),
+      progress_note: todayNote,
     })
   }, [
     props.open,
@@ -2481,15 +3460,20 @@ function ActionDetailDrawer(props: {
     d?.progress_percent,
     d?.latest_risk,
     d?.latest_is_blocking,
+    todayProgress,
+    todayRisk,
+    todayBlocking,
+    todayNote,
     dailyForm,
   ])
 
   return (
-    <Drawer
+    <Modal
       title={d?.title || 'Action'}
       open={props.open}
-      onClose={props.onClose}
-      width={520}
+      onCancel={props.onClose}
+      footer={null}
+      width={560}
       destroyOnClose
       styles={{ body: { paddingTop: 12, paddingBottom: 24 } }}
     >
@@ -2498,22 +3482,165 @@ function ActionDetailDrawer(props: {
           <Text type="secondary">加载中…</Text>
         ) : (
           <div className="tm-sheet__stack">
-            {/* 1. 摘要 */}
-            <header className="tm-sheet__summary">
-              <div className="tm-sheet__summary-top">
+            {/* 1. 摘要：纯文字，与下方 section 风格统一 */}
+            <header className="tm-sheet__head">
+              <div className="tm-sheet__head-line">
                 <Tag color={STATUS_LABEL[d.status]?.color}>{STATUS_LABEL[d.status]?.text}</Tag>
-                <span className="tm-sheet__task">{d.task_title}</span>
+                <span className="tm-sheet__head-task">{d.task_title}</span>
+                <span className="tm-sheet__muted"> · 进度 {d.progress_percent}%</span>
               </div>
-              <div className="tm-sheet__meta-row">
-                子需求 {d.subtask_name || '—'} · 负责人 {props.userName(d.owner_id)}
+              <div className="tm-sheet__head-meta">
+                子需求 {d.subtask_name || '未关联'} · 负责人 {props.userName(d.owner_id)}
+                {d.environment ? <> · 环境 {d.environment}</> : null}
+                {d.dev_members?.length ? <> · 开发 {d.dev_members.join('、')}</> : null}
+                {d.pm_members?.length ? <> · 产品 {d.pm_members.join('、')}</> : null}
+                {d.status === 'done' && d.completed_at ? (
+                  <> · 完成 {dayjs(d.completed_at).format('MM-DD HH:mm')}</>
+                ) : null}
               </div>
-              <Progress
-                percent={d.progress_percent}
-                size="small"
-                strokeColor="#1677ff"
-                className="tm-sheet__progress"
-              />
             </header>
+
+            {/* 1a. 更改负责人（发布后改派；后端自动写「负责人更正」留痕；点「更改」展开表单） */}
+            {canChangeOwner ? (
+              <section className="tm-sheet__section">
+                <h3
+                  className="tm-sheet__h"
+                  style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}
+                >
+                  更改负责人
+                  <span className="tm-sheet__muted">
+                    · 当前 {props.userName(d.owner_id)} · 自动记入更正记录
+                  </span>
+                  {!ownerEditing ? (
+                    <Button
+                      type="link"
+                      size="small"
+                      onClick={() => setOwnerEditing(true)}
+                      data-testid="tm-owner-edit"
+                    >
+                      更改
+                    </Button>
+                  ) : null}
+                </h3>
+                {ownerEditing ? (
+                  <Form
+                    form={ownerForm}
+                    layout="vertical"
+                    size="small"
+                    className="tm-sheet__form"
+                    key={`tm-owner-${d.id}-${d.owner_id}`}
+                    initialValues={{ owner_id: d.owner_id }}
+                    onFinish={(v) => props.onSaveOwner(d.id, Number(v.owner_id))}
+                  >
+                    <div className="tm-sheet__inline">
+                      <Form.Item
+                        name="owner_id"
+                        label="新负责人"
+                        rules={[
+                          { required: true, message: '请选择新负责人' },
+                          {
+                            validator: (_rule, value) =>
+                              value && Number(value) !== d.owner_id
+                                ? Promise.resolve()
+                                : Promise.reject(new Error('请选择与当前不同的负责人')),
+                          },
+                        ]}
+                      >
+                        <Select
+                          options={userSelectOptions(ownerCandidates)}
+                          showSearch
+                          optionFilterProp="label"
+                          autoFocus
+                          data-testid="tm-owner-select"
+                        />
+                      </Form.Item>
+                      <Button
+                        color="primary"
+                        variant="outlined"
+                        size="small"
+                        htmlType="submit"
+                        loading={props.ownerLoading}
+                        data-testid="tm-submit-owner"
+                      >
+                        确认更改
+                      </Button>
+                      <Button size="small" type="text" onClick={() => setOwnerEditing(false)}>
+                        取消
+                      </Button>
+                    </div>
+                  </Form>
+                ) : null}
+              </section>
+            ) : null}
+
+            {/* 1b. 开发/产品人员（信息性字段：宽松模式所有角色当前周均可维护；严格模式管理员/Task 负责人；已完成/已取消不可改） */}
+            {!forceReadOnly && d.can_edit_members && d.status === 'published' ? (
+              <section className="tm-sheet__section">
+                <h3
+                  className="tm-sheet__h"
+                  style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}
+                >
+                  开发/产品人员
+                  <span className="tm-sheet__muted">
+                    · 开发 {d.dev_members?.length ? d.dev_members.join('、') : '—'} · 产品{' '}
+                    {d.pm_members?.length ? d.pm_members.join('、') : '—'}
+                  </span>
+                  {!membersEditing ? (
+                    <Button
+                      type="link"
+                      size="small"
+                      onClick={() => setMembersEditing(true)}
+                      data-testid="tm-members-edit"
+                    >
+                      更改
+                    </Button>
+                  ) : null}
+                </h3>
+                {membersEditing ? (
+                  <Form
+                    form={membersForm}
+                    layout="vertical"
+                    size="small"
+                    className="tm-sheet__form"
+                    key={`tm-members-${d.id}`}
+                    initialValues={{
+                      dev_members: d.dev_members || [],
+                      pm_members: d.pm_members || [],
+                    }}
+                    onFinish={(v) =>
+                      props.onSaveMembers(d.id, {
+                        dev_members: v.dev_members || [],
+                        pm_members: v.pm_members || [],
+                      })
+                    }
+                  >
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 12 }}>
+                      <Form.Item name="dev_members" label="开发人员">
+                        <MemberTagsSelect size="small" testId="tm-members-dev" />
+                      </Form.Item>
+                      <Form.Item name="pm_members" label="产品人员">
+                        <MemberTagsSelect size="small" testId="tm-members-pm" />
+                      </Form.Item>
+                    </div>
+                    <div className="tm-sheet__actions">
+                      <Button
+                        color="primary"
+                        variant="outlined"
+                        size="small"
+                        htmlType="submit"
+                        loading={props.membersLoading}
+                        data-testid="tm-submit-members"
+                      >
+                        保存
+                      </Button>
+                      <Button size="small" type="text" onClick={() => setMembersEditing(false)}>
+                        取消
+                      </Button>
+                    </div>
+                  </Form>
+                ) : null}
+              </section>
+            ) : null}
 
             {/* 2. 延续历史 */}
             {lineage && lineage.weeks_count > 0 ? (
@@ -2567,9 +3694,11 @@ function ActionDetailDrawer(props: {
             ) : null}
             {!canDaily && !forceReadOnly && d.status === 'published' ? (
               <p className="tm-sheet__tip">
-                {canCorrect
-                  ? '今日不可日更 · 可用更正说明'
-                  : `仅负责人或测试管理员可日更（${props.userName(d.owner_id)}）`}
+                {isWeekSwitchDay() && d.week_key && d.week_key !== dailyContextWeekKey()
+                  ? '今天 17:00 已切周，今日日更归属上一汇报周；请在上方「延续历史」中打开上一周的记录写日更'
+                  : canCorrect
+                    ? '今日不可日更 · 可用更正说明'
+                    : `仅负责人或测试管理员可日更（${props.userName(d.owner_id)}）`}
               </p>
             ) : null}
 
@@ -2589,21 +3718,22 @@ function ActionDetailDrawer(props: {
                     owner_id: d.owner_id,
                     test_content: d.test_content,
                     environment: d.environment,
+                    dev_members: d.dev_members || [],
+                    pm_members: d.pm_members || [],
                   }}
                 >
-                  <Form.Item
-                    name="subtask_name"
-                    label="关联子需求"
-                    rules={[{ required: true, message: '请选择子需求' }]}
-                  >
+                  <Form.Item name="subtask_name" label="关联子需求">
                     <Select
-                      options={(draftTask?.subtasks || []).map((s) => ({
-                        value: s.name,
-                        label: s.name,
-                      }))}
+                      options={[
+                        { value: '', label: '暂不关联（未关联）' },
+                        ...(draftTask?.subtasks || []).map((s) => ({
+                          value: s.name,
+                          label: s.name,
+                        })),
+                      ]}
                       showSearch
                       optionFilterProp="label"
-                      placeholder="选择子需求"
+                      placeholder="选择子需求（可暂不关联）"
                     />
                   </Form.Item>
                   <Form.Item name="title" label="标题" rules={[{ required: true }]}>
@@ -2622,6 +3752,14 @@ function ActionDetailDrawer(props: {
                   <Form.Item name="environment" label="环境">
                     <Input maxLength={ACTION_ENVIRONMENT_MAX_CHARS} showCount />
                   </Form.Item>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 12 }}>
+                    <Form.Item name="dev_members" label="开发人员">
+                      <MemberTagsSelect testId="tm-draft-dev-members" />
+                    </Form.Item>
+                    <Form.Item name="pm_members" label="产品人员">
+                      <MemberTagsSelect testId="tm-draft-pm-members" />
+                    </Form.Item>
+                  </div>
                   <div className="tm-sheet__actions">
                     <Button
                       loading={props.saveDraftLoading}
@@ -2634,6 +3772,8 @@ function ActionDetailDrawer(props: {
                             owner_id: Number(v.owner_id),
                             test_content: v.test_content || '',
                             environment: v.environment || '',
+                            dev_members: v.dev_members || [],
+                            pm_members: v.pm_members || [],
                           }),
                         )
                       }
@@ -2652,66 +3792,25 @@ function ActionDetailDrawer(props: {
                   </div>
                 </Form>
               </section>
-            ) : (
-              <section className="tm-sheet__section">
-                <h3 className="tm-sheet__h">基本信息</h3>
-                <dl className="tm-sheet__dl">
-                  <div>
-                    <dt>子需求</dt>
-                    <dd>{d.subtask_name || '—'}</dd>
-                  </div>
-                  <div>
-                    <dt>测试内容</dt>
-                    <dd>{d.test_content || '—'}</dd>
-                  </div>
-                  <div>
-                    <dt>环境</dt>
-                    <dd>{d.environment || '—'}</dd>
-                  </div>
-                </dl>
-              </section>
-            )}
-
-            {/* 5. 变更状态 */}
-            {canChangeStatus &&
-            d.status !== 'cancelled' &&
-            d.status !== 'done' &&
-            !(d.status === 'draft' && canEditFields) ? (
-              <section className="tm-sheet__section">
-                <h3 className="tm-sheet__h">状态</h3>
-                <div className="tm-sheet__actions">
-                  {d.status === 'draft' ? (
-                    <Button
-                      type="primary"
-                      loading={props.publishLoading || props.statusLoading}
-                      data-testid="tm-btn-publish-action"
-                      onClick={() => props.onPublish(d.id)}
-                    >
-                      发布
-                    </Button>
-                  ) : null}
-                  {d.status === 'published' ? (
-                    <>
-                      <Button
-                        type="primary"
-                        loading={props.statusLoading}
-                        disabled={!canMarkDone}
-                        title={canMarkDone ? undefined : '需日更到 100% 才能完成'}
-                        data-testid="tm-btn-mark-done"
-                        onClick={() => props.onChangeStatus(d.id, 'done')}
-                      >
-                        标记完成
-                      </Button>
-                      {!canMarkDone ? (
-                        <span className="tm-sheet__muted">需日更到 100%（当前 {d.progress_percent}%）</span>
-                      ) : null}
-                    </>
-                  ) : null}
-                </div>
-              </section>
             ) : null}
 
-            {/* 6. 日更 */}
+            {/* 5. 非草稿态：测试内容非空时折叠显示，默认收起 */}
+            {d.status !== 'draft' && d.test_content ? (
+              <Collapse
+                size="small"
+                ghost
+                className="tm-sheet__details"
+                items={[
+                  {
+                    key: 'info',
+                    label: '测试内容',
+                    children: <div className="tm-sheet__body">{d.test_content}</div>,
+                  },
+                ]}
+              />
+            ) : null}
+
+            {/* 6. 日更（进行中可写；已完成展示最近日更记录，避免突变） */}
             {canDaily ? (
               <section className="tm-sheet__section">
                 <h3 className="tm-sheet__h">
@@ -2736,11 +3835,27 @@ function ActionDetailDrawer(props: {
                 >
                   <Form.Item
                     name="progress_percent"
-                    label="当前进度"
+                    label={
+                      <span>
+                        当前进度
+                        <span className="tm-sheet__muted">
+                          {' '}
+                          （进度 100 默认当前 Action 完成）
+                        </span>
+                      </span>
+                    }
                     rules={[{ required: true, message: '必填' }]}
-                    style={{ marginBottom: 12 }}
+                    extra={
+                      (d.progress_percent ?? 0) > 0 ? (
+                        <span data-testid="tm-daily-progress-min">
+                          ≥ 当前 {d.progress_percent}%，进度只增不减
+                        </span>
+                      ) : undefined
+                    }
+                    style={{ marginBottom: 8 }}
                   >
                     <InputNumber
+                      size="small"
                       min={d.progress_percent ?? 0}
                       max={100}
                       style={{ width: '100%' }}
@@ -2752,10 +3867,11 @@ function ActionDetailDrawer(props: {
                     name="progress_note"
                     label="今日完成"
                     rules={[{ required: true, whitespace: true, message: '必填' }]}
-                    style={{ marginBottom: 12 }}
+                    style={{ marginBottom: 10 }}
                   >
                     <TextArea
-                      rows={2}
+                      rows={1}
+                      autoSize={{ minRows: 1, maxRows: 4 }}
                       maxLength={TEXT_FIELD_MAX_CHARS}
                       showCount
                       placeholder="今天做了什么"
@@ -2767,7 +3883,7 @@ function ActionDetailDrawer(props: {
                       display: 'flex',
                       gap: 12,
                       alignItems: 'flex-start',
-                      marginBottom: 12,
+                      marginBottom: 10,
                     }}
                   >
                     <Form.Item
@@ -2776,7 +3892,8 @@ function ActionDetailDrawer(props: {
                       style={{ flex: 1, marginBottom: 0 }}
                     >
                       <TextArea
-                        rows={2}
+                        rows={1}
+                        autoSize={{ minRows: 1, maxRows: 3 }}
                         maxLength={TEXT_FIELD_MAX_CHARS}
                         placeholder="如有风险，简要说明"
                         data-testid="tm-daily-risk"
@@ -2784,25 +3901,136 @@ function ActionDetailDrawer(props: {
                     </Form.Item>
                     <Form.Item
                       name="is_blocking"
-                      label="阻塞"
                       valuePropName="checked"
                       style={{ marginBottom: 0, paddingTop: 22 }}
                     >
                       <Checkbox data-testid="tm-daily-is-blocking">是否阻塞</Checkbox>
                     </Form.Item>
                   </div>
-                  <Button
-                    type="primary"
-                    htmlType="submit"
-                    block
-                    loading={props.dailyLoading}
-                    data-testid="tm-submit-daily"
-                  >
-                    提交日更
-                  </Button>
+                  <div className="tm-sheet__actions">
+                    <Button
+                      color="primary"
+                      variant="outlined"
+                      size="small"
+                      htmlType="submit"
+                      loading={props.dailyLoading}
+                      data-testid="tm-submit-daily"
+                    >
+                      提交日更
+                    </Button>
+                  </div>
                 </Form>
               </section>
             ) : null}
+
+            {/* 6b. 记录（tab 切换）：日更=今天/昨天/更早；更正=留痕时间线；进行中/已完成/历史周均可见 */}
+            <section className="tm-sheet__section tm-sheet__daily-log">
+              <Tabs
+                key={d.id}
+                size="small"
+                style={{ marginBottom: 0 }}
+                activeKey={logTab}
+                onChange={(k) => setLogTab(k as 'daily' | 'corr')}
+                tabBarExtraContent={
+                  logTab === 'daily' && !canDaily && !forceReadOnly && canDeleteDaily ? (
+                    <Popconfirm
+                      title="删除该日日报？"
+                      description="删除后自动记入更正记录，进度以剩余日更为准"
+                      okText="删除"
+                      cancelText="取消"
+                      okButtonProps={{ danger: true }}
+                      onConfirm={() =>
+                        props.onDeleteDaily(d.id, dailyLog[0].report_date.slice(0, 10))
+                      }
+                    >
+                      <Button
+                        size="small"
+                        type="text"
+                        danger
+                        loading={props.deleteLoading}
+                        data-testid="tm-delete-daily"
+                      >
+                        删除日报
+                      </Button>
+                    </Popconfirm>
+                  ) : null
+                }
+                items={[
+                  {
+                    key: 'daily',
+                    label: (
+                      <>
+                        日更 <span className="tm-sheet__muted">{dailyLog.length}</span>
+                      </>
+                    ),
+                    children:
+                      dailyLog.length === 0 ? (
+                        <p className="tm-sheet__muted">暂无</p>
+                      ) : (
+                        dailyLog.map((u, i) => (
+                          <div
+                            key={u.id}
+                            data-testid="tm-daily-log-row"
+                            style={{
+                              padding: '8px 0',
+                              borderTop: i ? '1px dashed #f0f0f0' : undefined,
+                            }}
+                          >
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                              <Text strong>{dailyDateLabel(u.report_date)}</Text>
+                              <Text type="secondary">{u.progress_percent}%</Text>
+                              {u.is_blocking ? (
+                                <Tag color="red" style={{ marginRight: 0 }}>
+                                  阻塞
+                                </Tag>
+                              ) : null}
+                            </div>
+                            {u.progress_note ? (
+                              <div className="tm-sheet__body">{u.progress_note}</div>
+                            ) : null}
+                            {u.risk_blocker ? (
+                              <div className="tm-sheet__risk-note">
+                                <Text type="danger">风险：{u.risk_blocker}</Text>
+                              </div>
+                            ) : null}
+                          </div>
+                        ))
+                      ),
+                  },
+                  {
+                    key: 'corr',
+                    label: (
+                      <>
+                        更正 <span className="tm-sheet__muted">{correctionsAsc.length}</span>
+                      </>
+                    ),
+                    children: (
+                      <>
+                        {correctionsAsc.length === 0 ? (
+                          <p className="tm-sheet__muted">暂无</p>
+                        ) : (
+                          <Timeline
+                            items={correctionsAsc.map((c, idx) => ({
+                              color: idx === correctionsAsc.length - 1 ? 'orange' : 'gray',
+                              children: (
+                                <div className="tm-sheet__corr">
+                                  <div className="tm-sheet__muted">
+                                    {c.created_at || ''} · {props.userName(c.user_id)}
+                                    {idx === correctionsAsc.length - 1 ? ' · 最新' : ''}
+                                  </div>
+                                  <div className="tm-sheet__corr-note">{c.note}</div>
+                                </div>
+                              ),
+                            }))}
+                          />
+                        )}
+                        <div ref={correctionEndRef} />
+                      </>
+                    ),
+                  },
+                ]}
+              />
+            </section>
 
             {/* 7. 更正 */}
             {canCorrect ? (
@@ -2811,13 +4039,14 @@ function ActionDetailDrawer(props: {
                 <Form
                   form={correctForm}
                   layout="vertical"
-                  size="middle"
+                  size="small"
                   className="tm-sheet__form"
                   onFinish={async (v) => {
                     try {
                       pendingScrollToCorrection.current = true
                       await props.onCorrect(d.id, v.note)
                       correctForm.resetFields()
+                      setLogTab('corr')
                     } catch {
                       pendingScrollToCorrection.current = false
                     }
@@ -2831,57 +4060,50 @@ function ActionDetailDrawer(props: {
                     ]}
                   >
                     <TextArea
-                      rows={2}
+                      rows={1}
+                      autoSize={{ minRows: 1, maxRows: 4 }}
                       placeholder="更正内容…"
                       maxLength={TEXT_FIELD_MAX_CHARS}
                       showCount
                       data-testid="tm-correction-note"
                     />
                   </Form.Item>
-                  <Button
-                    type="primary"
-                    htmlType="submit"
-                    block
-                    loading={props.correctLoading}
-                    data-testid="tm-submit-correction"
-                  >
-                    追加更正
-                  </Button>
+                  <div className="tm-sheet__actions">
+                    <Button
+                      color="primary"
+                      variant="outlined"
+                      size="small"
+                      htmlType="submit"
+                      loading={props.correctLoading}
+                      data-testid="tm-submit-correction"
+                    >
+                      追加更正
+                    </Button>
+                  </div>
                 </Form>
               </section>
             ) : null}
 
-            {/* 8. 时间线 */}
-            <section className="tm-sheet__section">
-              <h3 className="tm-sheet__h">
-                更正记录
-                {correctionsAsc.length > 0 ? (
-                  <span className="tm-sheet__muted"> · {correctionsAsc.length}</span>
-                ) : null}
-              </h3>
-              {correctionsAsc.length === 0 ? (
-                <p className="tm-sheet__muted">暂无</p>
-              ) : (
-                <Timeline
-                  items={correctionsAsc.map((c, idx) => ({
-                    color: idx === correctionsAsc.length - 1 ? 'green' : 'gray',
-                    children: (
-                      <div className="tm-sheet__corr">
-                        <div className="tm-sheet__muted">
-                          {c.created_at || ''} · {props.userName(c.user_id)}
-                          {idx === correctionsAsc.length - 1 ? ' · 最新' : ''}
-                        </div>
-                        <div className="tm-sheet__corr-note">{c.note}</div>
-                      </div>
-                    ),
-                  }))}
-                />
-              )}
-              <div ref={correctionEndRef} />
-            </section>
+            {/* 9. 危险操作：删除 Action（宽松模式，需二次确认） */}
+            {canDeleteAction ? (
+              <section className="tm-sheet__section">
+                <Popconfirm
+                  title="删除该 Action？"
+                  description="将级联删除其全部日报与更正记录，不可恢复"
+                  okText="删除"
+                  cancelText="取消"
+                  okButtonProps={{ danger: true }}
+                  onConfirm={() => props.onDeleteAction(d.id)}
+                >
+                  <Button block danger loading={props.deleteLoading} data-testid="tm-delete-action">
+                    删除 Action
+                  </Button>
+                </Popconfirm>
+              </section>
+            ) : null}
           </div>
         )}
       </div>
-    </Drawer>
+    </Modal>
   )
 }

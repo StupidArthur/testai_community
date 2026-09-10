@@ -146,6 +146,7 @@ def _create_task(
             "domain_id": did,
             "title": title,
             "requirement": "回归需求",
+            "module": "默认模块",
             "lead_id": lead_id,
             "tester_ids": tester_ids or [],
             "publish": publish,
@@ -331,7 +332,7 @@ def test_c_action_create_clone_permissions(
     )
     tid = task["id"]
 
-    # A1：owner 必须在参与者中
+    # A1 已放宽：owner 不再要求属于 Task 参与者，任意用户均可被指派
     r = client.post(
         "/api/test-manage/actions",
         json={
@@ -343,7 +344,7 @@ def test_c_action_create_clone_permissions(
         },
         headers=lead_headers,
     )
-    assert r.status_code == 400
+    assert r.status_code == 201, r.text
 
     # lead 可建
     r = client.post(
@@ -370,13 +371,13 @@ def test_c_action_create_clone_permissions(
     )
     assert r.status_code == 200, r.text
 
-    # 无关人不可建
+    # 创建权限已放开：无关人（任意登录角色）也可建
     r = client.post(
         "/api/test-manage/actions",
         json={"task_id": tid, "title": f"{TAG} stranger", "subtask_name": "默认子需求", "owner_id": owner_id},
         headers=stranger_headers,
     )
-    assert r.status_code == 403
+    assert r.status_code == 201, r.text
 
     # clone 接口已下线（未完成 Action 自动继承，无需手动克隆）
     r = client.post(

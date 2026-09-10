@@ -6,7 +6,7 @@ class LLMError(Exception):
 
 
 class LLMNotConfiguredError(LLMError):
-    """未配置 MINIMAX_API_KEY 等必要环境变量。"""
+    """未配置 LLM_GATEWAY_URL 等必要环境变量。"""
 
 
 class TavilyNotConfiguredError(Exception):

@@ -108,6 +108,7 @@ def _lock_seed_task(client, headers) -> str:
             "domain_id": did,
             "title": "Lock-Task",
             "requirement": "锁定窗测试",
+            "module": "默认模块",
             "lead_id": uid,
             "tester_ids": [],
             "publish": True,

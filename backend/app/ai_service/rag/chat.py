@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.ai_service.client import chat
-from app.platform.config import KB_RAG_TOP_K, MINIMAX_MODEL
+from app.platform.config import KB_RAG_TOP_K
 
 from .embeddings import embed_text
 from .store import query_kb
@@ -258,7 +258,7 @@ async def answer_with_rag(
         }
     )
 
-    answer = await chat(messages, model=MINIMAX_MODEL, temperature=0.2, think=False)
+    answer = await chat(messages, temperature=0.2, think=False)
     citations = []
     for hit in hits:
         meta = hit.get("metadata") or {}

@@ -1,7 +1,7 @@
 """项目管理 HTTP：/api/test-manage"""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -35,6 +35,7 @@ from app.test_manage.schemas import (
     PushResultOut,
     PushTriggerRequest,
     SubtaskCreate,
+    SubtaskMoveRequest,
     SubtaskUpdate,
     TaskCreate,
     TaskDetailOut,
@@ -301,6 +302,18 @@ def api_delete_subtask(
     return svc.delete_subtask(db, current_user, task_id, sid)
 
 
+@router.post("/tasks/{task_id}/subtasks/{sid}/move", response_model=TaskOut)
+def api_move_subtask(
+    task_id: str,
+    sid: str,
+    data: SubtaskMoveRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """将子需求移动到同项目下另一个 Task（关联 Action 一并随迁）。"""
+    return svc.move_subtask(db, current_user, task_id, sid, data)
+
+
 @router.post("/actions", response_model=ActionOut, status_code=201)
 def api_create_action(
     data: ActionCreate,
@@ -347,6 +360,27 @@ def api_daily(
     current_user: User = Depends(get_current_user),
 ):
     return svc.upsert_daily_update(db, current_user, action_id, data)
+
+
+@router.delete("/actions/{action_id}", status_code=204)
+def api_delete_action(
+    action_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """删除 Action（宽松模式，级联删除其日报与更正记录）。"""
+    svc.delete_action(db, current_user, action_id)
+
+
+@router.delete("/actions/{action_id}/daily-updates/{report_date}", status_code=204)
+def api_delete_daily(
+    action_id: str,
+    report_date: date,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """删除指定日期日报（宽松模式，删前自动留痕更正记录）。"""
+    svc.delete_daily_update(db, current_user, action_id, report_date)
 
 
 @router.post(

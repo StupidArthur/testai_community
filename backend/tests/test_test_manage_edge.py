@@ -63,6 +63,7 @@ def _task(client, mgr_headers, pid, did, lead_id, **kw):
         "domain_id": did,
         "title": kw.get("title", "T"),
         "requirement": kw.get("requirement", "req"),
+        "module": kw.get("module", "默认模块"),
         "lead_id": lead_id,
         "tester_ids": kw.get("tester_ids", []),
         "publish": kw.get("publish", True),
@@ -104,13 +105,15 @@ def test_domain_on_missing_project_404(client, mgr_headers):
     assert r.status_code == 404
 
 
-def test_clone_missing_action_404(client, mgr_headers, eng_headers):
+def test_clone_endpoint_offline(client, eng_headers):
+    """clone 接口已下线（未完成 Action 自动继承，无需手动克隆）。"""
     r = client.post(
         "/api/test-manage/actions/missing/clone",
         json={},
         headers=eng_headers,
     )
-    assert r.status_code == 404
+    # 未匹配路径被 SPA GET 兜底接管 → POST 返回 405(Allow: GET)
+    assert r.status_code in (404, 405)
 
 
 # ── 校验边界 ─────────────────────────────────────────────────
@@ -299,6 +302,7 @@ def test_task_domain_project_mismatch_400(client, mgr_headers):
             "project_id": pid1,
             "domain_id": did2,  # 属于 pid2
             "title": "错配",
+            "module": "默认模块",
             "lead_id": users["eng_test"]["id"],
         },
         headers=mgr_headers,
@@ -314,6 +318,7 @@ def test_nonexistent_lead_user_400(client, mgr_headers):
             "project_id": pid,
             "domain_id": did,
             "title": "无此人",
+            "module": "默认模块",
             "lead_id": 999999,
         },
         headers=mgr_headers,
@@ -321,7 +326,8 @@ def test_nonexistent_lead_user_400(client, mgr_headers):
     assert r.status_code == 400
 
 
-def test_lead_not_duplicated_in_testers(client, mgr_headers):
+def test_task_tester_ids_removed(client, mgr_headers):
+    """testers 概念已移除：创建 Task 传入 tester_ids 被忽略，输出恒为空列表。"""
     users = _users(client, mgr_headers)
     lead = users["eng_test"]["id"]
     pid, did = _seed(client, mgr_headers, "P-lead-dup")
@@ -333,8 +339,7 @@ def test_lead_not_duplicated_in_testers(client, mgr_headers):
         lead,
         tester_ids=[lead, users["manager"]["id"]],
     )
-    assert lead not in task["tester_ids"]
-    assert users["manager"]["id"] in task["tester_ids"]
+    assert task["tester_ids"] == []
 
 
 def test_daily_same_day_upsert_overwrites(client, mgr_headers, eng_headers):
@@ -419,7 +424,8 @@ def test_done_action_cannot_daily(client, mgr_headers, eng_headers):
     assert r.status_code == 403
 
 
-def test_stranger_cannot_clone_candidates(client, mgr_headers, eng_headers, eng2_headers):
+def test_clone_candidates_endpoint_offline(client, mgr_headers, eng2_headers):
+    """clone-candidates 接口已下线。"""
     users = _users(client, mgr_headers)
     pid, did = _seed(client, mgr_headers, "P-clone-deny")
     task = _task(client, mgr_headers, pid, did, users["eng_test"]["id"])
@@ -427,7 +433,8 @@ def test_stranger_cannot_clone_candidates(client, mgr_headers, eng_headers, eng2
         f"/api/test-manage/tasks/{task['id']}/clone-candidates",
         headers=eng2_headers,
     )
-    assert r.status_code == 403
+    # 未匹配路径由 API 404 兜底处理
+    assert r.status_code in (404, 405)
 
 
 def test_unauthenticated_board_401(client):

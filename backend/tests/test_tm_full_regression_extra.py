@@ -105,6 +105,7 @@ def _task(client, headers, pid, did, lead_id, title, tester_ids=None, publish=Tr
             "domain_id": did,
             "title": title,
             "requirement": "r",
+            "module": "默认模块",
             "lead_id": lead_id,
             "tester_ids": tester_ids or [],
             "publish": publish,
@@ -244,7 +245,7 @@ def test_x_list_tasks_filter_project(client, mgr_headers, lead_headers):
 # ── Tester 非 Owner 权限交叉 ─────────────────────────────────
 
 
-def test_x_tester_not_owner_cannot_daily_or_edit_draft(
+def test_x_tester_not_owner_cannot_daily_but_can_edit_draft(
     client, mgr_headers, lead_headers, owner_headers, tester_headers
 ):
     pid, domains = _sandbox(client, mgr_headers)
@@ -261,13 +262,13 @@ def test_x_tester_not_owner_cannot_daily_or_edit_draft(
         [owner_id, tester_id],
     )
     draft = _action(client, lead_headers, task["id"], f"{TAG} 草稿给owner", owner_id, publish=False)
-    # tester 不能改草稿字段（非 lead）
+    # 字段编辑权限已放开：tester（非 owner、非 lead）也可改草稿字段
     r = client.patch(
         f"/api/test-manage/actions/{draft['id']}",
         json={"title": "tester改"},
         headers=tester_headers,
     )
-    assert r.status_code == 403
+    assert r.status_code == 200, r.text
 
     pub = _action(client, lead_headers, task["id"], f"{TAG} 进行中给owner", owner_id, publish=True)
     r = client.put(
@@ -287,21 +288,22 @@ def test_x_tester_not_owner_cannot_daily_or_edit_draft(
     assert r.status_code == 200, r.text
 
 
-def test_x_tester_cannot_create_action(client, mgr_headers, lead_headers, tester_headers, owner_headers):
+def test_x_tester_can_create_action(client, mgr_headers, lead_headers, tester_headers, owner_headers):
     _ = owner_headers
     pid, domains = _sandbox(client, mgr_headers)
     lead_id = _uid(client, mgr_headers, "tm_lead")
     owner_id = _uid(client, mgr_headers, "tm_owner")
     tester_id = _uid(client, mgr_headers, "tm_tester")
     task = _task(
-        client, mgr_headers, pid, domains["Agent"], lead_id, f"{TAG} tester禁建", [owner_id, tester_id]
+        client, mgr_headers, pid, domains["Agent"], lead_id, f"{TAG} tester可建", [owner_id, tester_id]
     )
+    # 创建权限已放开：所有角色可建 Action
     r = client.post(
         "/api/test-manage/actions",
         json={"task_id": task["id"], "title": f"{TAG} x", "subtask_name": "默认子需求", "owner_id": tester_id},
         headers=tester_headers,
     )
-    assert r.status_code == 403
+    assert r.status_code == 201, r.text
 
 
 # ── Manager/Admin 代写日更 / Lead 发布他人草稿 ───────────────
@@ -346,10 +348,10 @@ def test_x_lead_can_publish_others_draft(client, mgr_headers, lead_headers, owne
     assert r.json()["status"] == "published"
 
 
-def test_x_owner_cannot_edit_draft_fields_without_lead(
+def test_x_owner_can_edit_draft_fields(
     client, mgr_headers, lead_headers, owner_headers
 ):
-    """草稿字段仅 lead/管理员可改；owner 只能改状态。"""
+    """草稿字段编辑权限已放开：所有角色（含 owner）可改；发布等状态变更同样开放。"""
     pid, domains = _sandbox(client, mgr_headers)
     lead_id = _uid(client, mgr_headers, "tm_lead")
     owner_id = _uid(client, mgr_headers, "tm_owner")
@@ -360,7 +362,8 @@ def test_x_owner_cannot_edit_draft_fields_without_lead(
         json={"title": "owner改标题"},
         headers=owner_headers,
     )
-    assert r.status_code == 403
+    assert r.status_code == 200, r.text
+    assert r.json()["title"] == "owner改标题"
     r = client.patch(
         f"/api/test-manage/actions/{draft['id']}",
         json={"status": "published"},

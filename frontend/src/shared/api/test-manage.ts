@@ -30,6 +30,10 @@ export interface TmSubtask {
   sid: string
   name: string
   content: string
+  /** 开发人员（自由文本标签） */
+  dev_members?: string[]
+  /** 产品人员（自由文本标签） */
+  pm_members?: string[]
 }
 
 export interface TmTask {
@@ -38,8 +42,34 @@ export interface TmTask {
   domain_id: string
   title: string
   requirement: string
+  /** 系统需求编号（如 SR-TPT-00017） */
+  sr_code?: string
+  /** 关联初始需求编号（多个逗号分隔） */
+  ir_codes?: string
+  /** 子类/模块 */
+  module?: string
+  /** 需求类型：功能 / 性能… */
+  req_type?: string
+  /** 优先级：高 / 中 / 低 */
+  priority?: string
+  /** 变更标识：原始 / 变更… */
+  change_flag?: string
+  /** 验收标准 */
+  acceptance_criteria?: string
+  /** 验证人 */
+  verifier_id?: number | null
+  /** 验证时间 */
+  verified_at?: string | null
+  /** 验证结果：通过 / 不通过 / 未验证 */
+  verify_result?: string
+  /** 备注 */
+  remark?: string
   /** 子需求明细（JSON 列存储；未删除项） */
   subtasks?: TmSubtask[]
+  /** 开发人员（自由文本标签） */
+  dev_members?: string[]
+  /** 产品人员（自由文本标签） */
+  pm_members?: string[]
   lead_id: number
   tester_ids: number[]
   /** 测试状态：published / done / cancelled */
@@ -60,12 +90,15 @@ export interface TmTask {
   can_edit_req_stage?: boolean
   /** 测试中时可加本周 Action */
   can_add_action?: boolean
+  /** 子需求/Action 管理入口（宽松模式全员；严格模式管理员/Task 负责人） */
+  can_manage_children?: boolean
   /** 前端合并计算的状态（req_stage + status） */
   display_status?: string
   display_status_label?: string
 }
 
 export interface TmTaskDetail extends TmTask {
+  updated_at?: string | null
   update_logs: {
     id: string
     user_id: number
@@ -86,9 +119,15 @@ export interface TmAction {
   /** 关联子需求名称（必填） */
   subtask_name: string
   owner_id: number
+  /** 开发人员（自由文本标签） */
+  dev_members?: string[]
+  /** 产品人员（自由文本标签） */
+  pm_members?: string[]
   test_content: string
   environment: string
   status: string
+  /** 完成时间（仅 done 状态有值） */
+  completed_at?: string | null
   source_action_id: string | null
   /** 周继承带入的起始进度（无日更时的当前进度；周报增量 = 当前 - 起始） */
   initial_progress?: number
@@ -114,6 +153,16 @@ export interface TmAction {
   can_mark_done?: boolean
   can_daily: boolean
   can_correct: boolean
+  /** 发布后可由管理员/Task 负责人更改负责人（强制留痕） */
+  can_change_owner?: boolean
+  /** 开发/产品人员编辑入口（宽松模式全员；严格模式管理员/Task 负责人） */
+  can_edit_members?: boolean
+  /** 发布后可由管理员/Task 负责人修正子需求关联（可清空为未关联，强制留痕） */
+  can_relink?: boolean
+  /** 数据删除入口（宽松模式）：可删除该 Action */
+  can_delete?: boolean
+  /** 数据删除入口（宽松模式）：可删除该 Action 的指定日期日报 */
+  can_delete_daily?: boolean
 }
 
 export interface TmActionDetail extends TmAction {
@@ -231,7 +280,20 @@ export const testManageApi = {
     domain_id: string
     title: string
     requirement?: string
-    subtasks?: { name: string; content?: string }[]
+    sr_code?: string
+    ir_codes?: string
+    module: string
+    req_type?: string
+    priority?: string
+    change_flag?: string
+    acceptance_criteria?: string
+    verifier_id?: number | null
+    verified_at?: string | null
+    verify_result?: string
+    remark?: string
+    subtasks?: { name: string; content?: string; dev_members?: string[]; pm_members?: string[] }[]
+    dev_members?: string[]
+    pm_members?: string[]
     lead_id: number
     tester_ids?: number[]
     publish?: boolean
@@ -256,10 +318,23 @@ export const testManageApi = {
     data: {
       title?: string
       requirement?: string
+      sr_code?: string
+      ir_codes?: string
+      module?: string
+      req_type?: string
+      priority?: string
+      change_flag?: string
+      acceptance_criteria?: string
+      verifier_id?: number | null
+      verified_at?: string | null
+      verify_result?: string
+      remark?: string
       lead_id?: number
       tester_ids?: number[]
       status?: string
       change_summary?: string
+      dev_members?: string[]
+      pm_members?: string[]
       req_stage?: string
       expected_handover_at?: string | null
       actual_handover_at?: string | null
@@ -277,21 +352,27 @@ export const testManageApi = {
   // ── Subtask（Task 内子需求，JSON 列存储）──────────────────
   addSubtask: (
     taskId: string,
-    data: { name: string; content?: string },
+    data: { name: string; content?: string; dev_members?: string[]; pm_members?: string[] },
   ) => apiClient.post<TmTask>(`/test-manage/tasks/${taskId}/subtasks`, data),
   updateSubtask: (
     taskId: string,
     sid: string,
-    data: { name?: string; content?: string },
+    data: { name?: string; content?: string; dev_members?: string[]; pm_members?: string[] },
   ) => apiClient.patch<TmTask>(`/test-manage/tasks/${taskId}/subtasks/${sid}`, data),
   deleteSubtask: (taskId: string, sid: string) =>
     apiClient.delete<TmTask>(`/test-manage/tasks/${taskId}/subtasks/${sid}`),
+  moveSubtask: (taskId: string, sid: string, targetTaskId: string) =>
+    apiClient.post<TmTask>(`/test-manage/tasks/${taskId}/subtasks/${sid}/move`, {
+      target_task_id: targetTaskId,
+    }),
 
   createAction: (data: {
     task_id: string
     title: string
     subtask_name: string
     owner_id?: number
+    dev_members?: string[]
+    pm_members?: string[]
     test_content?: string
     environment?: string
     publish?: boolean
@@ -305,6 +386,8 @@ export const testManageApi = {
       title?: string
       subtask_name?: string
       owner_id?: number
+      dev_members?: string[]
+      pm_members?: string[]
       test_content?: string
       environment?: string
       status?: string
@@ -319,6 +402,9 @@ export const testManageApi = {
       progress_note?: string
     },
   ) => apiClient.put(`/test-manage/actions/${id}/daily-updates`, data),
+  deleteAction: (id: string) => apiClient.delete(`/test-manage/actions/${id}`),
+  deleteDaily: (id: string, reportDate: string) =>
+    apiClient.delete(`/test-manage/actions/${id}/daily-updates/${reportDate}`),
   addCorrection: (id: string, note: string) =>
     apiClient.post(`/test-manage/actions/${id}/corrections`, { note }),
 }

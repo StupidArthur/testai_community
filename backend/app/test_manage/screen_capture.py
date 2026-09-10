@@ -37,6 +37,55 @@ READY_SELECTOR = (
 WEEK_EXPANDED_SELECTOR = '[data-testid="tm-screen-action-row"]'
 # 截图清晰度（2x 视网膜）
 SCREENSHOT_DEVICE_SCALE = 2
+# 底部白边裁剪：连续接近纯白的行占比超过此阈值才裁（0~255，越高越「必须是白」）
+_WHITE_LUMA_MIN = 248
+# 底部至少保留的像素，避免裁掉表格最后一丝边框
+_CROP_KEEP_BOTTOM_PX = 4
+
+
+def _crop_trailing_whitespace(png: bytes) -> bytes:
+    """
+    裁掉截图底部大片留白（flex/100vh 撑高时常见）。
+    依赖 Pillow；失败则原样返回。
+    """
+    try:
+        from io import BytesIO
+
+        from PIL import Image
+    except ImportError:
+        return png
+    try:
+        img = Image.open(BytesIO(png)).convert("RGB")
+    except Exception:  # noqa: BLE001
+        return png
+    w, h = img.size
+    if h < 40 or w < 40:
+        return png
+    pixels = img.load()
+    last_content_y = 0
+    for y in range(h - 1, -1, -1):
+        row_has_content = False
+        # 抽样扫描，大图更快
+        step = max(1, w // 400)
+        for x in range(0, w, step):
+            r, g, b = pixels[x, y]
+            if r < _WHITE_LUMA_MIN or g < _WHITE_LUMA_MIN or b < _WHITE_LUMA_MIN:
+                row_has_content = True
+                break
+        if row_has_content:
+            last_content_y = y
+            break
+    new_h = min(h, last_content_y + 1 + _CROP_KEEP_BOTTOM_PX)
+    # 裁掉不足 8% 高度时不改，避免无意义重编码
+    if new_h >= h * 0.92:
+        return png
+    if new_h < 20:
+        return png
+    cropped = img.crop((0, 0, w, new_h))
+    out = BytesIO()
+    cropped.save(out, format="PNG", optimize=True)
+    log.info("screenshot cropped whitespace %sx%s -> %sx%s", w, h, w, new_h)
+    return out.getvalue()
 
 
 def _ensure_windows_subprocess_loop() -> None:
@@ -130,21 +179,140 @@ def capture_public_screen_png(
                         log.info("%s screenshot: no expanded action rows", label)
                     page.wait_for_timeout(400)
 
+                # 用 JS 强制贴合内容高度，解除 flex/100vh 拉伸（大片留白主因）
+                try:
+                    page.evaluate(
+                        """() => {
+                          document.documentElement.style.setProperty('height', 'auto', 'important');
+                          document.documentElement.style.setProperty('min-height', '0', 'important');
+                          document.documentElement.style.setProperty('overflow', 'visible', 'important');
+                          document.body.style.setProperty('height', 'auto', 'important');
+                          document.body.style.setProperty('min-height', '0', 'important');
+                          document.body.style.setProperty('overflow', 'visible', 'important');
+
+                          const selectors = [
+                            '.tm-public-screen',
+                            '.tm-screen',
+                            '.tm-screen__body',
+                            '.tm-screen__main',
+                            '.tm-screen__side',
+                            '.tm-screen__table-scroll',
+                            '.tm-screen__detail-wrap',
+                            '.tm-screen__content',
+                            '.tm-screen__task-list',
+                          ];
+                          selectors.forEach(sel => {
+                            document.querySelectorAll(sel).forEach(el => {
+                              el.style.setProperty('display', 'block', 'important');
+                              el.style.setProperty('height', 'auto', 'important');
+                              el.style.setProperty('min-height', '0', 'important');
+                              el.style.setProperty('max-height', 'none', 'important');
+                              el.style.setProperty('overflow', 'visible', 'important');
+                              el.style.setProperty('flex', 'none', 'important');
+                            });
+                          });
+                          document.querySelectorAll('.tm-screen__table-scroll').forEach(el => {
+                            el.style.setProperty('border', 'none', 'important');
+                            el.style.setProperty('padding', '0', 'important');
+                            el.style.setProperty('margin', '0', 'important');
+                          });
+                          document.querySelectorAll('.tm-screen__section-head').forEach(el => {
+                            el.style.setProperty('display', 'none', 'important');
+                          });
+                          // 滚动容器高度锁死为内部 table 实际高度，避免 flex 子项仍占满视口
+                          document.querySelectorAll('[data-testid="tm-screen-table"]').forEach(wrap => {
+                            const table = wrap.querySelector('table');
+                            if (!table) return;
+                            const h = Math.ceil(table.getBoundingClientRect().height);
+                            if (h > 0) {
+                              wrap.style.setProperty('height', h + 'px', 'important');
+                              wrap.style.setProperty('min-height', '0', 'important');
+                            }
+                          });
+                          window.scrollTo(0, 0);
+                          document.documentElement.offsetHeight;
+                        }"""
+                    )
+                    page.wait_for_timeout(400)
+                except Exception:  # noqa: BLE001
+                    pass
+
                 target_el = None
+                clip_box = None
                 if detail_only:
-                    target_el = page.query_selector(
-                        f'[data-testid="{SCREEN_DETAIL_TESTID}"]'
-                    ) or page.query_selector(f'[data-testid="{SCREEN_TABLE_TESTID}"]')
+                    # 优先用 <table> 的真实包围盒做 clip，避免容器被 100vh/flex 撑高
+                    clip_box = page.evaluate(
+                        """() => {
+                          const wrap = document.querySelector('[data-testid="tm-screen-table"]');
+                          const table = wrap && wrap.querySelector('table');
+                          const el = table || wrap || document.querySelector('[data-testid="tm-screen-detail"]');
+                          if (!el) return null;
+                          const r = el.getBoundingClientRect();
+                          const x = Math.max(0, Math.floor(r.x));
+                          const y = Math.max(0, Math.floor(r.y));
+                          const width = Math.max(1, Math.ceil(r.width));
+                          const height = Math.max(1, Math.ceil(r.height));
+                          return { x, y, width, height };
+                        }"""
+                    )
+                    target_el = (
+                        page.query_selector(
+                            f'[data-testid="{SCREEN_TABLE_TESTID}"] table'
+                        )
+                        or page.query_selector(
+                            f'[data-testid="{SCREEN_TABLE_TESTID}"]'
+                        )
+                        or page.query_selector(
+                            f'[data-testid="{SCREEN_DETAIL_TESTID}"]'
+                        )
+                    )
                 if target_el is None:
                     target_el = page.query_selector(f'[data-testid="{SCREEN_ROOT_TESTID}"]')
 
-                if target_el is not None:
-                    # 滚入视口，避免被裁切
+                if clip_box and isinstance(clip_box, dict) and clip_box.get("height"):
+                    # clip 相对视口；先滚到顶部保证坐标有效
+                    page.evaluate("() => window.scrollTo(0, 0)")
+                    page.wait_for_timeout(100)
+                    # 若表格高于视口，临时拉高 viewport，再 clip（避免拼接错位留白）
+                    need_h = int(clip_box["y"]) + int(clip_box["height"]) + 8
+                    if need_h > vh:
+                        page.set_viewport_size({"width": vw, "height": min(need_h, 16000)})
+                        page.wait_for_timeout(150)
+                        clip_box = page.evaluate(
+                            """() => {
+                              const wrap = document.querySelector('[data-testid="tm-screen-table"]');
+                              const table = wrap && wrap.querySelector('table');
+                              const el = table || wrap;
+                              if (!el) return null;
+                              const r = el.getBoundingClientRect();
+                              return {
+                                x: Math.max(0, Math.floor(r.x)),
+                                y: Math.max(0, Math.floor(r.y)),
+                                width: Math.max(1, Math.ceil(r.width)),
+                                height: Math.max(1, Math.ceil(r.height)),
+                              };
+                            }"""
+                        )
+                    if clip_box:
+                        png = page.screenshot(
+                            type="png",
+                            clip={
+                                "x": float(clip_box["x"]),
+                                "y": float(clip_box["y"]),
+                                "width": float(clip_box["width"]),
+                                "height": float(clip_box["height"]),
+                            },
+                        )
+                    elif target_el is not None:
+                        png = target_el.screenshot(type="png")
+                    else:
+                        png = page.screenshot(type="png", full_page=False)
+                elif target_el is not None:
                     target_el.scroll_into_view_if_needed()
-                    page.wait_for_timeout(200)
+                    page.wait_for_timeout(150)
                     png = target_el.screenshot(type="png")
                 else:
-                    png = page.screenshot(type="png", full_page=True)
+                    png = page.screenshot(type="png", full_page=False)
             finally:
                 browser.close()
     except Exception as exc:  # noqa: BLE001
@@ -161,6 +329,8 @@ def capture_public_screen_png(
 
     if not png:
         return None
+
+    png = _crop_trailing_whitespace(png)
 
     if out_path is not None:
         path = Path(out_path)

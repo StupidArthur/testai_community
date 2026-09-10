@@ -20,6 +20,7 @@ export const DISPLAY_STATUS_TAG_COLOR: Record<string, string> = {
   testing_progress: 'processing',
   testing_done: 'success',
   test_done: 'success',
+  cancelled: 'default',
 }
 
 /** 展示状态 → 中文标签 */
@@ -32,7 +33,8 @@ export function displayStatusLabel(key?: string | null): string {
     pending_test: '待测试',
     testing_progress: '测试中-进行中',
     testing_done: '测试中-已完成',
-    test_done: '已完成',
+    test_done: '测试完成',
+    cancelled: '归档',
   }
   return map[key] || key
 }
@@ -51,7 +53,8 @@ export const DISPLAY_STATUS_OPTIONS = [
   { value: 'pending_test', label: '待测试' },
   { value: 'testing_progress', label: '测试中-进行中' },
   { value: 'testing_done', label: '测试中-已完成' },
-  { value: 'test_done', label: '已完成' },
+  { value: 'test_done', label: '测试完成' },
+  { value: 'cancelled', label: '归档' },
 ]
 
 /**
@@ -68,6 +71,8 @@ export function splitDisplayStatus(
       return { req_stage: 'testing', status: 'done' }
     case 'test_done':
       return { req_stage: 'test_done', status: 'done' }
+    case 'cancelled':
+      return { req_stage: 'pending_dev', status: 'cancelled' }
     case 'pending_dev':
       return { req_stage: 'pending_dev', status: 'published' }
     case 'developing':

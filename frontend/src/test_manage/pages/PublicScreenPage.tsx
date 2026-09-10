@@ -136,7 +136,7 @@ export default function PublicScreenPage() {
   return (
     <div
       className={`tm-public-screen${screenshotMode ? ' tm-public-screen--shot' : ''}`}
-      style={{ minHeight: '100vh', background: '#f7f9fc', padding: screenshotMode ? 8 : 16 }}
+      style={{ minHeight: screenshotMode ? 0 : '100vh', background: '#f7f9fc', padding: screenshotMode ? 8 : 16 }}
       data-testid="tm-public-screen"
     >
       {!screenshotMode ? (

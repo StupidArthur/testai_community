@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 from app.ai_service.client import chat
-from app.platform.config import MINIMAX_MODEL
 from .config import LLM_AUDIT_SUBDIR
 
 
@@ -19,7 +18,6 @@ class LlmAudit:
         self._log = log
         self._entries: list[dict] = []
         self._seq = 0
-        self._model = MINIMAX_MODEL
 
     async def call(
         self,
@@ -32,7 +30,6 @@ class LlmAudit:
 
         self._patch_call(call_id, {
             "request": {
-                "model": opts.get("model", self._model),
                 "temperature": opts.get("temperature"),
                 "maxTokens": opts.get("max_tokens"),
                 "messages": messages,
@@ -42,7 +39,6 @@ class LlmAudit:
         try:
             raw = await chat(
                 messages,
-                model=opts.get("model", self._model),
                 temperature=opts.get("temperature", 0.2),
                 max_tokens=opts.get("max_tokens", 2000),
                 think=False,

@@ -72,7 +72,7 @@ export default function TestManageHelpDrawer(props: Props) {
               3. 保存。做完了 → 进度填 <strong>100%</strong> 会<strong>自动标记完成</strong>
               <br />
               <br />
-              填错了想改？进度只能往上涨；写错的说明用「更正说明」补一条。
+              填错了想改？进度只能往上涨；多写了一天可在日更记录里「删除日报」（自动留痕）；写错的说明用「更正说明」补一条。
             </p>
           </section>
 
@@ -89,6 +89,8 @@ export default function TestManageHelpDrawer(props: Props) {
               <br />
               <br />
               主题做完 → Task 改「已完成」；暂时不做了 → 归档。
+              <br />
+              换负责人 → 点开 Action 详情，顶部「更改负责人 → 更改」（自动留痕）；建错 Action → 详情底部「删除 Action」。
             </p>
           </section>
 
@@ -115,13 +117,15 @@ export default function TestManageHelpDrawer(props: Props) {
           </section>
 
           <section className="tm-sheet__section">
-            <h3 className="tm-sheet__h">最常卡壳的 4 件事</h3>
+            <h3 className="tm-sheet__h">最常卡壳的 5 件事</h3>
             <p className="tm-sheet__body">
-              · Action 发布后改不了 → 用「更正说明」补，或新建一条
+              · Action 发布后字段锁定 → 换负责人点「更改负责人」；其他字段用「更正说明」补
               <br />
               · 点不了「完成」→ 先把日更进度写到 <strong>100%</strong>
               <br />
               · 风险没了 → 当天日更把风险栏<strong>留空</strong>保存
+              <br />
+              · 日更多写了一天 → 日更记录右上角「删除日报」（自动留痕）
               <br />
               · 周三 16:55 后什么都改不了 → 等切周，或下周补更正说明
             </p>

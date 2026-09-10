@@ -73,6 +73,7 @@ def _seed_task(client, headers, pid, did, lead_id, tester_ids=None, publish=True
             "domain_id": did,
             "title": "T",
             "requirement": "r",
+            "module": "默认模块",
             "lead_id": lead_id,
             "tester_ids": tester_ids or [],
             "publish": publish,
@@ -168,8 +169,8 @@ def test_assignable_users_exclude_placeholder(client, auth_headers):
 # ── 发布后负责人锁定 ──
 
 
-def test_published_owner_locked_even_for_admin(client, auth_headers, eng_headers, eng2_headers):
-    """发布后本周负责人不可改（含 Admin）；草稿阶段仍可改。"""
+def test_published_owner_change_allowed_for_admin(client, auth_headers, eng_headers, eng2_headers):
+    """发布后所有角色可改派并强制留痕；草稿阶段 owner 可改。"""
     users = _users(client, auth_headers)
     client.get("/api/test-manage/week", headers=eng2_headers)
     users = _users(client, auth_headers)
@@ -209,13 +210,28 @@ def test_published_owner_locked_even_for_admin(client, auth_headers, eng_headers
     )
     assert r.status_code == 200, r.text
 
+    # 发布后：owner 本人（非 Admin/Manager/Task 负责人）也可改派（权限已放开），并强制留痕
     r = client.patch(
         f"/api/test-manage/actions/{aid}",
         json={"owner_id": users["eng_test"]["id"]},
+        headers=eng2_headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["owner_id"] == users["eng_test"]["id"]
+
+    # 发布后：Admin 可改派，并写入「负责人更正」留痕
+    r = client.patch(
+        f"/api/test-manage/actions/{aid}",
+        json={"owner_id": users["eng_other"]["id"]},
         headers=auth_headers,
     )
-    assert r.status_code == 403
-    assert "锁定" in r.json()["detail"]
+    assert r.status_code == 200, r.text
+    assert r.json()["owner_id"] == users["eng_other"]["id"]
+
+    r = client.get(f"/api/test-manage/actions/{aid}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    notes = [c["note"] for c in r.json().get("corrections", [])]
+    assert any("负责人更正" in n for n in notes)
 
 
 # ── 推送权限 ──
@@ -286,7 +302,7 @@ def test_task_lead_cannot_daily_others_action(client, auth_headers, eng_headers,
 
 
 def test_action_owner_can_mark_done(client, auth_headers, eng_headers, eng2_headers):
-    """Action 本周负责人可自行 published→done；无关人员不可。"""
+    """Action 本周负责人可日更；进度 100% 自动置 done；状态变更对所有角色开放，但完成仍须进度 100%。"""
     users = _users(client, auth_headers)
     client.get("/api/test-manage/week", headers=eng2_headers)
     users = _users(client, auth_headers)
@@ -331,17 +347,11 @@ def test_action_owner_can_mark_done(client, auth_headers, eng_headers, eng2_head
         headers=eng2_headers,
     )
     assert r.status_code == 200, r.text
+    # 日更进度达 100% 自动置 done（防止实际做完却忘点完成）
     r = client.get(f"/api/test-manage/actions/{aid}", headers=eng2_headers)
-    assert r.json()["can_mark_done"] is True
     assert r.json()["progress_percent"] == 100
-
-    r = client.patch(
-        f"/api/test-manage/actions/{aid}",
-        json={"status": "done"},
-        headers=eng2_headers,
-    )
-    assert r.status_code == 200, r.text
     assert r.json()["status"] == "done"
+    assert r.json()["can_mark_done"] is False  # 已 done，无需再标
 
     r = client.post(
         "/api/test-manage/actions",
@@ -359,8 +369,9 @@ def test_action_owner_can_mark_done(client, auth_headers, eng_headers, eng2_head
         json={"status": "done"},
         headers=eng2_headers,
     )
-    # eng_other 是 tester 但非 owner、非 lead → 403
-    assert r.status_code == 403
+    # 状态变更权限已对所有角色放开；但业务校验：进度未达 100% 不可完成 → 400
+    assert r.status_code == 400
+    assert "100%" in r.json()["detail"]
 
 
 def test_action_cannot_be_cancelled(client, auth_headers, eng_headers):
@@ -445,7 +456,7 @@ def test_done_action_cannot_reopen_to_published(client, auth_headers, eng_header
 
 
 def test_cannot_mark_done_unless_progress_100(client, auth_headers, eng_headers):
-    """进度未满 100% 不可 published→done；80% 拒绝，100% 通过。"""
+    """进度未满 100% 不可 published→done；80% 拒绝；100% 自动置 done。"""
     users = _users(client, auth_headers)
     pid, did = _seed_pd(client, auth_headers, "P-done-pct")
     task = _seed_task(client, auth_headers, pid, did, users["eng_test"]["id"])
@@ -485,14 +496,9 @@ def test_cannot_mark_done_unless_progress_100(client, auth_headers, eng_headers)
         headers=eng_headers,
     )
     assert r.status_code == 200
+    # 100% 自动置 done
     r = client.get(f"/api/test-manage/actions/{aid}", headers=eng_headers)
-    assert r.json()["can_mark_done"] is True
-    r = client.patch(
-        f"/api/test-manage/actions/{aid}",
-        json={"status": "done"},
-        headers=eng_headers,
-    )
-    assert r.status_code == 200
+    assert r.json()["progress_percent"] == 100
     assert r.json()["status"] == "done"
 
 

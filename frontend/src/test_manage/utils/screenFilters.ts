@@ -19,6 +19,8 @@ export type ScreenActionLike = {
   latest_risk?: string
   latest_is_blocking?: boolean | number | string | null
   has_daily_today?: boolean
+  /** 所属汇报周（如 2026-09-09T17）；切日当天用于抑制「今日未日更」误报 */
+  week_key?: string
 }
 
 export type ScreenTaskLike = {
@@ -28,6 +30,7 @@ export type ScreenTaskLike = {
     domain_name?: string | null
     lead_id?: number
     req_stage?: string | null
+    display_status?: string | null
   }
   actions: ScreenActionLike[]
   risks?: string[]
@@ -38,15 +41,19 @@ export type ScreenTaskLike = {
 export type ScreenFilters = {
   focus: 'focus' | 'all' | 'done' | 'archived'
   domain: string
-  /** 按 Task 状态收窄（今日/本周均可用） */
-  taskStatus: 'all' | 'published' | 'done' | 'cancelled'
-  /** 需求进展；all=不限 */
-  reqStage: 'all' | string
+  /** 需求进展多选（仅需求总览用）；空数组=不限 */
+  reqStage: string[]
+  /** 合并展示状态（display_status）多选；空数组=不限 */
+  displayStatus: string[]
   actionStatus: 'all' | 'published' | 'done'
   taskBlocking: 'all' | 'yes' | 'no'
   actionRisk: 'all' | 'has_risk' | 'none'
   /** 今日：勾选后，未日更与全部下拉条件取并（OR） */
   includeMissingDaily: boolean
+  /** 今日：标记多选筛选（正常/未日更/阻塞/风险），空数组=不限 */
+  tags: string[]
+  /** 按 Task 筛选（今日+周视图），null=全部 */
+  taskId: string | null
   /** 今日主栏：Action 负责人；null=全部 */
   ownerId: number | null
   /** 本周主栏：Task lead；null=全部 */
@@ -77,8 +84,34 @@ export function hasRiskText(a: ScreenActionLike): boolean {
 }
 
 /** 进行中且今日尚未日更 */
-export function isMissingDailyToday(a: ScreenActionLike): boolean {
-  return a.status === 'published' && !a.has_daily_today
+export function isMissingDailyToday(a: ScreenActionLike, now: Date = new Date()): boolean {
+  if (a.status !== 'published' || a.has_daily_today) return false
+  // 切日（周三）当天：日更归属刚结束的周，其他周的 Action 今天收不了日更，
+  // 不应标「今日未日更」（如切周自动继承到新周的 Action）
+  if (a.week_key && a.week_key !== dailyContextWeekKey(now)) return false
+  return true
+}
+
+/**
+ * 今日日更归属的汇报周 week_key（与后端 get_daily_context_period 口径一致）。
+ * 汇报周固定周三 17:00 切换；切日（周三）全天日更归属刚结束的周（week_end 落在
+ * 今天的周期），其余日子归属最近一次周三 17:00 开始的汇报周。
+ * 统一按北京时间（UTC+8）计算，不依赖本机时区。
+ */
+export function dailyContextWeekKey(now: Date = new Date()): string {
+  // 平移为「北京钟面」后用 UTC 方法读取，避免本机时区影响
+  const bjMs = now.getTime() + (480 + now.getTimezoneOffset()) * 60_000
+  const dayFloor = Math.floor(bjMs / 86_400_000) * 86_400_000
+  const weekday = new Date(bjMs).getUTCDay() // 0=周日 ... 3=周三
+  const daysAgo = weekday === 3 ? 7 : (weekday - 3 + 7) % 7
+  const anchor = dayFloor - daysAgo * 86_400_000
+  return new Date(anchor).toISOString().slice(0, 10) + 'T17'
+}
+
+/** 今天是否为切日（北京时间周三）；切日 17:00 后新周 Action 当天收不了日更 */
+export function isWeekSwitchDay(now: Date = new Date()): boolean {
+  const bjMs = now.getTime() + (480 + now.getTimezoneOffset()) * 60_000
+  return new Date(bjMs).getUTCDay() === 3
 }
 
 /**
@@ -150,6 +183,37 @@ export function actionMatchesScreenFilters(
   if (filters.ownerId != null && Number(a.owner_id) !== Number(filters.ownerId)) {
     return false
   }
+  // 周视图标记多选（含阻塞/含风险/本周完成），空数组=不限
+  // 'completed' 是 Task 级标记，在 applyScreenFilters 的 Task 层处理，此处跳过
+  if (!isToday && filters.tags && filters.tags.length > 0) {
+    const actionTags = filters.tags.filter((t) => t !== 'completed')
+    if (actionTags.length === 0) {
+      // 只有 Task 级标记（completed），不按 Action 级标记过滤
+      return matchesDropdownFilters(a, filters)
+    }
+    const matchTag = actionTags.some((tag) => {
+      if (tag === 'blocking') return isOpenBlockingAction(a)
+      if (tag === 'risk') return hasRiskText(a) && !isOpenBlockingAction(a)
+      return false
+    })
+    if (!matchTag) return false
+    return matchesDropdownFilters(a, filters)
+  }
+  // 今日标记多选（tags）优先于旧字段
+  if (isToday && filters.tags && filters.tags.length > 0) {
+    const matchTag = filters.tags.some((tag) => {
+      if (tag === 'blocking') return isOpenBlockingAction(a)
+      if (tag === 'risk') return hasRiskText(a) && !isOpenBlockingAction(a)
+      if (tag === 'missing_daily') return isMissingDailyToday(a)
+      if (tag === 'normal') {
+        return !isOpenBlockingAction(a) && !isMissingDailyToday(a) && !hasRiskText(a)
+      }
+      return false
+    })
+    if (!matchTag) return false
+    // tags 生效时，传统下拉条件仍叠加（AND）
+    return matchesDropdownFilters(a, filters)
+  }
   const dropdownOk = matchesDropdownFilters(a, filters)
   if (isToday && filters.includeMissingDaily) {
     return dropdownOk || isMissingDailyToday(a)
@@ -165,10 +229,8 @@ export function countActiveMoreFilters(filters: ScreenFilters, isToday: boolean)
   let n = 0
   if (isToday) {
     if (filters.actionRisk !== 'all') n += 1
-    if (filters.taskStatus !== 'all') n += 1
     if (filters.actionProgressBand !== 'all') n += 1
   } else {
-    if (filters.taskStatus !== 'all') n += 1
     if (filters.actionStatus !== 'all') n += 1
     if (filters.actionRisk !== 'all') n += 1
     if (filters.weekProgressBand !== 'all') n += 1
@@ -196,36 +258,70 @@ export function applyScreenFilters<T extends ScreenTaskLike>(
     list = list.filter((bt) => Number(bt.task.lead_id) === Number(filters.leadId))
   }
 
+  if (filters.taskId) {
+    list = list.filter((bt) => bt.task.id === filters.taskId)
+  }
+
   if (!isToday) {
     if (filters.focus === 'focus') {
-      // 交测后：待测试 + 测试中；且有阻塞或进行中 Action，或待测试排队
       list = list.filter((bt) => {
-        const stage = bt.task.req_stage || ''
-        const inFunnel = stage === 'pending_test' || stage === 'testing'
+        const ds = bt.task.display_status || ''
+        const inFunnel = ds === 'pending_test' || ds === 'testing_progress' || ds === 'testing_done'
         if (!inFunnel) return false
-        if (stage === 'pending_test') return true
+        if (ds === 'pending_test') return true
         return (
           bt.actions.some(isOpenBlockingAction) ||
           bt.actions.some((a) => a.status === 'published')
         )
       })
     } else if (filters.focus === 'all') {
-      list = list.filter((bt) => bt.task.status !== 'cancelled')
+      list = list.filter((bt) => (bt.task.display_status || '') !== 'cancelled')
     } else if (filters.focus === 'done') {
-      list = list.filter((bt) => bt.task.status === 'done')
+      list = list.filter((bt) => {
+        const ds = bt.task.display_status || ''
+        return ds === 'test_done' || ds === 'testing_done'
+      })
     } else if (filters.focus === 'archived') {
-      list = list.filter((bt) => bt.task.status === 'cancelled')
+      list = list.filter((bt) => (bt.task.display_status || '') === 'cancelled')
     }
     if (filters.weekProgressBand !== 'all') {
       list = list.filter((bt) => matchesWeekProgressBand(bt, filters.weekProgressBand))
     }
-    if (filters.reqStage !== 'all') {
-      list = list.filter((bt) => (bt.task.req_stage || '') === filters.reqStage)
+    // displayStatus 筛选；tags 含 completed 时特殊处理
+    const tagsHaveCompleted = !!(filters.tags && filters.tags.includes('completed'))
+    const hasActionTags = !!(
+      filters.tags &&
+      filters.tags.some((t) => t === 'blocking' || t === 'risk')
+    )
+    if (tagsHaveCompleted) {
+      if (hasActionTags) {
+        // completed + 阻塞/风险 并存：OR 关系，displayStatus 放开到包含 completed
+        const dsSet = new Set([
+          ...(filters.displayStatus.length > 0 ? filters.displayStatus : []),
+          'testing_done',
+          'test_done',
+        ])
+        list = list.filter((bt) => dsSet.has(bt.task.display_status || ''))
+      } else {
+        // 只选 completed：只看已完成
+        list = list.filter((bt) => {
+          const ds = bt.task.display_status || ''
+          return ds === 'testing_done' || ds === 'test_done'
+        })
+      }
+    } else if (filters.displayStatus.length > 0) {
+      list = list.filter((bt) =>
+        filters.displayStatus.includes(bt.task.display_status || ''),
+      )
     }
-  }
-
-  if (filters.taskStatus !== 'all') {
-    list = list.filter((bt) => bt.task.status === filters.taskStatus)
+  } else {
+    // 日视图：tags 含 completed 时，过滤 Task 已完成的 actions
+    if (filters.tags && filters.tags.includes('completed')) {
+      list = list.filter((bt) => {
+        const ds = bt.task.display_status || ''
+        return ds === 'testing_done' || ds === 'test_done'
+      })
+    }
   }
 
   list = list
@@ -236,7 +332,10 @@ export function applyScreenFilters<T extends ScreenTaskLike>(
     .filter((bt) => {
       if (isToday) return bt.actions.length > 0
       if (filters.weekHasMissingDaily) {
-        return bt.actions.some(isMissingDailyToday)
+        return bt.actions.some((a) => isMissingDailyToday(a))
+      }
+      if (filters.tags && filters.tags.length > 0) {
+        return bt.actions.length > 0
       }
       if (filters.taskBlocking === 'yes' || filters.taskBlocking === 'no') {
         return bt.actions.length > 0

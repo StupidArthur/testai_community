@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 
-from sqlalchemy import inspect, text
+from sqlalchemy import JSON, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
@@ -191,6 +191,33 @@ def _ensure_task_req_stage_columns(engine: Engine) -> None:
             )
 
 
+def _ensure_task_ext_columns(engine: Engine) -> None:
+    """增量：tm_tasks 需求属性扩展字段（SR编号/子类模块/优先级/验证三件套等）。"""
+    insp = inspect(engine)
+    if "tm_tasks" not in set(insp.get_table_names()):
+        return
+    cols = {c["name"] for c in insp.get_columns("tm_tasks")}
+    alters: list[tuple[str, str]] = [
+        ("sr_code", "VARCHAR NOT NULL DEFAULT ''"),
+        ("ir_codes", "VARCHAR NOT NULL DEFAULT ''"),
+        ("module", "VARCHAR NOT NULL DEFAULT ''"),
+        ("req_type", "VARCHAR NOT NULL DEFAULT ''"),
+        ("priority", "VARCHAR NOT NULL DEFAULT ''"),
+        ("change_flag", "VARCHAR NOT NULL DEFAULT ''"),
+        ("acceptance_criteria", "TEXT NOT NULL DEFAULT ''"),
+        ("verifier_id", "INTEGER"),
+        ("verified_at", "DATE"),
+        ("verify_result", "VARCHAR NOT NULL DEFAULT ''"),
+        ("remark", "TEXT NOT NULL DEFAULT ''"),
+    ]
+    with engine.begin() as conn:
+        for name, decl in alters:
+            if name in cols:
+                continue
+            conn.execute(text(f"ALTER TABLE tm_tasks ADD COLUMN {name} {decl}"))
+            log.info("added column tm_tasks.%s", name)
+
+
 def _backfill_missing_req_stage_dates(engine: Engine) -> None:
     """演示/存量：测试中/测试完成缺必填日期时补合理日期，避免大屏满屏「未填」。"""
     from datetime import date, timedelta
@@ -235,6 +262,79 @@ def _backfill_missing_req_stage_dates(engine: Engine) -> None:
             )
 
 
+def _ensure_member_columns(engine: Engine) -> None:
+    """增量：人员字段（task/subtask→task 表列、action 表列）与 Action 完成时间。
+
+    - tm_tasks.dev_members / pm_members：Task 级开发/产品人员（JSON 数组）
+    - tm_actions.dev_members / pm_members：Action 级开发/产品人员（JSON 数组）
+    - tm_actions.completed_at：完成时间（状态变 done 时记录）
+    - subtask 级人员存在 tm_tasks.subtasks JSON 行内，无需迁移
+    """
+    insp = inspect(engine)
+    table_names = set(insp.get_table_names())
+    with engine.begin() as conn:
+        if "tm_tasks" in table_names:
+            cols = {c["name"] for c in insp.get_columns("tm_tasks")}
+            for name in ("dev_members", "pm_members"):
+                if name not in cols:
+                    conn.execute(
+                        text(f"ALTER TABLE tm_tasks ADD COLUMN {name} JSON NOT NULL DEFAULT '[]'")
+                    )
+                    log.info("added column tm_tasks.%s", name)
+        if "tm_actions" in table_names:
+            cols = {c["name"] for c in insp.get_columns("tm_actions")}
+            for name in ("dev_members", "pm_members"):
+                if name not in cols:
+                    conn.execute(
+                        text(f"ALTER TABLE tm_actions ADD COLUMN {name} JSON NOT NULL DEFAULT '[]'")
+                    )
+                    log.info("added column tm_actions.%s", name)
+            if "completed_at" not in cols:
+                conn.execute(
+                    text("ALTER TABLE tm_actions ADD COLUMN completed_at DATETIME")
+                )
+                # 存量：已完成的 Action 回填完成时间（用 updated_at 近似，无则置空）
+                conn.execute(
+                    text(
+                        "UPDATE tm_actions SET completed_at = updated_at "
+                        "WHERE status = 'done' AND completed_at IS NULL"
+                    )
+                )
+                log.info("added column tm_actions.completed_at")
+
+
+def _ensure_missing_model_columns(engine: Engine) -> None:
+    """兜底：把模型里有、但既有表里缺的列全部 ALTER TABLE 补上。
+
+    覆盖旧库升级场景（如 62 生产库落后于当前模型，缺 dev_members/lead_id 等列）：
+    create_all 不会修改已存在的表，缺列会让启动查询直接 no such column 崩溃。
+    """
+    insp = inspect(engine)
+    existing = set(insp.get_table_names())
+    added = 0
+    with engine.begin() as conn:
+        # 不用 sorted_tables：外键目标表可能未注册（如 users），解析会抛
+        # NoReferencedTableError；补列无需拓扑排序，直接遍历即可。
+        for table in Base.metadata.tables.values():
+            if table.name not in existing:
+                continue  # 表不存在由 create_all 建，这里只补已有表的缺列
+            cols = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name in cols:
+                    continue
+                if isinstance(col.type, JSON) and not col.nullable:
+                    decl = "JSON NOT NULL DEFAULT '[]'"
+                else:
+                    decl = col.type.compile(engine.dialect)
+                conn.execute(
+                    text(f"ALTER TABLE {table.name} ADD COLUMN {col.name} {decl}")
+                )
+                added += 1
+                log.warning("added missing column %s.%s (%s)", table.name, col.name, decl)
+    if added:
+        log.info("backfilled %d missing model columns", added)
+
+
 def ensure_test_manage_startup(engine: Engine) -> None:
     """
     若 schema 版本不一致则重建全部 tm_* 表（开发期允许丢数据）。
@@ -270,8 +370,11 @@ def ensure_test_manage_startup(engine: Engine) -> None:
             _models.TmTaskStageSnapshot.__table__,
         ],
     )
+    _ensure_missing_model_columns(engine)
     _ensure_daily_is_blocking_column(engine)
     _ensure_task_req_stage_columns(engine)
+    _ensure_task_ext_columns(engine)
+    _ensure_member_columns(engine)
     _backfill_missing_req_stage_dates(engine)
     ensure_manager_user()
     # 预热当前周窗口（无则按经典周三规则创建）

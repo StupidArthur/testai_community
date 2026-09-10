@@ -5,8 +5,11 @@ import { describe, expect, it } from 'vitest'
 import {
   applyScreenFilters,
   countActiveMoreFilters,
+  dailyContextWeekKey,
   hasRiskText,
+  isMissingDailyToday,
   isOpenBlockingAction,
+  isWeekSwitchDay,
   matchesActionProgressBand,
   matchesWeekProgressBand,
   type ScreenFilters,
@@ -16,12 +19,14 @@ import {
 const baseFilters: ScreenFilters = {
   focus: 'all',
   domain: '全部',
-  taskStatus: 'all',
-  reqStage: 'all',
+  reqStage: [],
+  displayStatus: [],
   actionStatus: 'published',
   taskBlocking: 'all',
   actionRisk: 'all',
   includeMissingDaily: false,
+  tags: [],
+  taskId: null,
   ownerId: null,
   leadId: null,
   actionProgressBand: 'all',
@@ -299,21 +304,21 @@ describe('screenFilters blocking/risk', () => {
     ).toEqual(['t-a'])
   })
 
-  it('本周 Task 状态筛选', () => {
+  it('本周 displayStatus 筛选', () => {
     const data = [
       task({
         task: { id: 't-pub', status: 'published' },
         actions: [{ status: 'published', latest_risk: '', latest_is_blocking: false }],
       }),
       task({
-        task: { id: 't-done', status: 'done' },
+        task: { id: 't-done', status: 'done', display_status: 'testing_done' },
         actions: [{ status: 'published', latest_risk: '', latest_is_blocking: false }],
       }),
     ]
     expect(
       applyScreenFilters(
         data,
-        { ...baseFilters, focus: 'all', actionStatus: 'all', taskStatus: 'done' },
+        { ...baseFilters, focus: 'all', actionStatus: 'all', displayStatus: ['testing_done'] },
         false,
       ).map((t) => t.task.id),
     ).toEqual(['t-done'])
@@ -438,5 +443,97 @@ describe('screenFilters blocking/risk', () => {
     const out = applyScreenFilters(data, { ...baseFilters, actionStatus: 'all' }, false)
     // 非测试中的阻塞不计：按周进度升序排（10% 在前）
     expect(out.map((t) => t.task.id)).toEqual(['t-pending-dev-blocking', 't-testing-clean'])
+  })
+})
+
+describe('dailyContextWeekKey 切日周口径（周三 17:00 切周）', () => {
+  /** 用 UTC ISO 构造北京时间时刻：北京时间 = UTC+8 */
+  const bj = (isoUtc: string) => new Date(isoUtc)
+
+  it('周二：归属上周三开始的汇报周', () => {
+    // 北京 2026-09-08（周二）12:00 = UTC 04:00
+    expect(dailyContextWeekKey(bj('2026-09-08T04:00:00Z'))).toBe('2026-09-02T17')
+  })
+
+  it('周三 17:00 前：仍归属上周三开始的汇报周（未切周）', () => {
+    // 北京 2026-09-09（周三）09:00 = UTC 01:00
+    expect(dailyContextWeekKey(bj('2026-09-09T01:00:00Z'))).toBe('2026-09-02T17')
+  })
+
+  it('周三 17:00 后（切日）：全天日更归属刚结束的周', () => {
+    // 北京 2026-09-09（周三）18:00 = UTC 10:00
+    expect(dailyContextWeekKey(bj('2026-09-09T10:00:00Z'))).toBe('2026-09-02T17')
+  })
+
+  it('周四：归属已切的新周', () => {
+    // 北京 2026-09-10（周四）15:00 = UTC 07:00
+    expect(dailyContextWeekKey(bj('2026-09-10T07:00:00Z'))).toBe('2026-09-09T17')
+  })
+
+  it('周日：归属周三开始的汇报周', () => {
+    // 北京 2026-09-13（周日）12:00 = UTC 04:00
+    expect(dailyContextWeekKey(bj('2026-09-13T04:00:00Z'))).toBe('2026-09-09T17')
+  })
+
+  it('isWeekSwitchDay 仅周三为真', () => {
+    expect(isWeekSwitchDay(bj('2026-09-09T10:00:00Z'))).toBe(true) // 周三
+    expect(isWeekSwitchDay(bj('2026-09-09T01:00:00Z'))).toBe(true) // 周三白天
+    expect(isWeekSwitchDay(bj('2026-09-10T07:00:00Z'))).toBe(false) // 周四
+    expect(isWeekSwitchDay(bj('2026-09-08T04:00:00Z'))).toBe(false) // 周二
+  })
+})
+
+describe('isMissingDailyToday 切日误报抑制', () => {
+  /** 切日（北京 2026-09-09 周三）18:00 */
+  const switchDay = new Date('2026-09-09T10:00:00Z')
+  /** 周四（北京 2026-09-10）15:00 */
+  const thursday = new Date('2026-09-10T07:00:00Z')
+
+  it('非切日：当前周 Action 今日未日更 → true（原口径）', () => {
+    expect(
+      isMissingDailyToday(
+        { status: 'published', has_daily_today: false, week_key: '2026-09-09T17' },
+        thursday,
+      ),
+    ).toBe(true)
+  })
+
+  it('切日 17:00 后：新周（继承）Action 不标「今日未日更」', () => {
+    expect(
+      isMissingDailyToday(
+        { status: 'published', has_daily_today: false, week_key: '2026-09-09T17' },
+        switchDay,
+      ),
+    ).toBe(false)
+  })
+
+  it('切日当天：结束周 Action 未日更仍标 true（它才是今天该写日更的）', () => {
+    expect(
+      isMissingDailyToday(
+        { status: 'published', has_daily_today: false, week_key: '2026-09-02T17' },
+        switchDay,
+      ),
+    ).toBe(true)
+  })
+
+  it('无 week_key 的调用方退回原口径，行为不变', () => {
+    expect(isMissingDailyToday({ status: 'published', has_daily_today: false }, switchDay)).toBe(
+      true,
+    )
+  })
+
+  it('已日更或非发布 → false（原口径不变）', () => {
+    expect(
+      isMissingDailyToday(
+        { status: 'published', has_daily_today: true, week_key: '2026-09-09T17' },
+        thursday,
+      ),
+    ).toBe(false)
+    expect(
+      isMissingDailyToday(
+        { status: 'draft', has_daily_today: false, week_key: '2026-09-09T17' },
+        thursday,
+      ),
+    ).toBe(false)
   })
 })

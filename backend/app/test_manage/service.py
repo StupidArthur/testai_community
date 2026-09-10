@@ -8,6 +8,7 @@ from datetime import date, datetime
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.auth.models import User, UserRole
 from app.test_manage.config import (
@@ -29,6 +30,8 @@ from app.test_manage.config import (
     TASK_STATUSES_ALLOW_ACTION,
     TASK_STATUSES_USER,
     TASK_STATUSES,
+    TM_DATA_CONTROL,
+    TM_LOOSE_MODE,
     is_daily_edit_locked,
     now_tm,
     today_tm,
@@ -40,7 +43,6 @@ from app.test_manage.models import (
     TmDomain,
     TmProject,
     TmTask,
-    TmTaskTester,
     TmTaskUpdateLog,
     TmTaskWeekProgress,
     TmWeekPeriod,
@@ -100,6 +102,16 @@ def _new_sid() -> str:
     return uuid.uuid4().hex[:12]
 
 
+def _clean_members(items: list[str] | None) -> list[str]:
+    """人员标签清洗：去空白、去空项、去重（保序）。"""
+    out: list[str] = []
+    for x in items or []:
+        v = (x or "").strip()
+        if v and v not in out:
+            out.append(v)
+    return out
+
+
 def is_tm_admin(user: User) -> bool:
     """测试管理员：Admin 或 Manager。"""
     return user.role in (UserRole.Admin, UserRole.Manager)
@@ -110,22 +122,9 @@ def require_tm_admin(user: User) -> None:
         raise HTTPException(status_code=403, detail="仅测试管理员可操作")
 
 
-def _tester_ids(task: TmTask) -> list[int]:
-    return [t.user_id for t in (task.testers or [])]
-
-
-def _action_owner_candidate_ids(task: TmTask) -> set[int]:
-    """Action 本周负责人候选：Task 测试负责人 + 测试人员。"""
-    return {task.lead_id, *_tester_ids(task)}
-
-
 def _ensure_action_owner_candidate(task: TmTask, owner_id: int) -> None:
-    """A1：owner 必须属于 Task 参与者集合。"""
-    if owner_id not in _action_owner_candidate_ids(task):
-        raise HTTPException(
-            status_code=400,
-            detail="Action 负责人只能从该 Task 的测试负责人或测试人员中选择",
-        )
+    """A1：owner 必须属于 Task 参与者集合（已放宽：不再限制）。"""
+    pass
 
 
 def is_task_lead(user: User, task: TmTask) -> bool:
@@ -134,6 +133,23 @@ def is_task_lead(user: User, task: TmTask) -> bool:
 
 def can_edit_task(user: User, task: TmTask) -> bool:
     return is_tm_admin(user) or is_task_lead(user, task)
+
+
+def can_manage_children(user: User, task: TmTask) -> bool:
+    """子需求 / Action 管理权限：
+    - 宽松模式（TM_LOOSE_MODE=true，默认）：所有登录角色；
+    - 严格模式：仅 Admin / Manager / Task 负责人（旧权限模型）。
+    """
+    if TM_LOOSE_MODE:
+        return True
+    return can_edit_task(user, task)
+
+
+def _assert_manage_children(user: User, task: TmTask) -> None:
+    if not can_manage_children(user, task):
+        raise HTTPException(
+            status_code=403, detail="仅测试管理员或该 Task 负责人可管理子需求 / Action"
+        )
 
 
 def can_add_action_to_task(task: TmTask) -> bool:
@@ -538,16 +554,31 @@ def _task_out(
         domain_id=task.domain_id,
         title=task.title,
         requirement=task.requirement or "",
+        sr_code=task.sr_code or "",
+        ir_codes=task.ir_codes or "",
+        module=task.module or "",
+        req_type=task.req_type or "",
+        priority=task.priority or "",
+        change_flag=task.change_flag or "",
+        acceptance_criteria=task.acceptance_criteria or "",
+        verifier_id=task.verifier_id,
+        verified_at=task.verified_at,
+        verify_result=task.verify_result or "",
+        remark=task.remark or "",
         subtasks=[
             SubtaskOut(
                 sid=r.get("sid", ""),
                 name=r.get("name", ""),
                 content=r.get("content", ""),
+                dev_members=_clean_members(r.get("dev_members") or []),
+                pm_members=_clean_members(r.get("pm_members") or []),
             )
             for r in _task_subtasks(task)
         ],
+        dev_members=_clean_members(getattr(task, "dev_members", None) or []),
+        pm_members=_clean_members(getattr(task, "pm_members", None) or []),
         lead_id=task.lead_id,
-        tester_ids=_tester_ids(task),
+        tester_ids=[],
         status=task.status,
         req_stage=req_stage or REQ_STAGE_DEFAULT,
         expected_handover_at=expected_handover_at,
@@ -565,6 +596,7 @@ def _task_out(
         can_edit=False if readonly else can_edit_task(user, task),
         can_edit_req_stage=False if readonly else can_edit_req_stage(user),
         can_add_action=False if readonly else can_add_action_to_task(task),
+        can_manage_children=False if readonly else can_manage_children(user, task),
         display_status=ds_key,
         display_status_label=ds_label,
     )
@@ -578,8 +610,24 @@ def _task_subtasks(task: TmTask, *, include_deleted: bool = False) -> list[dict]
     return [r for r in rows if not r.get("deleted")]
 
 
-def _new_subtask_row(name: str, content: str) -> dict:
-    return {"sid": _new_sid(), "name": name, "content": content, "deleted": False}
+def _new_subtask_row(name: str, content: str, dev_members: list[str] | None = None, pm_members: list[str] | None = None) -> dict:
+    return {
+        "sid": _new_sid(),
+        "name": name,
+        "content": content,
+        "dev_members": _clean_members(dev_members),
+        "pm_members": _clean_members(pm_members),
+        "deleted": False,
+    }
+
+
+def _touch_subtasks(task: TmTask) -> None:
+    """in-place 修改 subtask 行后强制标记 JSON 列变更。
+
+    rows 与列内 dict 共享引用，in-place 修改后新旧值 == 相等，
+    flush 会判定无变化而跳过 UPDATE，必须显式标记。
+    """
+    flag_modified(task, "subtasks")
 
 
 def _build_initial_subtasks(items: list[SubtaskCreate] | None) -> list[dict]:
@@ -591,7 +639,9 @@ def _build_initial_subtasks(items: list[SubtaskCreate] | None) -> list[dict]:
         if not name or name in seen:
             continue
         seen.add(name)
-        rows.append(_new_subtask_row(name, (it.content or "").strip()))
+        rows.append(
+            _new_subtask_row(name, (it.content or "").strip(), it.dev_members, it.pm_members)
+        )
     return rows
 
 
@@ -613,15 +663,14 @@ def _assert_subtask_exists(task: TmTask, name: str) -> None:
 
 def add_subtask(db: Session, user: User, task_id: str, data: SubtaskCreate) -> TaskOut:
     task = _load_task(db, task_id)
-    if not can_edit_task(user, task):
-        raise HTTPException(status_code=403, detail="仅测试管理员或该 Task 负责人可维护子需求")
+    _assert_manage_children(user, task)
     _assert_week_edit_open(db)
     name = data.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="子需求名称必填")
     _assert_subtask_name_free(task, name)
     rows = _task_subtasks(task, include_deleted=True)
-    rows.append(_new_subtask_row(name, (data.content or "").strip()))
+    rows.append(_new_subtask_row(name, (data.content or "").strip(), data.dev_members, data.pm_members))
     task.subtasks = rows  # 重新赋值触发 JSON 变更追踪
     db.commit()
     return _task_out(user, _load_task(db, task.id))
@@ -631,8 +680,7 @@ def update_subtask(
     db: Session, user: User, task_id: str, sid: str, data: SubtaskUpdate
 ) -> TaskOut:
     task = _load_task(db, task_id)
-    if not can_edit_task(user, task):
-        raise HTTPException(status_code=403, detail="仅测试管理员或该 Task 负责人可维护子需求")
+    _assert_manage_children(user, task)
     _assert_week_edit_open(db)
     rows = _task_subtasks(task, include_deleted=True)
     row = next((r for r in rows if r.get("sid") == sid), None)
@@ -650,7 +698,12 @@ def update_subtask(
         row["name"] = new_name
     if data.content is not None:
         row["content"] = data.content.strip()
+    if data.dev_members is not None:
+        row["dev_members"] = _clean_members(data.dev_members)
+    if data.pm_members is not None:
+        row["pm_members"] = _clean_members(data.pm_members)
     task.subtasks = rows
+    _touch_subtasks(task)
     db.commit()
     return _task_out(user, _load_task(db, task.id))
 
@@ -658,8 +711,7 @@ def update_subtask(
 def delete_subtask(db: Session, user: User, task_id: str, sid: str) -> TaskOut:
     """软删除 subtask（保留记录）；其下未完成 Action 置 cancelled（软删，数据保留）。"""
     task = _load_task(db, task_id)
-    if not can_edit_task(user, task):
-        raise HTTPException(status_code=403, detail="仅测试管理员或该 Task 负责人可维护子需求")
+    _assert_manage_children(user, task)
     _assert_week_edit_open(db)
     rows = _task_subtasks(task, include_deleted=True)
     row = next((r for r in rows if r.get("sid") == sid), None)
@@ -667,6 +719,7 @@ def delete_subtask(db: Session, user: User, task_id: str, sid: str) -> TaskOut:
         raise HTTPException(status_code=404, detail="子需求不存在")
     row["deleted"] = True
     task.subtasks = rows
+    _touch_subtasks(task)
     name = row.get("name")
     db.query(TmAction).filter(
         TmAction.task_id == task.id,
@@ -677,13 +730,49 @@ def delete_subtask(db: Session, user: User, task_id: str, sid: str) -> TaskOut:
     return _task_out(user, _load_task(db, task.id))
 
 
-def _set_testers(db: Session, task: TmTask, tester_ids: list[int]) -> None:
-    task.testers.clear()
-    db.flush()
-    for uid in dict.fromkeys(tester_ids):
-        if uid == task.lead_id:
-            continue
-        task.testers.append(TmTaskTester(user_id=uid))
+def move_subtask(
+    db: Session, user: User, task_id: str, sid: str, data: SubtaskMoveRequest
+) -> TaskOut:
+    """将子需求移动到同项目下另一个 Task；关联 Action 全部随迁。
+
+    源侧软删保留痕迹，目标侧新建一行；Action 的 task_id 整体改绑
+    （含已完成/已取消，工作内容本属目标 Task，随迁语义一致）。
+    """
+    task = _load_task(db, task_id)
+    _assert_manage_children(user, task)
+    _assert_week_edit_open(db)
+    rows = _task_subtasks(task, include_deleted=True)
+    row = next((r for r in rows if r.get("sid") == sid and not r.get("deleted")), None)
+    if row is None:
+        raise HTTPException(status_code=404, detail="子需求不存在")
+    name = row.get("name") or ""
+
+    target = _load_task(db, data.target_task_id)
+    if target.id == task.id:
+        raise HTTPException(status_code=400, detail="目标 Task 不能是当前 Task")
+    if target.project_id != task.project_id:
+        raise HTTPException(status_code=400, detail="仅支持移动到同项目下的 Task")
+    _assert_subtask_name_free(target, name)
+
+    # 源侧软删（保留痕迹），目标侧新建一行
+    row["deleted"] = True
+    task.subtasks = rows
+    _touch_subtasks(task)
+    target_rows = _task_subtasks(target, include_deleted=True)
+    target_rows.append(
+        _new_subtask_row(
+            name,
+            row.get("content") or "",
+            row.get("dev_members") or [],
+            row.get("pm_members") or [],
+        )
+    )
+    target.subtasks = target_rows
+    db.query(TmAction).filter(
+        TmAction.task_id == task.id, TmAction.subtask_name == name
+    ).update({"task_id": target.id}, synchronize_session=False)
+    db.commit()
+    return _task_out(user, _load_task(db, task.id))
 
 
 def create_task(db: Session, user: User, data: TaskCreate) -> TaskOut:
@@ -696,15 +785,27 @@ def create_task(db: Session, user: User, data: TaskCreate) -> TaskOut:
     )
     if not domain or domain.project_id != data.project_id:
         raise HTTPException(status_code=400, detail="项目与领域不匹配或不存在")
-    tester_ids = list(dict.fromkeys(data.tester_ids or []))
-    _ensure_users(db, [data.lead_id, *tester_ids])
+    _ensure_users(db, [data.lead_id] + ([data.verifier_id] if data.verifier_id else []))
 
     task = TmTask(
         project_id=data.project_id,
         domain_id=data.domain_id,
         title=data.title.strip(),
         requirement=(data.requirement or "").strip(),
+        sr_code=(data.sr_code or "").strip(),
+        ir_codes=(data.ir_codes or "").strip(),
+        module=(data.module or "").strip(),
+        req_type=(data.req_type or "").strip(),
+        priority=(data.priority or "").strip(),
+        change_flag=(data.change_flag or "").strip(),
+        acceptance_criteria=(data.acceptance_criteria or "").strip(),
+        verifier_id=data.verifier_id,
+        verified_at=data.verified_at,
+        verify_result=(data.verify_result or "").strip(),
+        remark=(data.remark or "").strip(),
         subtasks=_build_initial_subtasks(data.subtasks),
+        dev_members=_clean_members(data.dev_members),
+        pm_members=_clean_members(data.pm_members),
         lead_id=data.lead_id,
         status=TASK_STATUS_PUBLISHED,
         created_by=user.id,
@@ -737,7 +838,6 @@ def create_task(db: Session, user: User, data: TaskCreate) -> TaskOut:
         task.status = synced
     db.add(task)
     db.flush()
-    _set_testers(db, task, tester_ids)
     db.commit()
     return _task_out(user, _load_task(db, task.id))
 
@@ -757,14 +857,57 @@ def update_task(db: Session, user: User, task_id: str, data: TaskUpdate) -> Task
     if data.requirement is not None and data.requirement.strip() != (task.requirement or ""):
         changes.append("需求内容已更新")
         task.requirement = data.requirement.strip()
+    if data.sr_code is not None and data.sr_code.strip() != (task.sr_code or ""):
+        changes.append(f"SR编号: {task.sr_code or '空'} → {data.sr_code.strip()}")
+        task.sr_code = data.sr_code.strip()
+    if data.ir_codes is not None and data.ir_codes.strip() != (task.ir_codes or ""):
+        changes.append(f"关联IR编号: {task.ir_codes or '空'} → {data.ir_codes.strip()}")
+        task.ir_codes = data.ir_codes.strip()
+    if data.module is not None and data.module.strip() != (task.module or ""):
+        changes.append(f"子类/模块: {task.module or '空'} → {data.module.strip()}")
+        task.module = data.module.strip()
+    if data.req_type is not None and data.req_type.strip() != (task.req_type or ""):
+        changes.append(f"需求类型: {task.req_type or '空'} → {data.req_type.strip()}")
+        task.req_type = data.req_type.strip()
+    if data.priority is not None and data.priority.strip() != (task.priority or ""):
+        changes.append(f"优先级: {task.priority or '空'} → {data.priority.strip()}")
+        task.priority = data.priority.strip()
+    if data.change_flag is not None and data.change_flag.strip() != (task.change_flag or ""):
+        changes.append(f"变更标识: {task.change_flag or '空'} → {data.change_flag.strip()}")
+        task.change_flag = data.change_flag.strip()
+    if (
+        data.acceptance_criteria is not None
+        and data.acceptance_criteria.strip() != (task.acceptance_criteria or "")
+    ):
+        changes.append("验收标准已更新")
+        task.acceptance_criteria = data.acceptance_criteria.strip()
+    if data.verifier_id is not None and data.verifier_id != task.verifier_id:
+        _ensure_users(db, [data.verifier_id])
+        changes.append(f"验证人 id: {task.verifier_id} → {data.verifier_id}")
+        task.verifier_id = data.verifier_id
+    if data.verified_at is not None and data.verified_at != task.verified_at:
+        changes.append(f"验证时间: {task.verified_at} → {data.verified_at}")
+        task.verified_at = data.verified_at
+    if data.verify_result is not None and data.verify_result.strip() != (task.verify_result or ""):
+        changes.append(f"验证结果: {task.verify_result or '空'} → {data.verify_result.strip()}")
+        task.verify_result = data.verify_result.strip()
+    if data.remark is not None and data.remark.strip() != (task.remark or ""):
+        changes.append("备注已更新")
+        task.remark = data.remark.strip()
     if data.lead_id is not None and data.lead_id != task.lead_id:
         _ensure_users(db, [data.lead_id])
         changes.append(f"负责人 id: {task.lead_id} → {data.lead_id}")
         task.lead_id = data.lead_id
-    if data.tester_ids is not None:
-        _ensure_users(db, data.tester_ids)
-        _set_testers(db, task, data.tester_ids)
-        changes.append(f"测试人员: {data.tester_ids}")
+    if data.dev_members is not None:
+        new_devs = _clean_members(data.dev_members)
+        if new_devs != _clean_members(getattr(task, "dev_members", None) or []):
+            changes.append(f"开发人员: {', '.join(new_devs) or '空'}")
+            task.dev_members = new_devs
+    if data.pm_members is not None:
+        new_pms = _clean_members(data.pm_members)
+        if new_pms != _clean_members(getattr(task, "pm_members", None) or []):
+            changes.append(f"产品人员: {', '.join(new_pms) or '空'}")
+            task.pm_members = new_pms
 
     if data.status is not None:
         from app.test_manage.config import REQ_STAGES_SHOW_TEST_STATUS
@@ -1058,14 +1201,14 @@ def _can_mark_action_done(user: User, action: TmAction, progress: int) -> bool:
 
 def _can_change_action_status(user: User, action: TmAction) -> bool:
     """
-    Action 状态变更权限：
-    - Admin / Manager
-    - 该 Task 测试负责人
-    - 该 Action 本周负责人（自己的 Action）
-    历史周一律不可改状态。
+    Action 状态变更权限（限当前可写周；历史周一律不可改状态）：
+    - 宽松模式：所有登录角色（Admin / Manager / Engineer）；
+    - 严格模式：Admin / Manager、Task 负责人或 Action 负责人（旧权限模型）。
     """
     if not _is_writable_action_week(_session_of(action), action):
         return False
+    if TM_LOOSE_MODE:
+        return True
     if is_tm_admin(user):
         return True
     if action.task and is_task_lead(user, action.task):
@@ -1074,14 +1217,92 @@ def _can_change_action_status(user: User, action: TmAction) -> bool:
 
 
 def _can_edit_action_fields(user: User, action: TmAction) -> bool:
+    """
+    字段编辑（限当前可写周且 Action 为草稿）：
+    - 宽松模式：所有登录角色；
+    - 严格模式：Admin / Manager / Task 负责人（旧权限模型）。
+    """
     if not _is_writable_action_week(_session_of(action), action):
         return False
     if action.status != STATUS_DRAFT:
         return False
+    if TM_LOOSE_MODE:
+        return True
     task = action.task
     if not task:
         return is_tm_admin(user)
     return can_edit_task(user, task)
+
+
+def _can_change_action_owner(user: User, action: TmAction) -> bool:
+    """
+    负责人更改权限（限当前可写周；已完成/已取消不可改；改派历史由更正记录留痕）：
+    - 宽松模式：所有登录角色；
+    - 严格模式：Admin / Manager / Task 负责人（旧权限模型）。
+    """
+    if not _is_writable_action_week(_session_of(action), action):
+        return False
+    if action.status in (STATUS_DONE, STATUS_CANCELLED):
+        return False
+    if TM_LOOSE_MODE:
+        return True
+    return can_edit_task(user, action.task) if action.task else is_tm_admin(user)
+
+
+def _can_edit_action_members(user: User, action: TmAction) -> bool:
+    """
+    开发/产品人员编辑权限（限当前可写周；已完成/已取消不可改）：
+    - 宽松模式：所有登录角色；
+    - 严格模式：Admin / Manager / Task 负责人。
+    """
+    if not _is_writable_action_week(_session_of(action), action):
+        return False
+    if action.status in (STATUS_DONE, STATUS_CANCELLED):
+        return False
+    if TM_LOOSE_MODE:
+        return True
+    return can_edit_task(user, action.task) if action.task else is_tm_admin(user)
+
+
+def _can_relink_action(user: User, action: TmAction) -> bool:
+    """
+    发布后子需求关联修正（不受发布锁/周窗口限制，留痕）：
+    - 宽松模式：所有登录角色；
+    - 严格模式：Admin / Manager / Task 负责人。
+    """
+    if TM_LOOSE_MODE:
+        return True
+    return can_edit_task(user, action.task) if action.task else is_tm_admin(user)
+
+
+def _can_delete_action(user: User, action: TmAction) -> bool:
+    """
+    删除 Action 权限（宽松模式，需 TM_DATA_CONTROL 开关开启）：
+    - Admin/Manager：全权（含历史周、已完成/已取消）
+    - 宽松模式：其他登录角色限当前可写周，且非已完成（已取消可删）
+    - 严格模式：仅 Admin/Manager 可删
+    """
+    if is_tm_admin(user):
+        return True
+    if not TM_LOOSE_MODE:
+        return False
+    return _is_writable_action_week(_session_of(action), action) and action.status != STATUS_DONE
+
+
+def _can_delete_daily(user: User, action: TmAction) -> bool:
+    """删除日报权限（宽松模式）：Admin/Manager、Action 负责人或创建人，限当前可写周。"""
+    if is_tm_admin(user):
+        return True
+    if action.owner_id == user.id or action.created_by == user.id:
+        return _is_writable_action_week(_session_of(action), action)
+    return False
+
+
+def _user_display_name(db: Session, uid: int) -> str:
+    u = db.get(User, uid)
+    if not u:
+        return f"#{uid}"
+    return (getattr(u, "real_name", "") or "").strip() or u.username
 
 
 def _can_daily(user: User, action: TmAction) -> bool:
@@ -1191,9 +1412,12 @@ def _action_out(
         title=action.title,
         subtask_name=action.subtask_name or "",
         owner_id=action.owner_id,
+        dev_members=_clean_members(getattr(action, "dev_members", None) or []),
+        pm_members=_clean_members(getattr(action, "pm_members", None) or []),
         test_content=action.test_content or "",
         environment=action.environment or "",
         status=action.status,
+        completed_at=getattr(action, "completed_at", None),
         source_action_id=action.source_action_id,
         initial_progress=int(getattr(action, "initial_progress", 0) or 0),
         created_by=action.created_by,
@@ -1213,6 +1437,18 @@ def _action_out(
         can_mark_done=False if readonly else _can_mark_action_done(user, action, progress),
         can_daily=False if readonly else _can_daily(user, action),
         can_correct=False if readonly else _can_correct(user, action),
+        can_change_owner=False if readonly else _can_change_action_owner(user, action),
+        # 开发/产品人员编辑入口（宽松模式全员；严格模式 Admin/Manager/Task 负责人）
+        can_edit_members=False if readonly else _can_edit_action_members(user, action),
+        # 关联修正入口：发布后 Admin/Manager 或 Task 负责人（草稿走编辑表单，无需单独入口）
+        can_relink=(
+            False
+            if readonly
+            else (action.status == STATUS_PUBLISHED and _can_relink_action(user, action))
+        ),
+        # 数据删除入口（宽松模式）：删 Action / 删日报
+        can_delete=False if readonly else _can_delete_action(user, action),
+        can_delete_daily=False if readonly else _can_delete_daily(user, action),
     )
 
 
@@ -1239,9 +1475,11 @@ def _publish_action(db: Session, action: TmAction) -> None:
 
 def create_action(db: Session, user: User, data: ActionCreate) -> ActionOut:
     task = _load_task(db, data.task_id)
-    # 权限校验先行：无权限应得到 403，而非业务规则 400（避免向无关人员泄露任务状态细节）
-    if not can_edit_task(user, task):
+    # 权限校验先行：无权限应得到 403，而非业务规则 400（避免向无关人员泄露任务状态细节）。
+    # 宽松模式：所有登录角色可建；严格模式：仅 Admin / Manager / Task 负责人。
+    if not can_manage_children(user, task):
         raise HTTPException(status_code=403, detail="仅测试管理员或该 Task 负责人可创建 Action")
+    # 业务规则（Task 须测试中）校验
     if not can_add_action_to_task(task):
         if task.status == TASK_STATUS_DONE:
             raise HTTPException(status_code=400, detail="已完成的 Task 不能再创建 Action")
@@ -1255,10 +1493,10 @@ def create_action(db: Session, user: User, data: ActionCreate) -> ActionOut:
         raise HTTPException(status_code=400, detail="仅测试进行中的 Task 可创建 Action")
     _assert_week_edit_open(db)
 
+    # 可空 = 未关联（暂不关联）；非空时须为该 Task 未删除的 subtask 之一
     subtask_name = (data.subtask_name or "").strip()
-    if not subtask_name:
-        raise HTTPException(status_code=400, detail="请选择关联的子需求（subtask）")
-    _assert_subtask_exists(task, subtask_name)
+    if subtask_name:
+        _assert_subtask_exists(task, subtask_name)
 
     owner_id = data.owner_id if data.owner_id is not None else task.lead_id
     _ensure_users(db, [owner_id])
@@ -1274,6 +1512,8 @@ def create_action(db: Session, user: User, data: ActionCreate) -> ActionOut:
         title=data.title.strip(),
         subtask_name=subtask_name,
         owner_id=owner_id,
+        dev_members=_clean_members(data.dev_members),
+        pm_members=_clean_members(data.pm_members),
         test_content=(data.test_content or "").strip(),
         environment=(data.environment or "").strip(),
         status=STATUS_DRAFT,
@@ -1290,6 +1530,58 @@ def create_action(db: Session, user: User, data: ActionCreate) -> ActionOut:
 
 def update_action(db: Session, user: User, action_id: str, data: ActionUpdate) -> ActionOut:
     action = _load_action(db, action_id)
+
+    # 子需求关联修正（独立通道，请求仅携带 subtask_name 时生效）：
+    # - 草稿：沿用字段编辑权（当前周）
+    # - 发布后：Admin/Manager 或 Task 负责人特权修正，不受发布锁/周窗口限制，强制留痕
+    # - 已完成/已取消：不可改
+    relink_only = (
+        data.subtask_name is not None
+        and data.title is None
+        and data.test_content is None
+        and data.environment is None
+        and data.dev_members is None
+        and data.pm_members is None
+        and data.status is None
+        and data.owner_id is None
+    )
+    if relink_only:
+        if action.status in (STATUS_DONE, STATUS_CANCELLED):
+            raise HTTPException(
+                status_code=403, detail="已完成/已取消的 Action 不可更改子需求关联"
+            )
+        new_sub = (data.subtask_name or "").strip()
+        if new_sub and action.task:
+            _assert_subtask_exists(action.task, new_sub)
+        old_sub = action.subtask_name or ""
+        if new_sub == old_sub:
+            return _action_out(user, _load_action(db, action.id))
+        if action.status == STATUS_DRAFT:
+            if not _can_edit_action_fields(user, action):
+                raise HTTPException(
+                    status_code=403,
+                    detail="无权修改该 Action（仅当前周草稿可改）",
+                )
+        elif not _can_relink_action(user, action):
+            raise HTTPException(
+                status_code=403,
+                detail="发布后仅测试管理员或 Task 负责人可修正子需求关联",
+            )
+        action.subtask_name = new_sub
+        if action.status != STATUS_DRAFT:
+            db.add(
+                TmActionCorrection(
+                    action_id=action.id,
+                    user_id=user.id,
+                    note=(
+                        f"子需求关联更正：由「{old_sub or '未关联'}」"
+                        f" 更改为「{new_sub or '未关联'}」"
+                    ),
+                )
+            )
+        db.commit()
+        return _action_out(user, _load_action(db, action.id))
+
     _assert_writable_action_week(action)
     _assert_week_edit_open(db)
 
@@ -1308,36 +1600,70 @@ def update_action(db: Session, user: User, action_id: str, data: ActionUpdate) -
             action.status = data.status
             if data.status == STATUS_PUBLISHED and not action.published_at:
                 _publish_action(db, action)
+            if data.status == STATUS_DONE and not action.completed_at:
+                action.completed_at = now_tm()
 
     # 字段：仅草稿可改（发布后本周负责人亦锁定，一周结束不再改派）
     field_touch = any(
-        x is not None
-        for x in (data.title, data.subtask_name, data.owner_id, data.test_content, data.environment)
+        x is not None for x in (data.title, data.subtask_name, data.test_content, data.environment)
     )
     if field_touch:
         if not _can_edit_action_fields(user, action):
             raise HTTPException(
                 status_code=403,
-                detail="Action 发布后字段锁定（含本周负责人），请用「更正说明」追加纠错",
+                detail="Action 发布后字段锁定，请用「更正说明」追加纠错",
             )
         if data.title is not None:
             action.title = data.title.strip()
         if data.subtask_name is not None:
+            # 草稿编辑路径：允许空 = 未关联；非空须为该 Task 未删除的 subtask 之一
             subtask_name = data.subtask_name.strip()
-            if not subtask_name:
-                raise HTTPException(status_code=400, detail="请选择关联的子需求（subtask）")
-            if action.task:
+            if subtask_name and action.task:
                 _assert_subtask_exists(action.task, subtask_name)
             action.subtask_name = subtask_name
-        if data.owner_id is not None:
-            _ensure_users(db, [data.owner_id])
-            if action.task:
-                _ensure_action_owner_candidate(action.task, data.owner_id)
-            action.owner_id = data.owner_id
         if data.test_content is not None:
             action.test_content = data.test_content.strip()
         if data.environment is not None:
             action.environment = data.environment.strip()
+
+    # 开发/产品人员：信息性字段，草稿与进行中均可维护（限当前可写周）
+    # 宽松模式：所有登录角色；严格模式：Admin / Manager / Task 负责人
+    if data.dev_members is not None or data.pm_members is not None:
+        if action.status in (STATUS_DONE, STATUS_CANCELLED):
+            raise HTTPException(
+                status_code=400, detail="已完成/已取消的 Action 不可修改人员"
+            )
+        if not _can_edit_action_members(user, action):
+            raise HTTPException(
+                status_code=403, detail="仅测试管理员或该 Task 负责人可修改 Action 人员"
+            )
+        if data.dev_members is not None:
+            action.dev_members = _clean_members(data.dev_members)
+        if data.pm_members is not None:
+            action.pm_members = _clean_members(data.pm_members)
+
+    # 负责人更改：草稿沿用字段编辑权；发布后允许 Admin/Manager 或 Task 负责人改派，
+    # 且强制写更正说明留痕（已完成/已取消不可改，历史周由开头 _assert_writable_action_week 拦截）
+    if data.owner_id is not None and data.owner_id != action.owner_id:
+        if not _can_change_action_owner(user, action):
+            raise HTTPException(
+                status_code=403,
+                detail="无权更改负责人：限当前可写周，且已完成/已取消不可改",
+            )
+        _ensure_users(db, [data.owner_id])
+        old_owner_id = action.owner_id
+        action.owner_id = data.owner_id
+        if action.status != STATUS_DRAFT:
+            db.add(
+                TmActionCorrection(
+                    action_id=action.id,
+                    user_id=user.id,
+                    note=(
+                        f"负责人更正：由 {_user_display_name(db, old_owner_id)}"
+                        f" 更改为 {_user_display_name(db, data.owner_id)}"
+                    ),
+                )
+            )
 
     db.commit()
     return _action_out(user, _load_action(db, action.id))
@@ -1404,6 +1730,8 @@ def upsert_daily_update(
     # 进度达 100% 自动标记完成（防止「实际做完却忘了点完成」导致无谓延续到下周）
     if progress >= 100 and action.status != STATUS_DONE:
         action.status = STATUS_DONE
+        if not action.completed_at:
+            action.completed_at = now_tm()
     db.commit()
     db.refresh(row)
     return DailyUpdateOut.model_validate(row)
@@ -1423,6 +1751,55 @@ def add_correction(
     db.commit()
     db.refresh(row)
     return ActionCorrectionOut.model_validate(row)
+
+
+# ── 数据删除（宽松模式，TM_DATA_CONTROL 开关）─────────────────────────────────
+
+def delete_action(db: Session, user: User, action_id: str) -> None:
+    """
+    删除 Action（宽松模式）：
+    - 依赖 ORM cascade 级联删除其日报与更正记录
+    - Admin/Manager 全权；负责人/创建人限当前可写周且非已完成
+    """
+    if not TM_DATA_CONTROL:
+        raise HTTPException(status_code=403, detail="数据删除功能未开启（TM_DATA_CONTROL）")
+    action = _load_action(db, action_id)
+    if not _can_delete_action(user, action):
+        raise HTTPException(
+            status_code=403,
+            detail="无权删除该 Action（仅测试管理员可删任意数据，其他角色限当前周未完成数据）",
+        )
+    db.delete(action)
+    db.commit()
+
+
+def delete_daily_update(db: Session, user: User, action_id: str, report_date: date) -> None:
+    """删除指定日期日报（宽松模式）；删前强制留痕更正记录，便于追溯。"""
+    if not TM_DATA_CONTROL:
+        raise HTTPException(status_code=403, detail="数据删除功能未开启（TM_DATA_CONTROL）")
+    action = _load_action(db, action_id)
+    if not _can_delete_daily(user, action):
+        raise HTTPException(
+            status_code=403,
+            detail="无权删除日报（仅测试管理员，或负责人/创建人删自己名下当前周数据）",
+        )
+    row = (
+        db.query(TmDailyUpdate)
+        .filter(
+            TmDailyUpdate.action_id == action_id,
+            TmDailyUpdate.report_date == report_date,
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="该日期无日报记录")
+    note = (
+        f"日报删除更正：删除 {report_date.isoformat()} 日报（原进度 {row.progress_percent}%），"
+        "当前进度以剩余日更为准"
+    )
+    db.delete(row)
+    db.add(TmActionCorrection(action_id=action_id, user_id=user.id, note=note))
+    db.commit()
 
 
 def list_mine_actions(db: Session, user: User) -> list[ActionOut]:
@@ -1485,6 +1862,8 @@ def inherit_open_actions_to_new_week(
                 title=src.title,
                 subtask_name=src.subtask_name or "",
                 owner_id=src.owner_id,
+                dev_members=_clean_members(getattr(src, "dev_members", None) or []),
+                pm_members=_clean_members(getattr(src, "pm_members", None) or []),
                 test_content=src.test_content or "",
                 environment=src.environment or "",
                 status=STATUS_PUBLISHED,
@@ -1780,9 +2159,7 @@ def get_board(
         board_tasks = [
             b
             for b in board_tasks
-            if b.actions
-            or b.task.lead_id == user.id
-            or user.id in b.task.tester_ids
+            if b.actions or b.task.lead_id == user.id
         ]
 
     all_actions = [a for b in board_tasks for a in b.actions]

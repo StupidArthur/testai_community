@@ -23,12 +23,16 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never', outputFolder: 'e2e-report' }]],
   use: {
     baseURL: process.env.E2E_BASE_URL || 'http://127.0.0.1:3003',
+    // 加高视口：新建 Task 等高弹窗的提交按钮不至落在视口外
+    viewport: { width: 1440, height: 960 },
     trace: 'off',
     screenshot: 'only-on-failure',
     video: 'off',
     locale: 'zh-CN',
     timezoneId: 'Asia/Shanghai',
     channel: process.env.E2E_CHANNEL || 'chrome',
+    // 本机沙箱拦 GPU 着色器缓存写入会致 Chrome 崩溃（0xC0000005），禁用 GPU 规避
+    launchOptions: { args: ['--disable-gpu'] },
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {

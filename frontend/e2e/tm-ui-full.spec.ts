@@ -80,7 +80,7 @@ test.describe(`TM UI E2E ${RUN}`, () => {
   })
 
   test('02 Admin 登录 → Portal → 使用说明/导航', async ({ page }) => {
-    await login(page, 'admin', 'admin')
+    await login(page, 'admin')
     // Portal 大入口
     await page.getByRole('button', { name: /进入/ }).click()
     await expect(page).toHaveURL(/\/projects/)
@@ -95,7 +95,7 @@ test.describe(`TM UI E2E ${RUN}`, () => {
   })
 
   test('03 Admin 在用户管理页创建四个 Engineer', async ({ page }) => {
-    await login(page, 'admin', 'admin')
+    await login(page, 'admin')
     for (const u of Object.values(users)) {
       await addUserViaAdmin(page, u)
     }
@@ -135,6 +135,7 @@ test.describe(`TM UI E2E ${RUN}`, () => {
     await antdSelectByLabel(page, 'tm-task-domain', names.domain)
     await page.getByTestId('tm-task-title').fill(names.task)
     await page.getByTestId('tm-task-requirement').fill('E2E 需求说明')
+    await page.getByTestId('tm-task-module').fill('E2E模块')
     // 负责人默认 manager；测试人员后续在 Action 负责人里只用 manager（规避多选 Select 不稳定）
     await page.getByTestId('tm-submit-task').click({ force: true })
     await expect(page.getByText(names.task).first()).toBeVisible({ timeout: 20_000 })
@@ -160,6 +161,7 @@ test.describe(`TM UI E2E ${RUN}`, () => {
       await antdSelectByLabel(page, 'tm-task-domain', names.domain)
       await page.getByTestId('tm-task-title').fill(title)
       await page.getByTestId('tm-task-requirement').fill('x')
+      await page.getByTestId('tm-task-module').fill('E2E模块')
       await page.getByTestId('tm-submit-task').click({ force: true })
       await expectToast(page, 'Task 已保存')
       await expect(page.getByText(title).first()).toBeVisible({ timeout: 20_000 })
@@ -201,7 +203,7 @@ test.describe(`TM UI E2E ${RUN}`, () => {
     await selectBoardScope(page, '全部')
 
     const card = await boardTaskByTitle(page, names.task)
-    await setTaskReqStage(page, card, '测试中')
+    await setTaskReqStage(page, card, '测试中-进行中')
     // Action 必须关联子需求：先在 inline 表单中创建
     const cardSub = await boardTaskByTitle(page, names.task)
     await addSubtaskViaInline(page, cardSub, names.subtask)
@@ -345,14 +347,9 @@ test.describe(`TM UI E2E ${RUN}`, () => {
     await goProjects(page)
     await openScreenTab(page)
     await expect(page.getByTestId('tm-screen')).toBeVisible()
-    // 默认「今日」无关注范围；切到本周后再验筛选
+    // 默认「今日」无关注范围；切到本周后再验筛选（平铺一行，全部可见）
     await page.getByTestId('tm-screen-week-current').click()
-    const focus = page.getByTestId('tm-screen-focus-select')
-    if (!(await focus.isVisible())) {
-      await page.getByTestId('tm-screen-more-toggle').click()
-      await expect(page.getByTestId('tm-screen-more-filters')).toBeVisible()
-    }
-    await expect(focus).toBeVisible()
+    await expect(page.getByTestId('tm-screen-focus-select')).toBeVisible()
     await expect(page.getByTestId('tm-screen-req-stage')).toBeVisible()
     await expect(page.getByTestId('tm-screen-fullscreen')).toBeVisible()
     await page.getByTestId('tm-screen-week-history').click()

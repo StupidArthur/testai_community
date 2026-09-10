@@ -157,11 +157,6 @@ export async function fillInputNumber(page: Page, testId: string, value: string)
   const root = page.getByTestId(testId)
   await expect(root).toBeVisible({ timeout: 15_000 })
   await root.scrollIntoViewIfNeeded().catch(() => undefined)
-  await page.locator('.ant-drawer-open .ant-drawer-body, .ant-modal-open .ant-modal-body').last()
-    .evaluate((el) => {
-      el.scrollTop = el.scrollHeight
-    })
-    .catch(() => undefined)
   const nested = root.locator('input').first()
   const input = (await nested.count()) > 0 ? nested : root
   await input.fill(value, { force: true })
@@ -185,7 +180,13 @@ export async function openTaskDetail(
 }
 
 export async function closeTaskDrawer(page: Page) {
-  await page.locator('.ant-drawer-open .ant-drawer-close').click()
+  // Task 详情弹窗实为 antd Modal（含 tm-drawer-task），兼容旧 Drawer 结构
+  const modalClose = page.locator('.ant-modal:has([data-testid="tm-drawer-task"]) .ant-modal-close')
+  if (await modalClose.count()) {
+    await modalClose.click()
+  } else {
+    await page.locator('.ant-drawer-open .ant-drawer-close').click()
+  }
   await expect(page.getByTestId('tm-drawer-task')).toHaveCount(0)
 }
 
@@ -209,8 +210,7 @@ export async function addSubtaskViaInline(
   await form.getByTestId('tm-inline-new-subtask').fill(name)
   await form.getByRole('button', { name: /创建子需求/ }).click()
   await expectToast(page, '子需求已添加')
-  // 创建成功回到选择模式；点「取消」收起表单
-  await form.getByRole('button', { name: /取\s*消/ }).click()
+  // 产品行为：创建成功后表单立即自动收起（onCreateSubtask 内 setInlineAddOpen(false)）
   await expect(form).toBeHidden()
 }
 
@@ -226,7 +226,7 @@ export async function setTaskReqStage(
   dateFieldLabels?: string | string[],
 ) {
   await openTaskDetail(page, card, '进度')
-  await antdSelectByLabel(page, 'tm-task-req-stage', stageLabel)
+  await antdSelectByLabel(page, 'tm-task-display-status', stageLabel)
   const labels = !dateFieldLabels
     ? []
     : Array.isArray(dateFieldLabels)
@@ -235,7 +235,7 @@ export async function setTaskReqStage(
   const fields =
     labels.length > 0
       ? labels
-      : stageLabel === '测试中'
+      : stageLabel.startsWith('测试中')
         ? ['测试开始时间', '预计测试结束']
         : stageLabel === '测试完成'
           ? ['测试结束时间']

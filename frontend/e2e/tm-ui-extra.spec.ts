@@ -45,7 +45,7 @@ async function ensureUser(page: import('@playwright/test').Page, u: { username: 
 
 test.describe(`TM UI 补充 ${RUN}`, () => {
   test('A Admin 建用户', async ({ page }) => {
-    await login(page, 'admin', 'admin')
+    await login(page, 'admin')
     await ensureUser(page, lead)
     await ensureUser(page, owner)
   })
@@ -78,7 +78,7 @@ test.describe(`TM UI 补充 ${RUN}`, () => {
     // Action 必须关联子需求：Manager 先在 inline 表单中创建
     await addSubtaskViaInline(page, card, subtask)
     // Lead 不能改需求进展：Manager 先切到测试中，供后续 +Action
-    await setTaskReqStage(page, card, '测试中')
+    await setTaskReqStage(page, card, '测试中-进行中')
   })
 
   test('C Lead 发布 Action；表格内进行中', async ({ page }) => {

@@ -2,5 +2,6 @@
 
 from .base import LLMProvider
 from .minimax import MiniMaxProvider
+from .gateway import GatewayProvider
 
-__all__ = ["LLMProvider", "MiniMaxProvider"]
+__all__ = ["LLMProvider", "MiniMaxProvider", "GatewayProvider"]

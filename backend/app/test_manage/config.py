@@ -118,6 +118,27 @@ DAILY_EDIT_LOCK_DISABLED = os.getenv("TM_DAILY_EDIT_LOCK_DISABLED", "").strip().
     "on",
 )
 
+# ---------- 数据删除（宽松模式）----------
+# 删除总开关：TM_DATA_CONTROL=true 才允许删除 Action / 日报
+# 宽松模式：Action 负责人/创建人可删自己名下数据；已完成 Action 与历史周数据仅测试管理员可删
+TM_DATA_CONTROL = os.getenv("TM_DATA_CONTROL", "true").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+
+# ---------- 权限模式总开关（TM_LOOSE_MODE）----------
+# true（默认，宽松模式）：所有登录角色均可增删改查 subtask / action、编辑开发/产品人员等；
+# false（严格模式）：恢复旧权限模型——subtask / action 管理仅限 Admin / Manager / Task 负责人。
+# 后续新增的权限放开项统一收纳进宽松模式，严格模式保持旧规则，切换零代码改动。
+TM_LOOSE_MODE = os.getenv("TM_LOOSE_MODE", "true").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+
 # 需重建的表（顺序：先子后父；不含推送快照——快照为增量建表，不随 schema 重建清空业务数据）
 TM_TABLE_NAMES = (
     "tm_daily_updates",
@@ -181,8 +202,21 @@ DINGTALK_SCREENSHOT_VIEWPORT_WIDTH = int(
     os.getenv("DINGTALK_SCREENSHOT_VIEWPORT_WIDTH", "1440")
 )
 DINGTALK_SCREENSHOT_VIEWPORT_HEIGHT = int(
-    os.getenv("DINGTALK_SCREENSHOT_VIEWPORT_HEIGHT", "2200")
+    os.getenv("DINGTALK_SCREENSHOT_VIEWPORT_HEIGHT", "900")
 )
+# 日报多项目推送：逗号分隔项目 id（支持中文逗号）；为空 = 沿用默认单项目截图
+DINGTALK_DAILY_PROJECT_IDS: tuple[str, ...] = tuple(
+    pid.strip()
+    for pid in os.getenv("DINGTALK_DAILY_PROJECT_IDS", "").replace("，", ",").split(",")
+    if pid.strip()
+)
+# 周报多项目推送：按此顺序逐项目出数（每项目独立数据 + 深链 + 截图）；
+# 为空 = 回退日报项目顺序，仍为空 = 沿用默认单项目旧格式
+DINGTALK_WEEKLY_PROJECT_IDS: tuple[str, ...] = tuple(
+    pid.strip()
+    for pid in os.getenv("DINGTALK_WEEKLY_PROJECT_IDS", "").replace("，", ",").split(",")
+    if pid.strip()
+) or DINGTALK_DAILY_PROJECT_IDS
 
 
 def _origin_from_url(url: str) -> str:
@@ -251,11 +285,17 @@ def resolve_public_screen_url(
 
     origin = resolve_public_app_origin()
     mode = (view or "today").strip().lower() or "today"
-    q: dict[str, str] = {"view": mode}
+    # view=today 是前端缺省值，省略它让深链保持单参数：
+    # 钉钉把明文 URL 渲染为链接时可能截断 & 之后的参数，导致 project_id 丢失
+    q: dict[str, str] = {}
+    if mode != "today":
+        q["view"] = mode
     if project_id:
         q["project_id"] = project_id
     if screenshot:
         q["screenshot"] = "1"
+    if not q:
+        return f"{origin}{PUBLIC_SCREEN_PATH}"
     return f"{origin}{PUBLIC_SCREEN_PATH}?{urlencode(q)}"
 
 

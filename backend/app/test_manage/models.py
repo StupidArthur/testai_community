@@ -85,8 +85,34 @@ class TmTask(Base):
     )
     title = Column(String, nullable=False)
     requirement = Column(Text, nullable=False, default="")
-    # 子需求明细：[{"sid","name","content","deleted"}]；Action 以 name 字符串关联（改名时同步刷）
+    # 系统需求编号，如 SR-TPT-00017
+    sr_code = Column(String(64), nullable=False, default="", index=True)
+    # 关联初始需求编号（IR 编号，多个用逗号分隔）
+    ir_codes = Column(String(256), nullable=False, default="")
+    # 子类/模块（回路优化、报警管理、TPT融合…）
+    module = Column(String(100), nullable=False, default="", index=True)
+    # 需求类型：功能 / 性能 / 接口…
+    req_type = Column(String(32), nullable=False, default="")
+    # 优先级：高 / 中 / 低
+    priority = Column(String(16), nullable=False, default="")
+    # 变更标识：原始 / 变更…
+    change_flag = Column(String(32), nullable=False, default="")
+    # 验收标准
+    acceptance_criteria = Column(Text, nullable=False, default="")
+    # 验证人（系统需求验证人）
+    verifier_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    # 验证时间
+    verified_at = Column(Date, nullable=True)
+    # 需求验证是否通过：通过 / 不通过 / 未验证
+    verify_result = Column(String(16), nullable=False, default="", index=True)
+    # 备注
+    remark = Column(Text, nullable=False, default="")
+    # 子需求明细：[{"sid","name","content","dev_members","pm_members","deleted"}]；Action 以 name 字符串关联（改名时同步刷）
     subtasks = Column(JSON, nullable=False, default=list)
+    # 开发人员（自由文本标签，多个）
+    dev_members = Column(JSON, nullable=False, default=list)
+    # 产品人员（自由文本标签，多个）
+    pm_members = Column(JSON, nullable=False, default=list)
     lead_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     status = Column(String, nullable=False, default=TASK_STATUS_DRAFT, index=True)
     # 需求进展（整需求生命周期）；测试状态见 status
@@ -168,9 +194,15 @@ class TmAction(Base):
     # 周继承带入的起始进度（无日更时的当前进度；周报增量 = 当前 - 起始）
     initial_progress = Column(Integer, nullable=False, default=0)
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    # 开发人员（自由文本标签，多个）
+    dev_members = Column(JSON, nullable=False, default=list)
+    # 产品人员（自由文本标签，多个）
+    pm_members = Column(JSON, nullable=False, default=list)
     test_content = Column(Text, nullable=False, default="")
     environment = Column(Text, nullable=False, default="")
     status = Column(String, nullable=False, default=STATUS_DRAFT, index=True)
+    # 完成时间（状态变为 done 时记录）
+    completed_at = Column(DateTime(timezone=True), nullable=True)
     source_action_id = Column(String, ForeignKey("tm_actions.id"), nullable=True, index=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     published_at = Column(DateTime(timezone=True), nullable=True)

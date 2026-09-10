@@ -1,5 +1,0 @@
-{
-  "trigger": "*/5 * * * * *",
-  "display_name": "调度服务诊断心跳",
-  "timeout": 30
-}

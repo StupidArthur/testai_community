@@ -490,8 +490,11 @@ async def send_openapi_daily_one_message(
                 data, filename=image_filename or DINGTALK_DAILY_SCREENSHOT_FILENAME
             )
             if label and (link or "").strip():
-                # 项目名纯文本标题 + 明文"详情请点击"链接（钉钉自动渲染 URL 为可点链接）
-                parts.extend(["", f"**{label}**", f"详情请点击：{link.strip()}", f"![]({media_id})"])
+                # 项目名 + markdown 链接：[text](url) 形式钉钉完整保留 URL 参数，
+                # 明文 URL 含 & 时可能被截断，导致 project_id 深链参数丢失
+                parts.extend(
+                    ["", f"**{label}**", f"详情请点击：[打开大屏]({link.strip()})", f"![]({media_id})"]
+                )
             elif label:
                 parts.extend(["", f"**{label}**", f"![]({media_id})"])
             else:
@@ -525,6 +528,39 @@ async def send_openapi_daily_one_message(
     return await send_openapi_group_message(
         msg_key=DINGTALK_OPENAPI_MARKDOWN_MSG_KEY,
         msg_param={"title": safe_title, "text": text},
+    )
+
+
+async def send_openapi_weekly_one_message(
+    *,
+    title: str,
+    blocks: list[tuple[str, str, bytes, str]],
+) -> dict[str, Any]:
+    """
+    周报多项目单条 markdown：标题 + 每项目「项目名 / 周报数据 / 详情大屏深链 / 截图」。
+
+    blocks：[(项目名, 周报短说明, 截图 png, 项目周屏深链)]，按传入顺序展示。
+    标题不做关键词追加（OpenAPI 群发无关键词限制）。
+    """
+    parts = [f"### {title or '项目测试周报'}", ""]
+    for label, brief, data, link in blocks:
+        media_id = await upload_image_media(
+            data, filename=DINGTALK_WEEKLY_SCREENSHOT_FILENAME
+        )
+        # 每段之间必须空行：钉钉 sampleMarkdown 会折叠换行，
+        # 不空行会把链接/图片挤进上一段导致 markdown 失效（图片变明文）
+        # markdown 链接形式：钉钉完整保留 URL 参数（明文 URL 含 & 会被截断）
+        block = ["", f"**{label}**", "", (brief or "").strip()]
+        if (link or "").strip():
+            # 先截图后链接：大屏截图在上，「详情大屏」深链收尾
+            block.extend(["", f"![]({media_id})", "", f"**详情大屏**：[点此打开]({link.strip()})"])
+        else:
+            block.extend(["", f"![]({media_id})"])
+        parts.extend(block)
+    text = "\n".join(parts)
+    return await send_openapi_group_message(
+        msg_key=DINGTALK_OPENAPI_MARKDOWN_MSG_KEY,
+        msg_param={"title": title or "项目测试周报", "text": text},
     )
 
 

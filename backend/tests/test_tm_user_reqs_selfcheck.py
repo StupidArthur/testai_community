@@ -7,12 +7,14 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 
 from app.platform.database import SessionLocal
 from app.test_manage.config import now_tm
 from app.test_manage.models import TmAction
+from app.test_manage.service import inherit_open_actions_to_new_week
 from app.test_manage.week import (
     current_week_start,
     week_end as week_end_fn,
@@ -58,6 +60,7 @@ def _seed_task(client, mgr_headers, pid, did, lead_id, title="Req-Task"):
             "domain_id": did,
             "title": title,
             "requirement": "需求",
+            "module": "默认模块",
             "lead_id": lead_id,
             "tester_ids": [],
             "publish": True,
@@ -199,7 +202,8 @@ def test_3_action_lineage_weeks_count(client, mgr_headers, eng_headers):
         headers=eng_headers,
     )
 
-    # 把源 Action 挪到「上周」才能出现在 clone-candidates / 模拟跨周
+    # 把源 Action 挪到「上周」，再走「切周自动继承」带入新周
+    # （clone 接口已下线：未完成 Action 由开新周时自动继承，无需手动克隆）
     db = SessionLocal()
     try:
         row = db.query(TmAction).filter(TmAction.id == src_id).one()
@@ -208,20 +212,32 @@ def test_3_action_lineage_weeks_count(client, mgr_headers, eng_headers):
         row.week_key = week_key_fn(prev_start)
         row.due_at = prev_start + timedelta(days=7)
         db.commit()
+
+        prev_period = SimpleNamespace(week_key=week_key_fn(prev_start))
+        new_start = prev_start + timedelta(days=7)
+        new_period = SimpleNamespace(
+            week_key=week_key_fn(new_start),
+            week_start=new_start,
+            week_end=new_start + timedelta(days=7),
+        )
+        created = inherit_open_actions_to_new_week(db, prev_period, new_period)
+        # 共享测试库中「上周」可能残留其他用例的 published Action，只要求本源被继承
+        assert created >= 1, "上周未完成 Action 应被自动继承"
+        db.commit()
+
+        child = (
+            db.query(TmAction)
+            .filter(TmAction.source_action_id == src_id)
+            .one()
+        )
+        child_id = child.id
+        assert child.status == "published"
+        assert child.initial_progress == 40  # 进度承接
     finally:
         db.close()
 
-    r = client.post(
-        f"/api/test-manage/actions/{src_id}/clone",
-        json={"publish": False},
-        headers=eng_headers,
-    )
-    assert r.status_code == 201, r.text
-    cloned = r.json()
-    assert cloned["source_action_id"] == src_id
-
     r = client.get(
-        f"/api/test-manage/actions/{cloned['id']}/lineage",
+        f"/api/test-manage/actions/{child_id}/lineage",
         headers=mgr_headers,
     )
     assert r.status_code == 200, r.text
@@ -229,6 +245,6 @@ def test_3_action_lineage_weeks_count(client, mgr_headers, eng_headers):
     assert lin["weeks_count"] == 2
     assert len(lin["segments"]) == 2
     assert any(s["action_id"] == src_id for s in lin["segments"])
-    assert any(s["action_id"] == cloned["id"] and s["is_current"] for s in lin["segments"])
+    assert any(s["action_id"] == child_id and s["is_current"] for s in lin["segments"])
     risks = [rsk for s in lin["segments"] for rsk in (s.get("risks") or [])]
     assert "环境不稳" in risks

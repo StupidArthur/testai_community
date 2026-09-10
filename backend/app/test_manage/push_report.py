@@ -257,13 +257,16 @@ def collect_open_risks(
     *,
     week_start: datetime | None = None,
     week_key_s: str | None = None,
+    project_id: str | None = None,
 ) -> dict[str, OpenRisk]:
     """
     全项目：汇报周「进行中」Action 中，最新日更勾选「是否阻塞」的条目。
 
     优先 week_key_s（与看板活动周一致）；已完成 / 已取消 / 草稿不计入开放阻塞。
     """
-    snap = collect_week_risk_snapshot(db, week_start=week_start, week_key_s=week_key_s)
+    snap = collect_week_risk_snapshot(
+        db, week_start=week_start, week_key_s=week_key_s, project_id=project_id
+    )
     return {r.action_id: r for r in snap.blocking}
 
 
@@ -304,23 +307,23 @@ def collect_week_risk_snapshot(
     *,
     week_start: datetime | None = None,
     week_key_s: str | None = None,
+    project_id: str | None = None,
 ) -> WeekRiskSnapshot:
     """
     汇报周进行中 Action：拆成「开放阻塞」与「有风险未勾阻塞」。
+
+    project_id 仅统计该项目（按 Task.project_id 过滤）；None = 全项目。
     """
     _ws, _we, key = _resolve_report_week(db, week_start=week_start, week_key_s=week_key_s)
-    actions = (
-        db.query(TmAction)
-        .options(
-            joinedload(TmAction.daily_updates),
-            joinedload(TmAction.task)
-            .joinedload(TmTask.domain)
-            .joinedload(TmDomain.project),
-        )
-        .filter(TmAction.week_key == key)
-        .filter(TmAction.status == STATUS_PUBLISHED)
-        .all()
-    )
+    q = db.query(TmAction).options(
+        joinedload(TmAction.daily_updates),
+        joinedload(TmAction.task)
+        .joinedload(TmTask.domain)
+        .joinedload(TmDomain.project),
+    ).filter(TmAction.week_key == key).filter(TmAction.status == STATUS_PUBLISHED)
+    if project_id:
+        q = q.join(TmAction.task).filter(TmTask.project_id == project_id)
+    actions = q.all()
     owner_ids = {a.owner_id for a in actions}
     names = _user_name_map(db, owner_ids)
     blocking: list[OpenRisk] = []
@@ -373,6 +376,7 @@ def compute_matched_task_progress_delta(
     *,
     this_week_key: str,
     last_week_key: str | None,
+    project_id: str | None = None,
 ) -> tuple[int | None, int]:
     """
     跨周可比 Task 的进度变化均值。
@@ -388,8 +392,12 @@ def compute_matched_task_progress_delta(
     """
     if not last_week_key:
         return None, 0
-    this_rows = collect_task_progress_rows(db, week_key_s=this_week_key)
-    last_rows = collect_task_progress_rows(db, week_key_s=last_week_key)
+    this_rows = collect_task_progress_rows(
+        db, week_key_s=this_week_key, project_id=project_id
+    )
+    last_rows = collect_task_progress_rows(
+        db, week_key_s=last_week_key, project_id=project_id
+    )
     last_by_id = {r.task_id: r.progress_avg for r in last_rows}
     deltas: list[int] = []
     for row in this_rows:
@@ -638,21 +646,19 @@ def collect_task_progress_rows(
     *,
     week_start: datetime | None = None,
     week_key_s: str | None = None,
+    project_id: str | None = None,
 ) -> list[TaskProgressRow]:
-    """周报专用：本周有 Action 的 Task 汇总（Task 粒度）。"""
+    """周报专用：本周有 Action 的 Task 汇总（Task 粒度）；project_id 过滤项目。"""
     _ws, _we, key = _resolve_report_week(db, week_start=week_start, week_key_s=week_key_s)
-    actions = (
-        db.query(TmAction)
-        .options(
-            joinedload(TmAction.daily_updates),
-            joinedload(TmAction.task)
-            .joinedload(TmTask.domain)
-            .joinedload(TmDomain.project),
-        )
-        .filter(TmAction.week_key == key)
-        .filter(TmAction.status != STATUS_CANCELLED)
-        .all()
-    )
+    q = db.query(TmAction).options(
+        joinedload(TmAction.daily_updates),
+        joinedload(TmAction.task)
+        .joinedload(TmTask.domain)
+        .joinedload(TmDomain.project),
+    ).filter(TmAction.week_key == key).filter(TmAction.status != STATUS_CANCELLED)
+    if project_id:
+        q = q.join(TmAction.task).filter(TmTask.project_id == project_id)
+    actions = q.all()
     by_task: dict[str, list[TmAction]] = {}
     for a in actions:
         by_task.setdefault(a.task_id, []).append(a)
@@ -802,15 +808,9 @@ def _fmt_dt(dt: datetime) -> str:
     return dt.strftime("%m-%d %H:%M")
 
 
-def _fmt_day(d: date | datetime) -> str:
-    if isinstance(d, datetime):
-        return d.strftime("%m-%d")
-    return d.strftime("%m-%d")
-
-
 def daily_report_heading(today: date) -> str:
-    """日报钉钉标题 / 正文首行：【TPT测试日报-MM-DD】。"""
-    return f"【TPT测试日报-{_fmt_day(today)}】"
+    """日报钉钉大标题：项目测试日报。"""
+    return "项目测试日报"
 
 
 def weekly_report_heading() -> str:
@@ -2158,8 +2158,9 @@ def _format_daily_action_skeleton(lines: list[TodayActionLine]) -> list[str]:
         note_bit = (
             f"　{_font('comment', _brief_text(row.note, 10))}" if row.note else ""
         )
+        # 空关联统一显示「未关联」（关联可空）
         subtask_bit = (
-            f"{_font('comment', _clip(row.subtask_name, 20))} " if row.subtask_name else ""
+            f"{_font('comment', _clip(row.subtask_name or '未关联', 20))} "
         )
         parts.append(
             f"- {subtask_bit}{_font('text', _clip(row.action_title, 26))} {prog}{note_bit}"
@@ -2182,8 +2183,9 @@ def _format_daily_risk_skeleton(diff: RiskDiff) -> list[str]:
     for r in open_rows:
         risk_txt = _brief_text(r.risk, 40) or (r.risk or "").strip()
         domain = (r.domain_name or "—").strip() or "—"
+        # 空关联统一显示「未关联」（关联可空）
         subtask_bit = (
-            f"{_font('comment', _clip(r.subtask_name, 16))} " if r.subtask_name else ""
+            f"{_font('comment', _clip(r.subtask_name or '未关联', 16))} "
         )
         parts.append(
             f"- {_font('domain', f'[{domain}]')} "

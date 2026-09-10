@@ -112,6 +112,7 @@ def _seed_task(client, mgr_headers, project_id, domain_id, lead_id, tester_ids=N
             "domain_id": domain_id,
             "title": title,
             "requirement": "需求正文",
+            "module": "默认模块",
             "lead_id": lead_id,
             "tester_ids": tester_ids or [],
             "publish": True,
@@ -236,6 +237,7 @@ def test_eng_cannot_create_task_but_lead_can_update(
             "project_id": pid,
             "domain_id": did,
             "title": "T",
+            "module": "默认模块",
             "lead_id": users["eng_test"]["id"],
             "publish": True,
         },
@@ -275,13 +277,14 @@ def test_action_draft_edit_then_publish_locks(
     pid, did = _seed_project_domain(client, mgr_headers, "P-act")
     task = _seed_task(client, mgr_headers, pid, did, users["eng_test"]["id"])
 
-    # 无关人不能建 Action
+    # 创建权限已放开：所有角色（含无关工程师）可建 Action
     r = client.post(
         "/api/test-manage/actions",
         json={"task_id": task["id"], "title": "偷建", "subtask_name": DEFAULT_SUBTASK_NAME, "publish": False},
         headers=eng2_headers,
     )
-    assert r.status_code == 403
+    assert r.status_code == 201, r.text
+    assert r.json()["status"] == "draft"
 
     # 负责人建草稿
     r = client.post(
@@ -416,42 +419,19 @@ def test_daily_update_permissions_and_progress_avg(
     assert (r.json()["latest_risk"] or "") == ""
 
 
-def test_action_owner_must_be_task_participant(client, mgr_headers, eng_headers, eng2_headers):
-    """A1：owner 必须是 lead 或 tester；B1：非 owner 的 Task lead 不可代写日更。"""
+def test_action_owner_can_be_any_user(client, mgr_headers, eng_headers, eng2_headers):
+    """A1（已放宽）：owner 可为任意用户；B1：非 owner 的 Task lead 不可代写日更。"""
     users = _users(client, mgr_headers)
     client.get("/api/test-manage/week", headers=eng2_headers)
     users = _users(client, mgr_headers)
     pid, did = _seed_project_domain(client, mgr_headers, "P-owner-cand")
     task = _seed_task(client, mgr_headers, pid, did, users["eng_test"]["id"])
-    # eng_other 不在参与者中
+    # eng_other 不在参与者中，但按新规则允许作为 owner
     r = client.post(
         "/api/test-manage/actions",
         json={
             "task_id": task["id"],
-            "title": "非法负责人",
-            "subtask_name": DEFAULT_SUBTASK_NAME,
-            "owner_id": users["eng_other"]["id"],
-            "publish": False,
-        },
-        headers=eng_headers,
-    )
-    assert r.status_code == 400, r.text
-
-    # 合法：tester 可作为 owner
-    task2 = _seed_task(
-        client,
-        mgr_headers,
-        pid,
-        did,
-        users["eng_test"]["id"],
-        tester_ids=[users["eng_other"]["id"]],
-        title="Task-cand-ok",
-    )
-    r = client.post(
-        "/api/test-manage/actions",
-        json={
-            "task_id": task2["id"],
-            "title": "合法负责人",
+            "title": "非参与者负责人",
             "subtask_name": DEFAULT_SUBTASK_NAME,
             "owner_id": users["eng_other"]["id"],
             "publish": True,
@@ -556,6 +536,83 @@ def test_board_week_task_aggregation_and_project_filter(
     ids = {t["task"]["id"] for t in r.json()["tasks"]}
     assert t1["id"] in ids
     assert t2["id"] not in ids
+
+
+# ── Task 需求属性扩展字段（SR编号/子类/优先级/验证等） ────────
+
+
+def test_task_ext_fields_create_and_update(client, mgr_headers):
+    """全字段创建 → 响应回显；更新单字段 → 生效。"""
+    users = _users(client, mgr_headers)
+    pid, did = _seed_project_domain(client, mgr_headers, "P-ext-fields")
+    lead = users["eng_test"]["id"]
+    verifier = users["eng_other"]["id"]
+
+    r = client.post(
+        "/api/test-manage/tasks",
+        json={
+            "project_id": pid,
+            "domain_id": did,
+            "title": "SR-TPT-X 智能问数",
+            "requirement": "问数接入预测数据",
+            "sr_code": "SR-TPT-00099",
+            "ir_codes": "IR-TPT-00001，IR-TPT-00004",
+            "module": "数据中心",
+            "req_type": "功能",
+            "priority": "高",
+            "change_flag": "原始",
+            "acceptance_criteria": "验收通过标准A",
+            "verifier_id": verifier,
+            "verify_result": "通过",
+            "remark": "来自Excel导入",
+            "lead_id": lead,
+            "publish": True,
+        },
+        headers=mgr_headers,
+    )
+    assert r.status_code == 201, r.text
+    t = r.json()
+    assert t["sr_code"] == "SR-TPT-00099"
+    assert t["ir_codes"] == "IR-TPT-00001，IR-TPT-00004"
+    assert t["module"] == "数据中心"
+    assert t["req_type"] == "功能"
+    assert t["priority"] == "高"
+    assert t["change_flag"] == "原始"
+    assert t["acceptance_criteria"] == "验收通过标准A"
+    assert t["verifier_id"] == verifier
+    assert t["verify_result"] == "通过"
+    assert t["remark"] == "来自Excel导入"
+
+    # 更新单字段
+    r = client.patch(
+        f"/api/test-manage/tasks/{t['id']}",
+        json={"priority": "中", "verify_result": "不通过"},
+        headers=mgr_headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["priority"] == "中"
+    assert r.json()["verify_result"] == "不通过"
+    # 未更新字段保持不变
+    assert r.json()["sr_code"] == "SR-TPT-00099"
+
+
+def test_task_module_required(client, mgr_headers):
+    """module 必填：缺失 → 422。"""
+    users = _users(client, mgr_headers)
+    pid, did = _seed_project_domain(client, mgr_headers, "P-module-req")
+    r = client.post(
+        "/api/test-manage/tasks",
+        json={
+            "project_id": pid,
+            "domain_id": did,
+            "title": "无子类任务",
+            "requirement": "缺 module 应被拒绝",
+            "lead_id": users["eng_test"]["id"],
+            "publish": False,
+        },
+        headers=mgr_headers,
+    )
+    assert r.status_code == 422, r.text
 
 
 def test_mine_lists_only_owned_actions(client, mgr_headers, eng_headers, eng2_headers):
@@ -691,3 +748,90 @@ def test_end_to_end_happy_path(client, mgr_headers, eng_headers, auth_headers):
     hit = next(t for t in r.json()["tasks"] if t["task"]["id"] == task["id"])
     assert hit["week_progress_avg"] == 70
     assert any(a["id"] == aid for a in hit["actions"])
+
+
+# ── 子需求移动（跨 Task，Action 随迁） ────────────────────────
+
+
+def _subtasks_of(client, headers, task_id):
+    r = client.get(f"/api/test-manage/tasks/{task_id}", headers=headers)
+    assert r.status_code == 200, r.text
+    return r.json()["subtasks"]
+
+
+def _move_subtask(client, headers, task_id, sid, target_task_id):
+    return client.post(
+        f"/api/test-manage/tasks/{task_id}/subtasks/{sid}/move",
+        json={"target_task_id": target_task_id},
+        headers=headers,
+    )
+
+
+def test_subtask_move_migrates_actions(client, mgr_headers):
+    """移动成功：源侧软删、目标侧新增、关联 Action 全部随迁。"""
+    users = _users(client, mgr_headers)
+    pid, did = _seed_project_domain(client, mgr_headers, "P-move")
+    src = _seed_task(client, mgr_headers, pid, did, users["eng_test"]["id"], title="Move-Src")
+    dst = _seed_task(client, mgr_headers, pid, did, users["eng_test"]["id"], title="Move-Dst")
+    _seed_subtask(client, mgr_headers, src["id"], "待移动子需求", "内容A")
+    r = client.post(
+        "/api/test-manage/actions",
+        json={
+            "task_id": src["id"],
+            "title": "Move-Action",
+            "subtask_name": "待移动子需求",
+            "owner_id": users["eng_test"]["id"],
+            "publish": True,
+        },
+        headers=mgr_headers,
+    )
+    assert r.status_code == 201, r.text
+    action_id = r.json()["id"]
+
+    rows = _subtasks_of(client, mgr_headers, src["id"])
+    sid = next(x["sid"] for x in rows if x["name"] == "待移动子需求")
+    r = _move_subtask(client, mgr_headers, src["id"], sid, dst["id"])
+    assert r.status_code == 200, r.text
+
+    src_names = [x["name"] for x in _subtasks_of(client, mgr_headers, src["id"])]
+    assert "待移动子需求" not in src_names
+    assert DEFAULT_SUBTASK_NAME in src_names
+    dst_names = [x["name"] for x in _subtasks_of(client, mgr_headers, dst["id"])]
+    assert "待移动子需求" in dst_names
+    # Action 随迁到目标 Task
+    r = client.get(f"/api/test-manage/actions/{action_id}", headers=mgr_headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["task_id"] == dst["id"]
+
+
+def test_subtask_move_rejections(client, mgr_headers, eng2_headers):
+    """移动校验：目标为自身 / 跨项目 / 目标重名 → 400；所有角色可创建并移动子需求。"""
+    users = _users(client, mgr_headers)
+    pid, did = _seed_project_domain(client, mgr_headers, "P-move-bad")
+    src = _seed_task(client, mgr_headers, pid, did, users["eng_test"]["id"], title="MoveBad-Src")
+    dst = _seed_task(client, mgr_headers, pid, did, users["eng_test"]["id"], title="MoveBad-Dst")
+    sid = _subtasks_of(client, mgr_headers, src["id"])[0]["sid"]
+
+    # 目标为自身
+    assert _move_subtask(client, mgr_headers, src["id"], sid, src["id"]).status_code == 400
+
+    # 跨项目
+    pid2, did2 = _seed_project_domain(client, mgr_headers, "P-move-bad2")
+    other = _seed_task(client, mgr_headers, pid2, did2, users["eng_test"]["id"], title="MoveBad-Other")
+    assert _move_subtask(client, mgr_headers, src["id"], sid, other["id"]).status_code == 400
+
+    # 目标重名（dst 已有同名默认子需求）
+    assert _move_subtask(client, mgr_headers, src["id"], sid, dst["id"]).status_code == 400
+
+    # 权限已放开：无关工程师也可创建并移动子需求（唯一命名避开重名校验）
+    _seed_subtask(client, eng2_headers, src["id"], "Eng2可移动子需求", "内容")
+    sid2 = next(
+        x["sid"]
+        for x in _subtasks_of(client, mgr_headers, src["id"])
+        if x["name"] == "Eng2可移动子需求"
+    )
+    r = _move_subtask(client, eng2_headers, src["id"], sid2, dst["id"])
+    assert r.status_code == 200, r.text
+    assert "Eng2可移动子需求" in [
+        x["name"] for x in _subtasks_of(client, mgr_headers, dst["id"])
+    ]

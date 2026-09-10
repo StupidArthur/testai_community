@@ -113,12 +113,12 @@ describe('taskParticipantUsers A1', () => {
     { id: 2, username: 't1', real_name: 'T1' },
     { id: 3, username: 'x', real_name: 'X' },
   ]
-  it('仅 lead+testers', () => {
+  it('返回全部用户（已取消限制）', () => {
     const got = taskParticipantUsers({ lead_id: 1, tester_ids: [2] }, users)
-    expect(got.map((u) => u.id).sort()).toEqual([1, 2])
+    expect(got.map((u) => u.id).sort()).toEqual([1, 2, 3])
   })
-  it('task 空 → []', () => {
-    expect(taskParticipantUsers(null, users)).toEqual([])
+  it('忽略第一个参数，始终返回全部用户', () => {
+    expect(taskParticipantUsers(null, users).map((u) => u.id).sort()).toEqual([1, 2, 3])
   })
 })
 
@@ -140,7 +140,7 @@ describe('emptyActionDescription', () => {
   it('三种文案', () => {
     expect(emptyActionDescription({ readOnly: true, canAddAction: true })).toContain('该周无')
     expect(emptyActionDescription({ readOnly: false, canAddAction: true })).toContain('+ Action')
-    expect(emptyActionDescription({ readOnly: false, canAddAction: false })).toContain('已完成')
+    expect(emptyActionDescription({ readOnly: false, canAddAction: false })).toContain('不在测试中')
   })
 })
 

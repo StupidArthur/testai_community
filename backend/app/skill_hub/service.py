@@ -427,7 +427,7 @@ async def run_skill_debug(
         logging.getLogger("app.skill_hub").warning("skill debug LLM failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="LLM 调试调用失败，请检查 MINIMAX_API_KEY 或稍后重试",
+            detail="LLM 调试调用失败，请检查 LLM_GATEWAY_URL 或稍后重试",
         ) from exc
 
     return resolved, output
@@ -467,7 +467,7 @@ async def run_skill_by_name(
         logging.getLogger("app.skill_hub").warning("skill invoke LLM failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="LLM 调用失败，请检查 MINIMAX_API_KEY 或稍后重试",
+            detail="LLM 调用失败，请检查 LLM_GATEWAY_URL 或稍后重试",
         ) from exc
     return resolved, output
 

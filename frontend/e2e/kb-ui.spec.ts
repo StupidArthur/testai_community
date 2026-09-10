@@ -37,7 +37,7 @@ test.describe('KB UI E2E', () => {
   })
 
   test('02 Admin 登录 → 导航进入知识库 Hub', async ({ page }) => {
-    await login(page, 'admin', 'admin')
+    await login(page, 'admin')
     await goKnowledgeBase(page)
     await expect(page.getByRole('heading', { name: '知识库' })).toBeVisible()
     await expect(page.getByRole('tab', { name: '知识问答' })).toBeVisible()
@@ -45,7 +45,7 @@ test.describe('KB UI E2E', () => {
   })
 
   test('03 知识问答空库提示 + 发送禁用', async ({ page }) => {
-    await login(page, 'admin', 'admin')
+    await login(page, 'admin')
     await goKnowledgeBase(page)
     await page.getByRole('tab', { name: '知识问答' }).click()
     await expect(page.getByTestId('kb-chat-panel')).toBeVisible()
@@ -63,7 +63,7 @@ test.describe('KB UI E2E', () => {
   })
 
   test('04 清洗入库：打开新建弹窗并校验必填', async ({ page }) => {
-    await login(page, 'admin', 'admin')
+    await login(page, 'admin')
     await goKnowledgeBase(page)
     await openCleanTab(page)
     await page.getByTestId('kb-clean-new').click()
@@ -78,7 +78,7 @@ test.describe('KB UI E2E', () => {
   })
 
   test('05 清洗入库：上传样例 md 并进入审核页', async ({ page }) => {
-    await login(page, 'admin', 'admin')
+    await login(page, 'admin')
     await goKnowledgeBase(page)
     await openCleanTab(page)
     await page.getByTestId('kb-clean-new').click()
@@ -104,7 +104,7 @@ test.describe('KB UI E2E', () => {
 
   test('06 审核页：等待处理结束（pending_review / failed / approved）', async ({ page }) => {
     test.setTimeout(300_000)
-    await login(page, 'admin', 'admin')
+    await login(page, 'admin')
     await goKnowledgeBase(page)
     await openCleanTab(page)
 
@@ -150,7 +150,7 @@ test.describe('KB UI E2E', () => {
 
   test('07 若可批准则入库，并回到问答尝试提问', async ({ page }) => {
     test.setTimeout(360_000)
-    await login(page, 'admin', 'admin')
+    await login(page, 'admin')
     await goKnowledgeBase(page)
     await openCleanTab(page)
     const row = page.locator('.ant-table-row').filter({ hasText: FILENAME }).first()
@@ -193,7 +193,7 @@ test.describe('KB UI E2E', () => {
   })
 
   test('08 清洗 Tab 不再暴露锚点词典入口', async ({ page }) => {
-    await login(page, 'admin', 'admin')
+    await login(page, 'admin')
     await goKnowledgeBase(page)
     await openCleanTab(page)
     await expect(page.getByTestId('kb-clean-new')).toBeVisible()

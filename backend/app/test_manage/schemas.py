@@ -59,17 +59,28 @@ class UserBrief(BaseModel):
 class SubtaskCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     content: str = Field(default="", max_length=TASK_REQUIREMENT_MAX_CHARS)
+    # 开发 / 产品人员（自由文本，多个）
+    dev_members: list[str] = Field(default_factory=list)
+    pm_members: list[str] = Field(default_factory=list)
 
 
 class SubtaskUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     content: str | None = Field(default=None, max_length=TASK_REQUIREMENT_MAX_CHARS)
+    dev_members: list[str] | None = None
+    pm_members: list[str] | None = None
+
+
+class SubtaskMoveRequest(BaseModel):
+    target_task_id: str
 
 
 class SubtaskOut(BaseModel):
     sid: str
     name: str
     content: str = ""
+    dev_members: list[str] = Field(default_factory=list)
+    pm_members: list[str] = Field(default_factory=list)
 
 
 class TaskCreate(BaseModel):
@@ -77,10 +88,26 @@ class TaskCreate(BaseModel):
     domain_id: str
     title: str = Field(..., min_length=1, max_length=300)
     requirement: str = Field(default="", max_length=TASK_REQUIREMENT_MAX_CHARS)
+    # 系统需求编号
+    sr_code: str = Field(default="", max_length=64)
+    # 关联初始需求编号（逗号分隔）
+    ir_codes: str = Field(default="", max_length=256)
+    # 子类/模块（必填）
+    module: str = Field(..., min_length=1, max_length=100)
+    req_type: str = Field(default="", max_length=32)
+    priority: str = Field(default="", max_length=16)
+    change_flag: str = Field(default="", max_length=32)
+    acceptance_criteria: str = Field(default="", max_length=4000)
+    verifier_id: int | None = None
+    verified_at: date | None = None
+    verify_result: str = Field(default="", max_length=16)
+    remark: str = Field(default="", max_length=4000)
     # 初始子需求明细（建 Task 时一次录入；后续走 subtask 管理接口）
     subtasks: list[SubtaskCreate] = Field(default_factory=list)
+    # 开发 / 产品人员（自由文本，多个）
+    dev_members: list[str] = Field(default_factory=list)
+    pm_members: list[str] = Field(default_factory=list)
     lead_id: int
-    tester_ids: list[int] = Field(default_factory=list)
     publish: bool = False
     req_stage: str | None = None
     expected_handover_at: date | None = None
@@ -93,10 +120,22 @@ class TaskCreate(BaseModel):
 class TaskUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=300)
     requirement: str | None = Field(default=None, max_length=TASK_REQUIREMENT_MAX_CHARS)
+    sr_code: str | None = Field(default=None, max_length=64)
+    ir_codes: str | None = Field(default=None, max_length=256)
+    module: str | None = Field(default=None, min_length=1, max_length=100)
+    req_type: str | None = Field(default=None, max_length=32)
+    priority: str | None = Field(default=None, max_length=16)
+    change_flag: str | None = Field(default=None, max_length=32)
+    acceptance_criteria: str | None = Field(default=None, max_length=4000)
+    verifier_id: int | None = None
+    verified_at: date | None = None
+    verify_result: str | None = Field(default=None, max_length=16)
+    remark: str | None = Field(default=None, max_length=4000)
     lead_id: int | None = None
-    tester_ids: list[int] | None = None
     status: str | None = None  # 测试状态
     change_summary: str = ""  # 发布后更新时的变更说明
+    dev_members: list[str] | None = None
+    pm_members: list[str] | None = None
     req_stage: str | None = None
     expected_handover_at: date | None = None
     actual_handover_at: date | None = None
@@ -121,9 +160,22 @@ class TaskOut(BaseModel):
     domain_id: str
     title: str
     requirement: str
+    sr_code: str = ""
+    ir_codes: str = ""
+    module: str = ""
+    req_type: str = ""
+    priority: str = ""
+    change_flag: str = ""
+    acceptance_criteria: str = ""
+    verifier_id: int | None = None
+    verified_at: date | None = None
+    verify_result: str = ""
+    remark: str = ""
     subtasks: list[SubtaskOut] = Field(default_factory=list)
+    dev_members: list[str] = Field(default_factory=list)
+    pm_members: list[str] = Field(default_factory=list)
     lead_id: int
-    tester_ids: list[int]
+    tester_ids: list[int] = Field(default_factory=list)
     status: str
     req_stage: str = "pending_dev"
     expected_handover_at: date | None = None
@@ -142,6 +194,8 @@ class TaskOut(BaseModel):
     can_edit_req_stage: bool = False
     # 测试中时可新建 / 复制本周 Action
     can_add_action: bool = False
+    # 子需求 / Action 管理入口（宽松模式全员；严格模式 Admin/Manager/Task 负责人）
+    can_manage_children: bool = False
     # 合并展示状态（req_stage + status 计算得出）：待开发/开发中/待提测/待测试/测试中-进行中/测试中-已完成/已完成
     display_status: str = ""
     display_status_label: str = ""
@@ -156,11 +210,14 @@ class TaskDetailOut(TaskOut):
 class ActionCreate(BaseModel):
     task_id: str
     title: str = Field(..., min_length=1, max_length=300)
-    # 关联子需求名称（必填；须为该 Task 未删除的 subtask 之一）
-    subtask_name: str = Field(..., min_length=1, max_length=200)
+    # 关联子需求名称（可空 = 未关联；非空时须为该 Task 未删除的 subtask 之一）
+    subtask_name: str = Field(default="", max_length=200)
     owner_id: int | None = None  # 默认 Task 负责人
     test_content: str = Field(default="", max_length=ACTION_TEST_CONTENT_MAX_CHARS)
     environment: str = Field(default="", max_length=ACTION_ENVIRONMENT_MAX_CHARS)
+    # 开发 / 产品人员（自由文本，多个）
+    dev_members: list[str] = Field(default_factory=list)
+    pm_members: list[str] = Field(default_factory=list)
     publish: bool = False
 
 
@@ -168,10 +225,13 @@ class ActionUpdate(BaseModel):
     """仅草稿可改字段；status 仅允许发布/完成（不支持取消）。"""
 
     title: str | None = Field(default=None, min_length=1, max_length=300)
-    subtask_name: str | None = Field(default=None, min_length=1, max_length=200)
+    # 可空 = 清除关联（未关联）；非空时须为该 Task 未删除的 subtask 之一
+    subtask_name: str | None = Field(default=None, max_length=200)
     owner_id: int | None = None
     test_content: str | None = Field(default=None, max_length=ACTION_TEST_CONTENT_MAX_CHARS)
     environment: str | None = Field(default=None, max_length=ACTION_ENVIRONMENT_MAX_CHARS)
+    dev_members: list[str] | None = None
+    pm_members: list[str] | None = None
     status: str | None = None
 
 
@@ -222,9 +282,14 @@ class ActionOut(BaseModel):
     title: str
     subtask_name: str = ""
     owner_id: int
+    # 开发 / 产品人员（自由文本，多个）
+    dev_members: list[str] = Field(default_factory=list)
+    pm_members: list[str] = Field(default_factory=list)
     test_content: str
     environment: str
     status: str
+    # 完成时间（仅 done 状态有值）
+    completed_at: datetime | None = None
     source_action_id: str | None
     # 周继承带入的起始进度（无日更时的当前进度；周报增量 = 当前 - 起始）
     initial_progress: int = 0
@@ -248,6 +313,15 @@ class ActionOut(BaseModel):
     can_mark_done: bool = False
     can_daily: bool = False
     can_correct: bool = False
+    # 负责人更改入口（发布后 Admin/Manager 或 Task 负责人可改派并留痕）
+    can_change_owner: bool = False
+    # 开发/产品人员编辑入口（宽松模式全员；严格模式 Admin/Manager/Task 负责人）
+    can_edit_members: bool = False
+    # 关联修正入口（发布后 Admin/Manager 或 Task 负责人可改关联并留痕，可清空为未关联）
+    can_relink: bool = False
+    # 数据删除入口（宽松模式）：删 Action / 删指定日期日报
+    can_delete: bool = False
+    can_delete_daily: bool = False
 
     model_config = {"from_attributes": True}
 

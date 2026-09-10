@@ -20,39 +20,33 @@
 .tm-sheet__stack {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-}
-
-.tm-sheet__summary {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--color-bg) 92%, #64748b 8%);
-}
-
-.tm-sheet__summary-top {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
   gap: 8px;
 }
 
-.tm-sheet__task {
-  font-size: var(--tm-sheet-body);
-  color: var(--tm-sheet-text-soft);
-  line-height: 1.35;
+.tm-sheet__head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.tm-sheet__meta-row {
+.tm-sheet__head-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--tm-sheet-body);
+  line-height: 1.4;
+}
+
+.tm-sheet__head-task {
+  font-weight: 600;
+  color: var(--tm-sheet-text);
+}
+
+.tm-sheet__head-meta {
   font-size: var(--tm-sheet-meta);
   color: var(--tm-sheet-muted);
-  line-height: 1.35;
-}
-
-.tm-sheet__progress {
-  margin: 2px 0 0 !important;
+  line-height: 1.4;
 }
 
 .tm-sheet__tip {
@@ -73,12 +67,43 @@
 .tm-sheet__section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-top: 12px;
+  gap: 6px;
+  padding-top: 8px;
   border-top: 1px solid color-mix(in srgb, var(--color-border) 85%, transparent);
 }
 
-.tm-sheet__section:first-child {
+/* 表单提交按钮行：右对齐小按钮 */
+.tm-sheet__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+/* 行内表单：输入控件与提交按钮同行 */
+.tm-sheet__inline {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.tm-sheet__inline > .ant-form-item {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+/* showCount 字数统计改为占流内空间（antd 默认悬浮在控件外下方），避免被按钮/下一行遮挡 */
+.tm-sheet__form .ant-input-textarea .ant-input-data-count {
+  position: static;
+  display: block;
+  text-align: right;
+  line-height: 20px;
+}
+
+.tm-sheet__section:first-child,
+.tm-sheet__head + .tm-sheet__section,
+.tm-sheet__head + .tm-sheet__tip + .tm-sheet__section,
+.tm-sheet__head + .ant-collapse {
   padding-top: 0;
   border-top: none;
 }
@@ -194,14 +219,31 @@
   background: transparent;
 }
 
-.tm-sheet__lineage .ant-collapse-header {
-  padding: 4px 0 !important;
+.tm-sheet__lineage .ant-collapse-header,
+.tm-sheet__details .ant-collapse-header {
+  padding: 2px 0 !important;
   font-size: var(--tm-sheet-meta) !important;
   color: var(--tm-sheet-muted) !important;
 }
 
-.tm-sheet__lineage .ant-collapse-content-box {
-  padding: 8px 0 0 !important;
+.tm-sheet__lineage .ant-collapse-content-box,
+.tm-sheet__details .ant-collapse-content-box {
+  padding: 6px 0 0 !important;
+}
+
+.tm-sheet__details .ant-collapse {
+  background: transparent;
+}
+
+.tm-sheet__daily-log {
+  gap: 4px;
+}
+
+.tm-sheet__risk-note {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: var(--tm-sheet-meta);
 }
 
 .tm-lineage-timeline.ant-timeline {

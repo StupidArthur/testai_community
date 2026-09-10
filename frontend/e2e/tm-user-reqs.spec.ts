@@ -52,7 +52,7 @@ test.describe(`TM 三点需求 UI ${RUN}`, () => {
 
   test('02 Engineer：同样只有截止提示，无设置控件', async ({ page }) => {
     const engUser = `e2e_eng_${RUN}`
-    await login(page, 'admin', 'admin')
+    await login(page, 'admin')
     await page.goto('/admin')
     await expect(page.getByText('管理员面板')).toBeVisible()
     if (!(await page.getByRole('cell', { name: engUser, exact: true }).count())) {
@@ -100,7 +100,7 @@ test.describe(`TM 三点需求 UI ${RUN}`, () => {
     const card = await boardTaskByTitle(page, names.task)
     // Action 必须关联子需求：先在 inline 表单中创建
     await addSubtaskViaInline(page, card, names.subtask)
-    await setTaskReqStage(page, card, '测试中')
+    await setTaskReqStage(page, card, '测试中-进行中')
     const cardReady = await boardTaskByTitle(page, names.task)
     await cardReady.getByTestId('tm-btn-add-action').click()
     await expect(page.getByTestId('tm-inline-add-action')).toBeVisible()

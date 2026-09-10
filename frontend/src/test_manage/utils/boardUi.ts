@@ -3,7 +3,7 @@
  *
  * 与后端口径对齐：
  * - 空卡标红：当前周 + 0 Action + Task 仍可加 Action
- * - A1 参与者：lead + testers
+ * - A1 参与者：lead（已取消 testers 限制）
  * - done Task 不显示 +Action
  * - 大屏默认项目：优先名称含 TPT 的最新创建（登录页与公开 /tm-screen 共用）
  * - Action 卡片：未日更优先，再按创建时间升序
@@ -72,7 +72,6 @@ export type ScopeUser = { id: number; username: string; real_name?: string }
 
 export type ScopeTask = {
   lead_id: number
-  tester_ids?: number[]
   can_add_action?: boolean
   status?: string
 }
@@ -106,14 +105,12 @@ export function formatTaskSaveTip(leadDisplayName?: string): string {
   return name ? `已保存 · 测试负责人：${name}` : 'Task 已更新'
 }
 
-/** A1：Action 负责人候选 = Task lead + testers */
+/** A1：Action 负责人候选 = 全部用户（已取消 Task 测试人员限制） */
 export function taskParticipantUsers(
-  task: { lead_id: number; tester_ids?: number[] } | null | undefined,
+  _task: unknown,
   users: ScopeUser[],
 ): ScopeUser[] {
-  if (!task) return []
-  const ids = new Set<number>([Number(task.lead_id), ...(task.tester_ids || []).map(Number)])
-  return users.filter((u) => ids.has(Number(u.id)))
+  return users
 }
 
 /** 看板「我的 / 全部」过滤（泛型保留 BoardTask 等完整类型） */
@@ -147,7 +144,7 @@ export function emptyActionDescription(opts: {
 }): string {
   if (opts.readOnly) return '该周无 Action'
   if (opts.canAddAction) return '本周尚无 Action — 点「+ Action」新建（须选子需求）'
-  return '本周无 Action（Task 已完成，不可再添加）'
+  return '本周无 Action（Task 不在测试中，不可再添加action）'
 }
 
 /**

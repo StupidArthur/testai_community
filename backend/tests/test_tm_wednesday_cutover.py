@@ -205,6 +205,7 @@ def _task(client, headers, pid, did, lead_id, title, tester_ids=None):
             "domain_id": did,
             "title": title,
             "requirement": "r",
+            "module": "默认模块",
             "lead_id": lead_id,
             "tester_ids": tester_ids or [],
             "publish": True,

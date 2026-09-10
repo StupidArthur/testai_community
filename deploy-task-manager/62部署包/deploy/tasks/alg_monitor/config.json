@@ -1,6 +1,0 @@
-{
-  "trigger": "50 23 * * *",
-  "timeout": 600,
-  "display_name": "算法版本监测",
-  "area": "green"
-}

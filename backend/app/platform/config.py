@@ -41,6 +41,12 @@ MIMO_API_KEY = os.getenv("MIMO_API_KEY", "").strip()
 MINIMAX_API_URL = os.getenv("MINIMAX_API_URL", "https://api.minimaxi.com/v1").strip()
 MINIMAX_MODEL = os.getenv("MINIMAX_MODEL", "MiniMax-M2.7-highspeed").strip()
 
+# ==================== LLM Gateway（替换 MiniMax，单并发） ====================
+
+LLM_GATEWAY_URL = os.getenv("LLM_GATEWAY_URL", "http://10.30.144.62:8040/v1/chat/completions").strip()
+LLM_GATEWAY_API_KEY = os.getenv("LLM_GATEWAY_API_KEY", "").strip()
+LLM_GATEWAY_MODEL = os.getenv("LLM_GATEWAY_MODEL", "default").strip()
+
 # ==================== Ollama（本地 Embedding / 视觉） ====================
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip()
@@ -245,5 +251,5 @@ DINGTALK_WEEKLY_PUSH_MINUTE = _opt_int_env("DINGTALK_WEEKLY_PUSH_MINUTE", 30)
 MAX_CONCURRENT_JOBS = _int_env("MAX_CONCURRENT_JOBS", 1)
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
 
-if os.getenv("ENV", "dev") == "production" and not MINIMAX_API_KEY:
-    sys.exit("FATAL: MINIMAX_API_KEY must be set in production (.env or environment).")
+if os.getenv("ENV", "dev") == "production" and not LLM_GATEWAY_URL:
+    sys.exit("FATAL: LLM_GATEWAY_URL must be set in production (.env or environment).")
