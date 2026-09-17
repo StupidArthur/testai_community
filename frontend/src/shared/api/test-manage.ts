@@ -144,6 +144,10 @@ export interface TmAction {
   latest_is_blocking?: boolean
   /** 今日是否已日更 */
   has_daily_today?: boolean
+  /** 历史总览：跨周聚合的延续周数（>1 表示延续多周） */
+  span_count?: number
+  /** 历史总览：跨周聚合的首次开始时间 */
+  first_created_at?: string | null
   task_title?: string | null
   project_name?: string | null
   domain_name?: string | null
@@ -245,7 +249,25 @@ export interface ActionLineageSegment {
   status: string
   progress_percent: number
   risks: string[]
+  daily_updates: {
+    id: string
+    user_id: number
+    report_date: string
+    progress_percent: number
+    risk_blocker: string
+    is_blocking?: boolean
+    progress_note: string
+  }[]
+  corrections: {
+    id: string
+    user_id: number
+    note: string
+    created_at?: string
+  }[]
   is_current: boolean
+  owner_id?: number
+  /** 该周实例当前是否可写今日日更（切周场景下归属周为 true） */
+  can_daily?: boolean
 }
 
 export interface ActionLineage {
@@ -348,6 +370,15 @@ export const testManageApi = {
   deleteTask: (id: string) => apiClient.delete(`/test-manage/tasks/${id}`),
 
   mine: () => apiClient.get<TmAction[]>('/test-manage/actions/mine'),
+
+  /** 历史 Action 总览：已完成（跨全部周）；manager/admin 看全部，其他仅自己 */
+  historyActions: (params?: {
+    keyword?: string
+    task_id?: string
+    owner_id?: number
+    date_from?: string
+    date_to?: string
+  }) => apiClient.get<TmAction[]>('/test-manage/actions/history', { params }),
 
   // ── Subtask（Task 内子需求，JSON 列存储）──────────────────
   addSubtask: (

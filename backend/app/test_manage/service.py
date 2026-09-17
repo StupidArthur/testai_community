@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.orm.attributes import flag_modified
+
+# 时间排序兜底值（completed_at/created_at 可能为 None）
+_DT_MIN = datetime.min
 
 from app.auth.models import User, UserRole
 from app.test_manage.config import (
@@ -1824,6 +1827,80 @@ def list_mine_actions(db: Session, user: User) -> list[ActionOut]:
     return _sort_action_outs([_action_out(user, a) for a in rows])
 
 
+def list_history_actions(
+    db: Session,
+    user: User,
+    *,
+    keyword: str | None = None,
+    task_id: str | None = None,
+    owner_id: int | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+) -> list[ActionOut]:
+    """
+    「历史 Action」总览：所有已完成（done）的 Action，跨全部周。
+
+    - Manager/Admin 看全部；其他角色仅看自己负责的
+    - 跨周聚合：同一 Task + 名称 + 子需求 的多周完成记录只展示一条
+      （代表 = 最后完成的记录；span_count = 延续周数；first_created_at = 首次开始时间）。
+      老数据无 source 链，故按业务键聚合
+    - 筛选：名称关键词（title / subtask_name 模糊）、所属 Task、完成时间范围；
+      关键词/日期按「组内任一记录命中即保留整组」
+    - 排序：完成时间倒序（最近完成在前）
+    """
+    q = (
+        db.query(TmAction)
+        .options(
+            joinedload(TmAction.daily_updates),
+            joinedload(TmAction.task).joinedload(TmTask.testers),
+            joinedload(TmAction.task).joinedload(TmTask.domain).joinedload(TmDomain.project),
+        )
+        .filter(TmAction.status == STATUS_DONE)
+    )
+    if not is_tm_admin(user):
+        q = q.filter(TmAction.owner_id == user.id)
+    elif owner_id:
+        # 负责人筛选（仅 Admin/Manager 有全部视野时有意义）
+        q = q.filter(TmAction.owner_id == owner_id)
+    # task_id 是聚合键的一部分，SQL 侧过滤等价于整组保留
+    if task_id:
+        q = q.filter(TmAction.task_id == task_id)
+    rows = q.all()
+
+    groups: dict[tuple[str, str, str], list[TmAction]] = {}
+    for a in rows:
+        groups.setdefault((a.task_id, a.title, a.subtask_name or ""), []).append(a)
+
+    kw = keyword.strip() if keyword else ""
+    lo = datetime.combine(date_from, time.min) if date_from else None
+    hi = datetime.combine(date_to, time.min) + timedelta(days=1) if date_to else None
+    out: list[ActionOut] = []
+    for members in groups.values():
+        if kw and not any(
+            kw in (m.title or "") or kw in (m.subtask_name or "") for m in members
+        ):
+            continue
+        if (lo or hi) and not any(
+            (lo is None or (m.completed_at or _DT_MIN) >= lo)
+            and (hi is None or (m.completed_at or _DT_MIN) < hi)
+            for m in members
+        ):
+            continue
+        # 代表 = 最后完成的记录（completed_at 并列时取较晚创建的）
+        rep = max(
+            members,
+            key=lambda m: (m.completed_at or _DT_MIN, m.created_at or _DT_MIN),
+        )
+        item = _action_out(user, rep)
+        item.span_count = len({m.week_key for m in members})
+        item.first_created_at = min(
+            (m.created_at for m in members if m.created_at), default=None
+        )
+        out.append(item)
+    out.sort(key=lambda x: x.completed_at or _DT_MIN, reverse=True)
+    return out
+
+
 def inherit_open_actions_to_new_week(
     db: Session, prev_period: TmWeekPeriod, new_period: TmWeekPeriod
 ) -> int:
@@ -1831,6 +1908,8 @@ def inherit_open_actions_to_new_week(
     切周自动继承：把上一周「进行中（published 且未完成）」的 Action 带入新周。
 
     - 进度承接：新 Action initial_progress = 源最新进度（60% 带过来，本周日更从 60 往上填）
+    - 日更承接：源「最后一条日更」原样复制到新 Action（进度/日更内容/风险文案/是否阻塞，
+      report_date 保留原日期作为承接时点），新周详情与看板可直接看到上周收尾状态
     - 已完成（done）/ 已取消（cancelled，含 subtask 软删连带）/ 草稿（draft）不继承
     - 幂等：新周已存在 source_action_id 指向源的 Action 时跳过
     - 新 Action 直接为 published 状态（负责人当周可见可日更）
@@ -1852,28 +1931,46 @@ def inherit_open_actions_to_new_week(
         if exists:
             continue
         progress, _risk, _blocking = _latest_progress(src)
-        db.add(
-            TmAction(
-                task_id=src.task_id,
-                project_id=src.project_id,
-                domain_id=src.domain_id,
-                week_start=new_period.week_start,
-                week_key=new_period.week_key,
-                title=src.title,
-                subtask_name=src.subtask_name or "",
-                owner_id=src.owner_id,
-                dev_members=_clean_members(getattr(src, "dev_members", None) or []),
-                pm_members=_clean_members(getattr(src, "pm_members", None) or []),
-                test_content=src.test_content or "",
-                environment=src.environment or "",
-                status=STATUS_PUBLISHED,
-                source_action_id=src.id,
-                initial_progress=progress,
-                created_by=src.created_by,
-                published_at=now_tm(),
-                due_at=new_period.week_end,
-            )
+        new_act = TmAction(
+            task_id=src.task_id,
+            project_id=src.project_id,
+            domain_id=src.domain_id,
+            week_start=new_period.week_start,
+            week_key=new_period.week_key,
+            title=src.title,
+            subtask_name=src.subtask_name or "",
+            owner_id=src.owner_id,
+            dev_members=_clean_members(getattr(src, "dev_members", None) or []),
+            pm_members=_clean_members(getattr(src, "pm_members", None) or []),
+            test_content=src.test_content or "",
+            environment=src.environment or "",
+            status=STATUS_PUBLISHED,
+            source_action_id=src.id,
+            initial_progress=progress,
+            created_by=src.created_by,
+            published_at=now_tm(),
+            due_at=new_period.week_end,
         )
+        db.add(new_act)
+        # 日更承接：复制源最后一条日更（含风险/阻塞），report_date 保留原日期
+        last = max(
+            (src.daily_updates or []),
+            key=lambda u: (u.report_date, u.updated_at or u.created_at),
+            default=None,
+        )
+        if last is not None:
+            new_act.daily_updates.append(
+                TmDailyUpdate(
+                    user_id=last.user_id,
+                    report_date=last.report_date,
+                    progress_percent=last.progress_percent,
+                    progress_note=last.progress_note or "",
+                    risk_blocker=last.risk_blocker or "",
+                    is_blocking=bool(last.is_blocking),
+                    created_at=last.created_at,
+                    updated_at=last.updated_at,
+                )
+            )
         created += 1
     if created:
         db.flush()
@@ -1996,7 +2093,6 @@ def upsert_task_week_progress(
 
 
 def get_action_lineage(db: Session, user: User, action_id: str) -> ActionLineageOut:
-    _ = user
     start = _load_action(db, action_id)
     cur = start
     seen: set[str] = set()
@@ -2008,7 +2104,10 @@ def get_action_lineage(db: Session, user: User, action_id: str) -> ActionLineage
             break
         cur = (
             db.query(TmAction)
-            .options(joinedload(TmAction.daily_updates))
+            .options(
+                joinedload(TmAction.daily_updates),
+                joinedload(TmAction.corrections),
+            )
             .filter(TmAction.id == cur.source_action_id)
             .first()
         )
@@ -2017,7 +2116,10 @@ def get_action_lineage(db: Session, user: User, action_id: str) -> ActionLineage
     while tip_ids:
         children = (
             db.query(TmAction)
-            .options(joinedload(TmAction.daily_updates))
+            .options(
+                joinedload(TmAction.daily_updates),
+                joinedload(TmAction.corrections),
+            )
             .filter(TmAction.source_action_id.in_(tip_ids))
             .all()
         )
@@ -2032,11 +2134,12 @@ def get_action_lineage(db: Session, user: User, action_id: str) -> ActionLineage
     segments: list[ActionLineageSegmentOut] = []
     for a in chain:
         progress, _risk, _blocking = _latest_progress(a)
-        risks: list[str] = []
-        for du in sorted(
+        dus = sorted(
             a.daily_updates or [],
             key=lambda u: (u.report_date, u.updated_at or u.created_at),
-        ):
+        )
+        risks: list[str] = []
+        for du in dus:
             r = (du.risk_blocker or "").strip()
             if r and r not in risks:
                 risks.append(r)
@@ -2049,7 +2152,14 @@ def get_action_lineage(db: Session, user: User, action_id: str) -> ActionLineage
                 status=a.status,
                 progress_percent=progress,
                 risks=risks,
+                daily_updates=dus,
+                corrections=sorted(
+                    a.corrections or [],
+                    key=lambda c: (c.created_at or datetime.min, c.id),
+                ),
                 is_current=a.id == start.id,
+                owner_id=a.owner_id,
+                can_daily=_can_daily(user, a),
             )
         )
     return ActionLineageOut(

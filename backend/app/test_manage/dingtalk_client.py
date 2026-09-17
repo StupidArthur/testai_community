@@ -471,6 +471,7 @@ async def send_openapi_daily_one_message(
     keyword: str | None = None,
     image_filename: str = DINGTALK_DAILY_SCREENSHOT_FILENAME,
     images: list[tuple[str, bytes, str]] | None = None,
+    open_conversation_id: str | None = None,
 ) -> dict[str, Any]:
     """
     日/周报只发【一条】markdown。
@@ -479,6 +480,7 @@ async def send_openapi_daily_one_message(
     images：多项目模式，[(项目名, png, 免鉴权深链)]，结构为
     「大标题 + 每项目：项目名(深链) + 截图」，不带 brief 与底部链接；
     优先于 screenshot_png 单图。
+    open_conversation_id：项目级目标群覆盖；None 走全局默认群。
     """
     kw = DINGTALK_KEYWORD if keyword is None else keyword
     safe_title = _ensure_keyword(title or "项目测试日报", kw)
@@ -503,6 +505,7 @@ async def send_openapi_daily_one_message(
         return await send_openapi_group_message(
             msg_key=DINGTALK_OPENAPI_MARKDOWN_MSG_KEY,
             msg_param={"title": safe_title, "text": text},
+            open_conversation_id=open_conversation_id,
         )
 
     url = (detail_url or "").strip()
@@ -528,6 +531,7 @@ async def send_openapi_daily_one_message(
     return await send_openapi_group_message(
         msg_key=DINGTALK_OPENAPI_MARKDOWN_MSG_KEY,
         msg_param={"title": safe_title, "text": text},
+        open_conversation_id=open_conversation_id,
     )
 
 
@@ -535,12 +539,14 @@ async def send_openapi_weekly_one_message(
     *,
     title: str,
     blocks: list[tuple[str, str, bytes, str]],
+    open_conversation_id: str | None = None,
 ) -> dict[str, Any]:
     """
     周报多项目单条 markdown：标题 + 每项目「项目名 / 周报数据 / 详情大屏深链 / 截图」。
 
     blocks：[(项目名, 周报短说明, 截图 png, 项目周屏深链)]，按传入顺序展示。
     标题不做关键词追加（OpenAPI 群发无关键词限制）。
+    open_conversation_id：项目级目标群覆盖；None 走全局默认群。
     """
     parts = [f"### {title or '项目测试周报'}", ""]
     for label, brief, data, link in blocks:
@@ -561,6 +567,7 @@ async def send_openapi_weekly_one_message(
     return await send_openapi_group_message(
         msg_key=DINGTALK_OPENAPI_MARKDOWN_MSG_KEY,
         msg_param={"title": title or "项目测试周报", "text": text},
+        open_conversation_id=open_conversation_id,
     )
 
 
@@ -573,6 +580,7 @@ async def send_daily_report_messages(
     brief: str = DINGTALK_DAILY_BRIEF_TEXT,
     image_filename: str = DINGTALK_DAILY_SCREENSHOT_FILENAME,
     images: list[tuple[str, bytes, str]] | None = None,
+    open_conversation_id: str | None = None,
 ) -> dict[str, Any]:
     """
     日/周报发送：【一条】少量说明 + 链接 + 截图。
@@ -580,6 +588,8 @@ async def send_daily_report_messages(
     优先 OpenAPI；未配置则回退 Webhook 单条 markdown。
     images：多项目模式 [(项目名, png, 免鉴权深链)]；
     webhook 回退时受 4096 字节限制需拆多条（首条说明+链接，其后每项目一条）。
+    open_conversation_id：项目级目标群覆盖（OpenAPI 通道）；
+    webhook_url：项目级目标群覆盖（webhook 通道）。
     """
     result: dict[str, Any] = {
         "channel": "",
@@ -595,6 +605,7 @@ async def send_daily_report_messages(
             brief=brief,
             image_filename=image_filename,
             images=images,
+            open_conversation_id=open_conversation_id,
         )
         result["ok"] = True
         return result

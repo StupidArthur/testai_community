@@ -107,7 +107,7 @@ ACTION_ENVIRONMENT_MAX_CHARS = 300
 # ---------- 日更纪律 ----------
 # 进度说明必填（去空白后非空即可，不限制最少字数）
 DAILY_NOTE_MIN_CHARS = 1
-# 当天日更可改写截止：默认 ≥19:50 锁定；企微日报默认 20:00 发送
+# 当天日更可改写截止：默认 ≥19:50 锁定；钉钉日报默认 16:55 发送
 DAILY_EDIT_LOCK_HOUR = int(os.getenv("TM_DAILY_EDIT_LOCK_HOUR", "19"))
 DAILY_EDIT_LOCK_MINUTE = int(os.getenv("TM_DAILY_EDIT_LOCK_MINUTE", "50"))
 # 测试可设 TM_DAILY_EDIT_LOCK_DISABLED=1 关闭锁定（须在 import app 前设置）
@@ -219,6 +219,36 @@ DINGTALK_WEEKLY_PROJECT_IDS: tuple[str, ...] = tuple(
 ) or DINGTALK_DAILY_PROJECT_IDS
 
 
+def _parse_project_target_mapping(raw: str) -> dict[str, str]:
+    """解析 `projectId:value;projectId:value` 映射（支持中文分号/冒号；忽略空段）。"""
+    out: dict[str, str] = {}
+    for chunk in (raw or "").replace("；", ";").replace("：", ":").split(";"):
+        chunk = chunk.strip()
+        if not chunk or ":" not in chunk:
+            continue
+        pid, _, val = chunk.partition(":")
+        pid, val = pid.strip(), val.strip()
+        if pid and val:
+            out[pid] = val
+    return out
+
+
+# 项目级目标群映射：OpenAPI 通道配 DINGTALK_PROJECT_CIDS（新群 openConversationId），
+# webhook 兜底通道配 DINGTALK_PROJECT_WEBHOOKS（新群自定义机器人地址）。
+# 未映射的项目走全局默认群；映射格式 `projectId:value;projectId:value`。
+DINGTALK_PROJECT_CIDS: dict[str, str] = _parse_project_target_mapping(
+    os.getenv("DINGTALK_PROJECT_CIDS", "")
+)
+DINGTALK_PROJECT_WEBHOOKS: dict[str, str] = _parse_project_target_mapping(
+    os.getenv("DINGTALK_PROJECT_WEBHOOKS", "")
+)
+
+
+def project_push_target(pid: str) -> tuple[str | None, str | None]:
+    """项目级推送目标：(open_conversation_id, webhook_url)；未映射返回 (None, None) 走全局。"""
+    return DINGTALK_PROJECT_CIDS.get(pid), DINGTALK_PROJECT_WEBHOOKS.get(pid)
+
+
 def _origin_from_url(url: str) -> str:
     """从完整 URL 取 scheme://host[:port]。"""
     raw = (url or "").strip()
@@ -319,9 +349,9 @@ def resolve_week_board_detail_url() -> str:
         return override
     return resolve_public_week_screen_url()
 
-# 定时默认：日报每日 20:00；周报发送由 week_end+15min 推导（下列仅兜底文档）
-DINGTALK_DAILY_PUSH_HOUR = 20
-DINGTALK_DAILY_PUSH_MINUTE = 0
+# 定时默认：日报每日 16:55；周报发送由 week_end+15min 推导（下列仅兜底文档）
+DINGTALK_DAILY_PUSH_HOUR = 16
+DINGTALK_DAILY_PUSH_MINUTE = 55
 DINGTALK_WEEKLY_PUSH_WEEKDAY = WEEK_BOUNDARY_WEEKDAY  # 周三
 DINGTALK_WEEKLY_PUSH_HOUR = 17
 DINGTALK_WEEKLY_PUSH_MINUTE = 30

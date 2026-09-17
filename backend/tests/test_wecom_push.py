@@ -43,7 +43,8 @@ def test_daily_link_markdown_footer():
     md = build_daily_link_markdown(today=date(2026, 8, 12), screenshot_ok=True)
     assert "详情大屏" in md
     assert "/tm-screen" in md
-    assert "view=today" in md
+    # view=today 是前端缺省值：深链保持单参数（无 query），这里锁定该设计
+    assert "view=" not in md
     assert "当前阻塞" not in md
 
     md2 = build_daily_link_markdown(today=date(2026, 8, 12), screenshot_ok=False)
@@ -112,7 +113,8 @@ def test_daily_contains_blockers_and_buckets():
     assert "今日 Action 进展" not in md
     assert "详情大屏" in md
     assert "/tm-screen" in md
-    assert "view=today" in md
+    # view=today 是前端缺省值：深链保持单参数（无 query）
+    assert "view=" not in md
     assert "1、" not in md
     # 阻塞条目不再展示 Action 进度%（底部四档文案「0–50%」仍可出现）
     assert ">50%</font>" not in md

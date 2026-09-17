@@ -22,6 +22,7 @@ import {
   Select,
   Slider,
   Space,
+  Spin,
   Table,
   Tabs,
   Tag,
@@ -45,6 +46,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
 import {
   testManageApi,
+  type ActionLineageSegment,
   type BoardTask,
   type TmAction,
   type TmActionDetail,
@@ -65,7 +67,7 @@ import {
   shouldShowAddActionButton,
   sortActionCardsForList,
 } from '../utils/boardUi'
-import { isMissingDailyToday, isBlockingFlag, dailyContextWeekKey, isWeekSwitchDay } from '../utils/screenFilters'
+import { isMissingDailyToday, isBlockingFlag } from '../utils/screenFilters'
 import {
   DISPLAY_STATUS_OPTIONS,
   DISPLAY_STATUS_TAG_COLOR,
@@ -101,6 +103,24 @@ const BOARD_TASK_PAGE_SIZE_OPTIONS = [10, 20, 50] as const
 const BOARD_TASK_PAGE_SIZE_DEFAULT = BOARD_TASK_PAGE_SIZE_OPTIONS[0]
 /** Action 卡片：每页最多 20（宽屏约 4 列 × 5 行） */
 const ACTION_CARD_PAGE_SIZE = 20
+
+/** 时间字符串 → 毫秒时间戳；兼容 YYYY-MM-DD / YYYY-MM-DDTHH / 完整 ISO */
+function tsOf(s?: string | null): number {
+  if (!s) return 0
+  let v = s
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) v = `${v}T00:00:00`
+  else if (/^\d{4}-\d{2}-\d{2}T\d{2}$/.test(v)) v = `${v}:00:00`
+  const t = Date.parse(v)
+  return Number.isNaN(t) ? 0 : t
+}
+
+/** 周内混合时间线事件：1=日更 2=更正（旧在上、新在下） */
+type WeekEvent = {
+  kind: 1 | 2
+  at: number
+  daily: ActionLineageSegment['daily_updates'][number] | null
+  corr: ActionLineageSegment['corrections'][number] | null
+}
 
 function userSelectOptions(users: { id: number; username: string; real_name?: string }[]) {
   return users.map((u) => ({
@@ -157,6 +177,12 @@ export default function ProjectManagePage() {
   const [projectModal, setProjectModal] = useState(false)
   const [domainModal, setDomainModal] = useState(false)
   const [detailActionId, setDetailActionId] = useState<string | null>(null)
+  /** 历史 tab 点开的详情只读（聚合后的跨周记录仅可查看，无任何写操作） */
+  const [detailReadOnly, setDetailReadOnly] = useState(false)
+  const openActionDetail = (id: string, readOnly = false) => {
+    setDetailReadOnly(readOnly)
+    setDetailActionId(id)
+  }
   const [editTaskId, setEditTaskId] = useState<string | null>(null)
   /** 从 Task 抽屉触发：关闭抽屉并在对应卡片展开 inline 新建 Action 表单 */
   const [inlineAddTaskId, setInlineAddTaskId] = useState<string | null>(null)
@@ -205,6 +231,16 @@ export default function ProjectManagePage() {
   const [boardTaskPage, setBoardTaskPage] = useState(1)
   const [boardTaskPageSize, setBoardTaskPageSize] = useState<number>(BOARD_TASK_PAGE_SIZE_DEFAULT)
   const [mineActionPage, setMineActionPage] = useState(1)
+  /** Action 页签子页：我的 / 历史（已完成总览） */
+  const [mineSubTab, setMineSubTab] = useState<'mine' | 'history'>('mine')
+  /** 历史筛选：名称关键词 / 所属 Task / 负责人 / 完成时间范围 */
+  const [historyKeyword, setHistoryKeyword] = useState('')
+  const [historyTaskId, setHistoryTaskId] = useState<string | undefined>(undefined)
+  const [historyOwnerId, setHistoryOwnerId] = useState<number | undefined>(undefined)
+  const [historyRange, setHistoryRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(
+    null,
+  )
+  const [historyPage, setHistoryPage] = useState(1)
   /** 子需求移动弹窗（移到同项目下其他 Task） */
   const [moveSubtaskModal, setMoveSubtaskModal] = useState<{
     open: boolean
@@ -324,6 +360,38 @@ export default function ProjectManagePage() {
     queryFn: async () => (await testManageApi.mine()).data,
   })
 
+  /** 历史 Action 筛选条件（序列化供 queryKey 用） */
+  const historyFrom = historyRange?.[0]?.format('YYYY-MM-DD') || ''
+  const historyTo = historyRange?.[1]?.format('YYYY-MM-DD') || ''
+  const { data: historyActions = [], isLoading: historyLoading } = useQuery({
+    queryKey: [
+      'tm-history-actions',
+      historyKeyword,
+      historyTaskId || '',
+      historyOwnerId ?? '',
+      historyFrom,
+      historyTo,
+    ],
+    queryFn: async () =>
+      (
+        await testManageApi.historyActions({
+          ...(historyKeyword.trim() ? { keyword: historyKeyword.trim() } : {}),
+          ...(historyTaskId ? { task_id: historyTaskId } : {}),
+          ...(historyOwnerId ? { owner_id: historyOwnerId } : {}),
+          ...(historyFrom ? { date_from: historyFrom } : {}),
+          ...(historyTo ? { date_to: historyTo } : {}),
+        })
+      ).data,
+    enabled: mineSubTab === 'history',
+  })
+
+  /** 历史筛选 Task 下拉数据（全部项目全部 Task，仅历史子页签加载） */
+  const { data: historyTasks = [] } = useQuery({
+    queryKey: ['tm-history-tasks'],
+    queryFn: async () => (await testManageApi.listTasks()).data,
+    enabled: mineSubTab === 'history',
+  })
+
   const { data: domains = [] } = useQuery({
     queryKey: ['tm-domains', projectId],
     queryFn: async () =>
@@ -361,10 +429,12 @@ export default function ProjectManagePage() {
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['tm-board'] })
     void qc.invalidateQueries({ queryKey: ['tm-mine'] })
+    void qc.invalidateQueries({ queryKey: ['tm-history-actions'] })
     void qc.invalidateQueries({ queryKey: ['tm-action'] })
     void qc.invalidateQueries({ queryKey: ['tm-task'] })
     void qc.invalidateQueries({ queryKey: ['tm-task-week-progress'] })
     void qc.invalidateQueries({ queryKey: ['tm-projects'] })
+    void qc.invalidateQueries({ queryKey: ['tm-action-lineage'] })
   }
 
   const createProjectMut = useMutation({
@@ -774,6 +844,22 @@ export default function ProjectManagePage() {
     return mineSorted.slice(start, start + ACTION_CARD_PAGE_SIZE)
   }, [mineSorted, mineActionPage])
 
+  /** 历史列表：筛选变化时回到第 1 页；超页自动收敛 */
+  const historyFilterKey = `${historyKeyword}|${historyTaskId || ''}|${historyOwnerId ?? ''}|${historyFrom}|${historyTo}`
+  useEffect(() => {
+    setHistoryPage(1)
+  }, [historyFilterKey])
+
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(historyActions.length / ACTION_CARD_PAGE_SIZE) || 1)
+    if (historyPage > maxPage) setHistoryPage(maxPage)
+  }, [historyActions.length, historyPage])
+
+  const historyActionsPaged = useMemo(() => {
+    const start = (historyPage - 1) * ACTION_CARD_PAGE_SIZE
+    return historyActions.slice(start, start + ACTION_CARD_PAGE_SIZE)
+  }, [historyActions, historyPage])
+
   const boardScopeCounts = useMemo(() => {
     const list = (board?.tasks || []).filter((bt) => bt.task.status !== 'cancelled')
     const uid = user?.id != null ? Number(user.id) : null
@@ -795,7 +881,7 @@ export default function ProjectManagePage() {
         progress_note: p.progress_note,
       }),
     onSuccess: () => {
-      message.success('日更已保存')
+      message.success({ content: '日更已保存', duration: 5 })
       invalidate()
     },
     onError: (e: any) => message.error(e?.response?.data?.detail || '失败'),
@@ -807,6 +893,7 @@ export default function ProjectManagePage() {
     onSuccess: async () => {
       message.success('追加成功')
       await qc.invalidateQueries({ queryKey: ['tm-action'] })
+      void qc.invalidateQueries({ queryKey: ['tm-action-lineage'] })
       void qc.invalidateQueries({ queryKey: ['tm-board'] })
       void qc.invalidateQueries({ queryKey: ['tm-mine'] })
     },
@@ -875,7 +962,7 @@ export default function ProjectManagePage() {
         historyWeekStart={historyWeekStart}
         onHistoryWeekStartChange={setHistoryWeekStart}
         userName={userName}
-        onOpenAction={(id) => setDetailActionId(id)}
+        onOpenAction={(id) => openActionDetail(id)}
       />
     ),
   }
@@ -1153,7 +1240,7 @@ export default function ProjectManagePage() {
                   canAddAction: !!bt.task.can_add_action,
                 })}
                 userName={userName}
-                onOpenAction={(id) => setDetailActionId(id)}
+                onOpenAction={(id) => openActionDetail(id)}
                 onEditTask={(focus) => {
                   setTaskSaveTip(null)
                   setTaskDrawerFocus(focus)
@@ -1227,69 +1314,200 @@ export default function ProjectManagePage() {
 
   const mineTab = {
     key: 'mine',
-    label: '我的 Action',
-    children: mine.length === 0 ? (
-        <Empty description="暂无你负责的 Action（仅显示本周负责人为你的）" />
-    ) : (
-      <div>
-        <div className="tm-action-grid" data-testid="tm-mine-action-grid">
-          {mineActionsPaged.map((a) => {
-            const missingDaily = isMissingDailyToday(a)
-            const canQuickDaily =
-              a.status === 'published' &&
-              !viewingHistory &&
-              (tmAdmin || Number(a.owner_id) === Number(user?.id))
-            return (
-            <Card
-              key={a.id}
-              size="small"
-              className="tm-action-card"
-              onClick={() => setDetailActionId(a.id)}
-              title={a.title}
-              extra={
-                <Space size={4} wrap onClick={(e) => e.stopPropagation()}>
-                  {missingDaily ? (
-                    <Tag color="gold" data-testid="tm-mine-missing-daily-tag">
-                      今日未日更
-                    </Tag>
+    label: 'Action',
+    children: (
+      <Tabs
+        activeKey={mineSubTab}
+        onChange={(k) => setMineSubTab(k as 'mine' | 'history')}
+        size="small"
+        data-testid="tm-action-subtabs"
+        items={[
+          {
+            key: 'mine',
+            label: '我的',
+            children: mine.length === 0 ? (
+              <Empty description="暂无你负责的 Action（仅显示本周负责人为你的）" />
+            ) : (
+              <div>
+                <div className="tm-action-grid" data-testid="tm-mine-action-grid">
+                  {mineActionsPaged.map((a) => {
+                    const missingDaily = isMissingDailyToday(a)
+                    const canQuickDaily =
+                      a.status === 'published' &&
+                      !viewingHistory &&
+                      (tmAdmin || Number(a.owner_id) === Number(user?.id))
+                    return (
+                    <Card
+                      key={a.id}
+                      size="small"
+                      className="tm-action-card"
+                      onClick={() => openActionDetail(a.id)}
+                      title={a.title}
+                      extra={
+                        <Space size={4} wrap onClick={(e) => e.stopPropagation()}>
+                          {missingDaily ? (
+                            <Tag color="gold" data-testid="tm-mine-missing-daily-tag">
+                              今日未日更
+                            </Tag>
+                          ) : null}
+                          <Tag color={STATUS_LABEL[a.status]?.color}>{STATUS_LABEL[a.status]?.text}</Tag>
+                        </Space>
+                      }
+                      data-testid={`tm-action-card-${a.id}`}
+                      data-action-title={a.title}
+                    >
+                      <Progress percent={a.progress_percent} size="small" />
+                      <Text type="secondary" className="tm-action-card__owner">
+                        {a.task_title}
+                      </Text>
+                      {a.latest_risk && (
+                        <Paragraph
+                          type="danger"
+                          className="tm-action-card__risk"
+                          ellipsis={{ rows: 3, tooltip: a.latest_risk }}
+                          style={{ marginBottom: 0 }}
+                        >
+                          <WarningOutlined /> {a.latest_risk}
+                        </Paragraph>
+                      )}
+                    </Card>
+                    )
+                  })}
+                </div>
+                {mine.length > ACTION_CARD_PAGE_SIZE ? (
+                  <div className="tm-board-pagination" data-testid="tm-mine-action-pagination">
+                    <Pagination
+                      current={mineActionPage}
+                      pageSize={ACTION_CARD_PAGE_SIZE}
+                      total={mine.length}
+                      showSizeChanger={false}
+                      showTotal={(t) => `共 ${t} 个 Action`}
+                      onChange={(page) => setMineActionPage(page)}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            ),
+          },
+          {
+            key: 'history',
+            label: '历史',
+            children: (
+              <div>
+                <Space wrap style={{ marginBottom: 16 }}>
+                  <Input
+                    allowClear
+                    placeholder="搜索 Action / 子需求名称"
+                    value={historyKeyword}
+                    onChange={(e) => setHistoryKeyword(e.target.value)}
+                    style={{ width: 220 }}
+                    data-testid="tm-history-keyword"
+                  />
+                  <Select
+                    allowClear
+                    showSearch
+                    optionFilterProp="label"
+                    placeholder="所属 Task"
+                    value={historyTaskId}
+                    onChange={(v) => setHistoryTaskId(v)}
+                    options={historyTasks.map((t) => ({ value: t.id, label: t.title }))}
+                    style={{ width: 260 }}
+                    data-testid="tm-history-task-select"
+                  />
+                  {tmAdmin ? (
+                    <Select
+                      allowClear
+                      showSearch
+                      optionFilterProp="label"
+                      placeholder="负责人"
+                      value={historyOwnerId}
+                      onChange={(v) => setHistoryOwnerId(v)}
+                      options={userOptions}
+                      style={{ width: 180 }}
+                      data-testid="tm-history-owner-select"
+                    />
                   ) : null}
-                  <Tag color={STATUS_LABEL[a.status]?.color}>{STATUS_LABEL[a.status]?.text}</Tag>
+                  <DatePicker.RangePicker
+                    value={historyRange}
+                    onChange={(v) =>
+                      setHistoryRange(v as [dayjs.Dayjs | null, dayjs.Dayjs | null] | null)
+                    }
+                    placeholder={['完成开始', '完成结束']}
+                    data-testid="tm-history-range"
+                  />
                 </Space>
-              }
-              data-testid={`tm-action-card-${a.id}`}
-              data-action-title={a.title}
-            >
-              <Progress percent={a.progress_percent} size="small" />
-              <Text type="secondary" className="tm-action-card__owner">
-                {a.task_title}
-              </Text>
-              {a.latest_risk && (
-                <Paragraph
-                  type="danger"
-                  className="tm-action-card__risk"
-                  ellipsis={{ rows: 3, tooltip: a.latest_risk }}
-                  style={{ marginBottom: 0 }}
-                >
-                  <WarningOutlined /> {a.latest_risk}
-                </Paragraph>
-              )}
-            </Card>
-            )
-          })}
-        </div>
-        {mine.length > ACTION_CARD_PAGE_SIZE ? (
-          <div className="tm-board-pagination" data-testid="tm-mine-action-pagination">
-            <Pagination
-              current={mineActionPage}
-              pageSize={ACTION_CARD_PAGE_SIZE}
-              total={mine.length}
-              showSizeChanger={false}
-              showTotal={(t) => `共 ${t} 个 Action`}
-              onChange={(page) => setMineActionPage(page)}
-            />
-          </div>
-        ) : null}
-      </div>
+                {historyLoading ? (
+                  <div style={{ textAlign: 'center', padding: 48 }}>
+                    <Spin />
+                  </div>
+                ) : historyActions.length === 0 ? (
+                  <Empty
+                    description={`暂无已完成的 Action${
+                      tmAdmin ? '（Manager/Admin 可见全部项目）' : '（仅显示你负责的）'
+                    }`}
+                  />
+                ) : (
+                  <div>
+                    <div className="tm-action-grid" data-testid="tm-history-action-grid">
+                      {historyActionsPaged.map((a) => (
+                        <Card
+                          key={a.id}
+                          size="small"
+                          className="tm-action-card"
+                          onClick={() => openActionDetail(a.id, true)}
+                          title={a.title}
+                          data-testid={`tm-history-card-${a.id}`}
+                          data-action-title={a.title}
+                        >
+                          <Text type="secondary" className="tm-action-card__owner">
+                            {userName(a.owner_id)} · {a.task_title}
+                          </Text>
+                          <div className="tm-action-card__meta">
+                            {(a.span_count ?? 1) > 1 ? (
+                              <Tooltip
+                                title={
+                                  a.first_created_at
+                                    ? `首次开始于 ${dayjs(a.first_created_at).format('YYYY-MM-DD')}，共 ${a.span_count} 周完成记录`
+                                    : `共 ${a.span_count} 周完成记录`
+                                }
+                              >
+                                <Tag color="purple" data-testid="tm-history-span-tag">
+                                  跨 {a.span_count} 周
+                                </Tag>
+                              </Tooltip>
+                            ) : null}
+                            {a.completed_at ? (
+                              <Tooltip
+                                title={`完成于 ${dayjs(a.completed_at).format('YYYY-MM-DD HH:mm')}`}
+                              >
+                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                  完成于 {dayjs(a.completed_at).format('MM-DD HH:mm')}
+                                </Text>
+                              </Tooltip>
+                            ) : null}
+                          </div>
+                        </Card>
+                      ))}
+                    </div>
+                    {historyActions.length > ACTION_CARD_PAGE_SIZE ? (
+                      <div className="tm-board-pagination" data-testid="tm-history-action-pagination">
+                        <Pagination
+                          current={historyPage}
+                          pageSize={ACTION_CARD_PAGE_SIZE}
+                          total={historyActions.length}
+                          showSizeChanger={false}
+                          showTotal={(t) => `共 ${t} 个 Action`}
+                          onChange={(page) => setHistoryPage(page)}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            ),
+          },
+        ]}
+      />
     ),
   }
 
@@ -2382,7 +2600,7 @@ export default function ProjectManagePage() {
       <ActionDetailDrawer
         open={!!detailActionId}
         detail={actionDetail}
-        forceReadOnly={viewingHistory}
+        forceReadOnly={viewingHistory || detailReadOnly}
         users={users}
         userName={userName}
         onClose={() => setDetailActionId(null)}
@@ -3382,8 +3600,11 @@ function ActionDetailDrawer(props: {
   const [membersEditing, setMembersEditing] = useState(false)
   const correctionEndRef = useRef<HTMLDivElement>(null)
   const pendingScrollToCorrection = useRef(false)
-  /** 记录区 tab：daily=日更记录，corr=更正记录 */
-  const [logTab, setLogTab] = useState<'daily' | 'corr'>('daily')
+  /** 延续历史按周浏览：选中周在 segments 中的下标（0=最早一周） */
+  const [weekIdx, setWeekIdx] = useState(0)
+  /** 提交日更后：等今天的日更在数据中出现，自动把延续历史切到归属周（切周补写场景） */
+  const pendingDailyFocusRef = useRef(false)
+  const [dailySubmitTick, setDailySubmitTick] = useState(0)
 
   const { data: draftTask } = useQuery({
     queryKey: ['tm-task', d?.task_id, 'for-draft'],
@@ -3416,14 +3637,88 @@ function ActionDetailDrawer(props: {
     return list
   }, [d?.daily_updates])
 
-  /** 今天（业务日）已提交的日更：用于表单回显，提交后立即可见 */
-  const todayDaily = dailyLog.find(
+  /** 各周 segment（升序：最早周在前）；无 lineage 时用当前 action 兜底成单周 */
+  const segs = useMemo<ActionLineageSegment[]>(() => {
+    if (lineage?.segments?.length) return lineage.segments
+    if (!d) return []
+    return [
+      {
+        action_id: d.id,
+        week_key: d.week_key || '',
+        week_start: d.week_start,
+        title: d.title,
+        status: d.status,
+        progress_percent: d.progress_percent,
+        risks: d.latest_risk ? [d.latest_risk] : [],
+        daily_updates: d.daily_updates || [],
+        corrections: d.corrections || [],
+        is_current: true,
+      },
+    ]
+  }, [lineage, d])
+
+  /** 日更/更正总数变化（提交或删除）或切换 Action 时，自动跳回最新一周 */
+  const dailyTotal = segs.reduce((n, s) => n + (s.daily_updates?.length || 0), 0)
+  const corrTotal = segs.reduce((n, s) => n + (s.corrections?.length || 0), 0)
+  useEffect(() => {
+    setWeekIdx(Math.max(0, segs.length - 1))
+  }, [segs.length, dailyTotal, corrTotal, d?.id])
+
+  /** 当前选中周（越界收敛到最后一周） */
+  const curIdx = segs.length ? Math.min(Math.max(0, weekIdx), segs.length - 1) : 0
+  const curSeg = segs[curIdx]
+
+  /**
+   * 切周场景：今天日更归属「上一汇报周」，当前（新周）实例 can_daily=false。
+   * 后端在 lineage segment 上直接给出 can_daily（与提交校验同一逻辑），
+   * 命中即把下方日更表单切到该周实例，用户无需再去延续历史里找。
+   */
+  const dailyTargetSeg = useMemo(() => segs.find((s) => s.can_daily === true), [segs])
+  /** 日更表单的目标实例（默认当前 action；切周补写时为上一周实例） */
+  const dailyTargetId = dailyTargetSeg?.action_id || d?.id || ''
+  const dailyBasePercent = dailyTargetSeg?.progress_percent ?? d?.progress_percent ?? 0
+
+  /** 选中周内的日更+更正混合时间线（旧在上、新在下） */
+  const weekEvents = useMemo<WeekEvent[]>(() => {
+    if (!curSeg) return []
+    const evts: WeekEvent[] = []
+    for (const u of curSeg.daily_updates || []) {
+      evts.push({ kind: 1, at: tsOf(u.report_date), daily: u, corr: null })
+    }
+    for (const c of curSeg.corrections || []) {
+      evts.push({ kind: 2, at: tsOf(c.created_at), daily: null, corr: c })
+    }
+    evts.sort((x, y) => x.at - y.at || x.kind - y.kind)
+    return evts
+  }, [curSeg])
+
+  /** 全部周中最后一条更正（跨周「最新」标记） */
+  const sortedCorrs = segs
+    .flatMap((s) => s.corrections || [])
+    .slice()
+    .sort((a, b) => tsOf(a.created_at) - tsOf(b.created_at))
+  const lastCorrId = sortedCorrs.length
+    ? sortedCorrs[sortedCorrs.length - 1].id
+    : undefined
+
+  /** 今天（业务日）已提交的日更：用于表单回显，提交后立即可见（切周补写时看归属周实例） */
+  const todayDaily = (dailyTargetSeg?.daily_updates || dailyLog).find(
     (u) => (u.report_date || '').slice(0, 10) === tmTodayYmd(),
   )
   const todayNote = todayDaily?.progress_note || ''
   const todayProgress = todayDaily?.progress_percent ?? null
   const todayRisk = todayDaily?.risk_blocker ?? null
   const todayBlocking = todayDaily?.is_blocking ?? null
+
+  /** 提交日更后自动切到归属周 tab：让用户立刻看到刚提交的记录（普通场景保持原「跳最新周」逻辑） */
+  useEffect(() => {
+    if (!pendingDailyFocusRef.current || !todayDaily) return
+    pendingDailyFocusRef.current = false
+    if (dailyTargetSeg && !dailyTargetSeg.is_current) {
+      const idx = segs.findIndex((s) => s.action_id === dailyTargetSeg.action_id)
+      if (idx >= 0) setWeekIdx(idx)
+    }
+  }, [dailySubmitTick, todayDaily, dailyTargetSeg, segs])
 
   useEffect(() => {
     if (!pendingScrollToCorrection.current) return
@@ -3435,12 +3730,12 @@ function ActionDetailDrawer(props: {
     return () => window.clearTimeout(t)
   }, [correctionsAsc.length, props.open, d?.id])
 
-  /** 切换 Action 或重新打开时，记录区回到「日更」tab、负责人/人员编辑态收起；
+  /** 切换 Action 或重新打开时，负责人/人员编辑态收起；
    *  改派成功（owner_id 变化）后也自动收起编辑态 */
   useEffect(() => {
-    setLogTab('daily')
     setOwnerEditing(false)
     setMembersEditing(false)
+    pendingDailyFocusRef.current = false
   }, [props.open, d?.id, d?.owner_id])
 
   /** 详情异步加载后同步日更表单，避免 initialValues 只生效一次导致「是否阻塞」被旧值覆盖写丢；
@@ -3642,63 +3937,133 @@ function ActionDetailDrawer(props: {
               </section>
             ) : null}
 
-            {/* 2. 延续历史 */}
-            {lineage && lineage.weeks_count > 0 ? (
-              <Collapse
-                size="small"
-                ghost
-                className="tm-sheet__lineage"
-                data-testid="tm-action-lineage"
-                items={[
-                  {
-                    key: 'lineage',
-                    label: `延续历史 · ${lineage.weeks_count} 周`,
-                    children: (
-                      <Timeline
-                        className="tm-lineage-timeline"
-                        items={lineage.segments.map((seg) => ({
-                          color: seg.is_current ? 'green' : 'gray',
-                          children: (
-                            <div className="tm-lineage-item">
-                              <div className="tm-lineage-item__head">
-                                <span className="tm-lineage-item__week">{seg.week_key}</span>
-                                {seg.is_current ? <Tag color="success">当前</Tag> : null}
-                                <Tag>{STATUS_LABEL[seg.status]?.text || seg.status}</Tag>
-                                <span className="tm-sheet__muted">{seg.progress_percent}%</span>
+            {/* 2. 延续历史：按周浏览（周选择 + 该周日更/更正混合时间线） */}
+            <section className="tm-sheet__section" data-testid="tm-action-lineage">
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <h3 className="tm-sheet__h" style={{ marginBottom: 0 }}>
+                  延续历史{lineage?.weeks_count ? ` · ${lineage.weeks_count} 周` : ''}
+                </h3>
+                {!canDaily && !forceReadOnly && canDeleteDaily && dailyLog.length > 0 ? (
+                  <Popconfirm
+                    title="删除该日日报？"
+                    description="删除后自动记入更正记录，进度以剩余日更为准"
+                    okText="删除"
+                    cancelText="取消"
+                    okButtonProps={{ danger: true }}
+                    onConfirm={() =>
+                      props.onDeleteDaily(d.id, dailyLog[0].report_date.slice(0, 10))
+                    }
+                  >
+                    <Button
+                      size="small"
+                      type="text"
+                      danger
+                      loading={props.deleteLoading}
+                      data-testid="tm-delete-daily"
+                    >
+                      删除日报
+                    </Button>
+                  </Popconfirm>
+                ) : null}
+              </div>
+              {segs.length > 1 ? (
+                <Tabs
+                  size="small"
+                  className="tm-lineage-week-tabs"
+                  activeKey={String(curIdx)}
+                  onChange={(k) => setWeekIdx(Number(k))}
+                  items={segs.map((s, i) => ({
+                    key: String(i),
+                    label: (
+                      <span title={s.week_key}>
+                        第 {i + 1} 周
+                        {s.is_current ? ' · 当前' : ''}
+                      </span>
+                    ),
+                  }))}
+                />
+              ) : null}
+              {curSeg ? (
+                <>
+                  <div className="tm-lineage-item" style={{ marginBottom: 8 }}>
+                    <div className="tm-lineage-item__head">
+                      <span className="tm-lineage-item__week">{curSeg.week_key}</span>
+                      {curSeg.is_current ? <Tag color="success">当前</Tag> : null}
+                      <Tag>{STATUS_LABEL[curSeg.status]?.text || curSeg.status}</Tag>
+                      <span className="tm-sheet__muted">{curSeg.progress_percent}%</span>
+                    </div>
+                  </div>
+                  {weekEvents.length ? (
+                    <Timeline
+                      className="tm-lineage-timeline"
+                      items={weekEvents.map((e) => {
+                        if (e.kind === 1) {
+                          const u = e.daily!
+                          return {
+                            color: u.is_blocking ? 'red' : 'gray',
+                            children: (
+                              <div data-testid="tm-daily-log-row">
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                  <Text strong>{dailyDateLabel(u.report_date)}</Text>
+                                  <Text type="secondary">{u.progress_percent}%</Text>
+                                  {u.is_blocking ? (
+                                    <Tag color="red" style={{ marginRight: 0 }}>
+                                      阻塞
+                                    </Tag>
+                                  ) : null}
+                                </div>
+                                {u.progress_note ? (
+                                  <div className="tm-sheet__body">{u.progress_note}</div>
+                                ) : null}
+                                {u.risk_blocker ? (
+                                  <div className="tm-sheet__risk-note">
+                                    <Text type="danger">风险：{u.risk_blocker}</Text>
+                                  </div>
+                                ) : null}
                               </div>
-                              <div className="tm-lineage-item__title">{seg.title}</div>
-                              {seg.risks.length > 0 ? (
-                                <Paragraph
-                                  type="danger"
-                                  className="tm-lineage-item__risk"
-                                  ellipsis={{ rows: 2, tooltip: seg.risks.join('；') }}
-                                >
-                                  阻塞：{seg.risks.join('；')}
-                                </Paragraph>
-                              ) : (
-                                <span className="tm-sheet__muted">无阻塞</span>
-                              )}
+                            ),
+                          }
+                        }
+                        const c = e.corr!
+                        return {
+                          color: 'orange',
+                          children: (
+                            <div className="tm-sheet__corr">
+                              <div className="tm-sheet__muted">
+                                {c.created_at || ''} · {props.userName(c.user_id)}
+                                {c.id === lastCorrId ? ' · 最新' : ''}
+                              </div>
+                              <div className="tm-sheet__corr-note">{c.note}</div>
                             </div>
                           ),
-                        }))}
-                      />
-                    ),
-                  },
-                ]}
-              />
-            ) : null}
+                        }
+                      })}
+                    />
+                  ) : (
+                    <p className="tm-sheet__muted">该周暂无日更与更正记录</p>
+                  )}
+                </>
+              ) : (
+                <p className="tm-sheet__muted">暂无</p>
+              )}
+              <div ref={correctionEndRef} />
+            </section>
 
             {/* 3. 提示（一行） */}
             {forceReadOnly ? (
               <p className="tm-sheet__tip">历史周只读不可编辑</p>
             ) : null}
-            {!canDaily && !forceReadOnly && d.status === 'published' ? (
+            {!canDaily && !forceReadOnly && d.status === 'published' && !dailyTargetSeg ? (
               <p className="tm-sheet__tip">
-                {isWeekSwitchDay() && d.week_key && d.week_key !== dailyContextWeekKey()
-                  ? '今天 17:00 已切周，今日日更归属上一汇报周；请在上方「延续历史」中打开上一周的记录写日更'
-                  : canCorrect
-                    ? '今日不可日更 · 可用更正说明'
-                    : `仅负责人或测试管理员可日更（${props.userName(d.owner_id)}）`}
+                {canCorrect
+                  ? '今日不可日更 · 可用更正说明'
+                  : `仅负责人或测试管理员可日更（${props.userName(d.owner_id)}）`}
               </p>
             ) : null}
 
@@ -3810,28 +4175,44 @@ function ActionDetailDrawer(props: {
               />
             ) : null}
 
-            {/* 6. 日更（进行中可写；已完成展示最近日更记录，避免突变） */}
-            {canDaily ? (
+            {/* 6. 日更（进行中可写；切周补写时表单指向归属周实例；已完成走延续历史展示） */}
+            {canDaily || dailyTargetSeg ? (
               <section className="tm-sheet__section">
                 <h3 className="tm-sheet__h">
-                  日更 <span className="tm-sheet__muted">19:50 截止</span>
+                  日更{' '}
+                  <span className="tm-sheet__muted">
+                    {dailyTargetSeg && !dailyTargetSeg.is_current
+                      ? `记入上一汇报周（${dailyTargetSeg.week_key.slice(5, 10)} 起）· 19:50 截止`
+                      : '19:50 截止'}
+                  </span>
+                  {todayDaily && (
+                    <span
+                      style={{ marginLeft: 8, color: '#52c41a', fontSize: 13 }}
+                      data-testid="tm-daily-today-tag"
+                    >
+                      今日已提交 ✓ {todayProgress}%
+                      {todayBlocking ? ' · 阻塞' : ''}
+                    </span>
+                  )}
                 </h3>
                 <Form
                   form={dailyForm}
                   layout="vertical"
                   size="small"
                   className="tm-sheet__form"
-                  key={`tm-daily-${d.id}`}
+                  key={`tm-daily-${dailyTargetId}`}
                   preserve={false}
-                  onFinish={(v) =>
+                  onFinish={(v) => {
+                    pendingDailyFocusRef.current = true
+                    setDailySubmitTick((t) => t + 1)
                     props.onDaily({
-                      id: d.id,
+                      id: dailyTargetId,
                       progress_percent: v.progress_percent,
                       risk_blocker: v.risk_blocker || '',
                       is_blocking: v.is_blocking === true,
                       progress_note: (v.progress_note || '').trim(),
                     })
-                  }
+                  }}
                 >
                   <Form.Item
                     name="progress_percent"
@@ -3846,9 +4227,9 @@ function ActionDetailDrawer(props: {
                     }
                     rules={[{ required: true, message: '必填' }]}
                     extra={
-                      (d.progress_percent ?? 0) > 0 ? (
+                      dailyBasePercent > 0 ? (
                         <span data-testid="tm-daily-progress-min">
-                          ≥ 当前 {d.progress_percent}%，进度只增不减
+                          ≥ 当前 {dailyBasePercent}%，进度只增不减
                         </span>
                       ) : undefined
                     }
@@ -3856,10 +4237,10 @@ function ActionDetailDrawer(props: {
                   >
                     <InputNumber
                       size="small"
-                      min={d.progress_percent ?? 0}
+                      min={dailyBasePercent}
                       max={100}
                       style={{ width: '100%' }}
-                      placeholder={`当前 ${d.progress_percent}%`}
+                      placeholder={`当前 ${dailyBasePercent}%`}
                       data-testid="tm-daily-progress"
                     />
                   </Form.Item>
@@ -3923,115 +4304,6 @@ function ActionDetailDrawer(props: {
               </section>
             ) : null}
 
-            {/* 6b. 记录（tab 切换）：日更=今天/昨天/更早；更正=留痕时间线；进行中/已完成/历史周均可见 */}
-            <section className="tm-sheet__section tm-sheet__daily-log">
-              <Tabs
-                key={d.id}
-                size="small"
-                style={{ marginBottom: 0 }}
-                activeKey={logTab}
-                onChange={(k) => setLogTab(k as 'daily' | 'corr')}
-                tabBarExtraContent={
-                  logTab === 'daily' && !canDaily && !forceReadOnly && canDeleteDaily ? (
-                    <Popconfirm
-                      title="删除该日日报？"
-                      description="删除后自动记入更正记录，进度以剩余日更为准"
-                      okText="删除"
-                      cancelText="取消"
-                      okButtonProps={{ danger: true }}
-                      onConfirm={() =>
-                        props.onDeleteDaily(d.id, dailyLog[0].report_date.slice(0, 10))
-                      }
-                    >
-                      <Button
-                        size="small"
-                        type="text"
-                        danger
-                        loading={props.deleteLoading}
-                        data-testid="tm-delete-daily"
-                      >
-                        删除日报
-                      </Button>
-                    </Popconfirm>
-                  ) : null
-                }
-                items={[
-                  {
-                    key: 'daily',
-                    label: (
-                      <>
-                        日更 <span className="tm-sheet__muted">{dailyLog.length}</span>
-                      </>
-                    ),
-                    children:
-                      dailyLog.length === 0 ? (
-                        <p className="tm-sheet__muted">暂无</p>
-                      ) : (
-                        dailyLog.map((u, i) => (
-                          <div
-                            key={u.id}
-                            data-testid="tm-daily-log-row"
-                            style={{
-                              padding: '8px 0',
-                              borderTop: i ? '1px dashed #f0f0f0' : undefined,
-                            }}
-                          >
-                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                              <Text strong>{dailyDateLabel(u.report_date)}</Text>
-                              <Text type="secondary">{u.progress_percent}%</Text>
-                              {u.is_blocking ? (
-                                <Tag color="red" style={{ marginRight: 0 }}>
-                                  阻塞
-                                </Tag>
-                              ) : null}
-                            </div>
-                            {u.progress_note ? (
-                              <div className="tm-sheet__body">{u.progress_note}</div>
-                            ) : null}
-                            {u.risk_blocker ? (
-                              <div className="tm-sheet__risk-note">
-                                <Text type="danger">风险：{u.risk_blocker}</Text>
-                              </div>
-                            ) : null}
-                          </div>
-                        ))
-                      ),
-                  },
-                  {
-                    key: 'corr',
-                    label: (
-                      <>
-                        更正 <span className="tm-sheet__muted">{correctionsAsc.length}</span>
-                      </>
-                    ),
-                    children: (
-                      <>
-                        {correctionsAsc.length === 0 ? (
-                          <p className="tm-sheet__muted">暂无</p>
-                        ) : (
-                          <Timeline
-                            items={correctionsAsc.map((c, idx) => ({
-                              color: idx === correctionsAsc.length - 1 ? 'orange' : 'gray',
-                              children: (
-                                <div className="tm-sheet__corr">
-                                  <div className="tm-sheet__muted">
-                                    {c.created_at || ''} · {props.userName(c.user_id)}
-                                    {idx === correctionsAsc.length - 1 ? ' · 最新' : ''}
-                                  </div>
-                                  <div className="tm-sheet__corr-note">{c.note}</div>
-                                </div>
-                              ),
-                            }))}
-                          />
-                        )}
-                        <div ref={correctionEndRef} />
-                      </>
-                    ),
-                  },
-                ]}
-              />
-            </section>
-
             {/* 7. 更正 */}
             {canCorrect ? (
               <section className="tm-sheet__section">
@@ -4046,7 +4318,6 @@ function ActionDetailDrawer(props: {
                       pendingScrollToCorrection.current = true
                       await props.onCorrect(d.id, v.note)
                       correctForm.resetFields()
-                      setLogTab('corr')
                     } catch {
                       pendingScrollToCorrection.current = false
                     }

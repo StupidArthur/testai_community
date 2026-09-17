@@ -33,6 +33,7 @@ from app.test_manage.config import (
     REPORT_KIND_DAILY,
     REPORT_KIND_WEEKLY,
     now_tm,
+    project_push_target,
 )
 from app.test_manage.models import TmProject, TmPushRun
 from app.test_manage import push_report as report
@@ -250,6 +251,8 @@ async def push_daily(
     # 多项目模式：配置 DINGTALK_DAILY_PROJECT_IDS 时逐项目截图 + 免鉴权深链
     images: list[tuple[str, bytes, str]] = []
     png: bytes | None = None
+    # 项目级分群：按 (cid, webhook) 映射分组；未映射项目走全局默认群
+    group_images: dict[tuple[str | None, str | None], list[tuple[str, bytes, str]]] = {}
     if DINGTALK_DAILY_PROJECT_IDS:
         rows = (
             db.query(TmProject.id, TmProject.name)
@@ -263,6 +266,9 @@ async def push_daily(
             png_one = await asyncio.to_thread(_capture_daily_screenshot, pid)
             if png_one:
                 images.append((label, png_one, link))
+                group_images.setdefault(project_push_target(pid), []).append(
+                    (label, png_one, link)
+                )
                 log.info("daily screenshot project=%s (%s) ok bytes=%s", label, pid, len(png_one))
             else:
                 log.warning("daily screenshot failed for project %s (%s)", label, pid)
@@ -278,6 +284,7 @@ async def push_daily(
             )
             preview = (
                 f"{brief_md}\n\n---\nprojects:\n{img_desc}"
+                f"\ntarget_groups={len(group_images)}"
                 f"\nchannel={'openapi' if dingtalk_openapi_ready() else 'webhook'}"
                 " format=one_message_multi_project"
             )
@@ -302,13 +309,29 @@ async def push_daily(
         )
 
     _require_push_channel()
-    send_meta = await send_daily_report_messages(
-        title=title,
-        detail_url=detail_url,
-        screenshot_png=png,
-        images=images or None,
-        webhook_url=DINGTALK_WEBHOOK_URL,
-    )
+    if images:
+        # 项目级分群：每组一条消息；未映射项目走全局默认群（cid/webhook 传 None）
+        send_results = []
+        for (cid_override, wh_override), group in group_images.items():
+            send_results.append(
+                await send_daily_report_messages(
+                    title=title,
+                    detail_url=detail_url,
+                    screenshot_png=None,
+                    images=group,
+                    webhook_url=wh_override or DINGTALK_WEBHOOK_URL,
+                    open_conversation_id=cid_override,
+                )
+            )
+        send_meta = {"groups": len(group_images), "results": send_results}
+    else:
+        send_meta = await send_daily_report_messages(
+            title=title,
+            detail_url=detail_url,
+            screenshot_png=png,
+            images=None,
+            webhook_url=DINGTALK_WEBHOOK_URL,
+        )
     if not screenshot_ok:
         log.warning("daily push without screenshot meta=%s", send_meta)
     report.save_snapshot(
@@ -412,6 +435,8 @@ async def push_weekly(
 
     # 多项目模式：每项目独立数据 / 深链 / 截图，单条消息拼装（OpenAPI 就绪才走）
     blocks: list[tuple[str, str, bytes, str]] = []
+    # 项目级分群：按 (cid, webhook) 映射分组；未映射项目走全局默认群
+    group_blocks: dict[tuple[str | None, str | None], list[tuple[str, str, bytes, str]]] = {}
     if DINGTALK_WEEKLY_PROJECT_IDS and dingtalk_openapi_ready():
         name_by_id = {
             pid: name
@@ -440,6 +465,9 @@ async def push_weekly(
                 )
                 continue
             blocks.append((label, brief_one, png_one, link_one))
+            group_blocks.setdefault(project_push_target(pid), []).append(
+                (label, brief_one, png_one, link_one)
+            )
             log.info("weekly block project=%s (%s) bytes=%s", label, pid, len(png_one))
 
     png = blocks[0][2] if blocks else await asyncio.to_thread(_capture_weekly_screenshot)
@@ -468,6 +496,7 @@ async def push_weekly(
             preview = (
                 "\n".join(body)
                 + f"\n\n---\nblocks:\n{meta}"
+                + f"\ntarget_groups={len(group_blocks)}"
                 + " channel=openapi format=one_message_weekly_multi_project"
             )
         else:
@@ -492,7 +521,15 @@ async def push_weekly(
 
     _require_push_channel()
     if blocks:
-        send_meta = await send_openapi_weekly_one_message(title=title, blocks=blocks)
+        # 项目级分群：每组一条消息；未映射项目走全局默认群（cid 传 None）
+        send_results = []
+        for (cid_override, _wh_override), group in group_blocks.items():
+            send_results.append(
+                await send_openapi_weekly_one_message(
+                    title=title, blocks=group, open_conversation_id=cid_override
+                )
+            )
+        send_meta = {"groups": len(group_blocks), "results": send_results}
     else:
         send_meta = await send_daily_report_messages(
             title=title,

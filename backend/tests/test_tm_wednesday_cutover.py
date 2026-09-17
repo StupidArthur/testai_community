@@ -284,6 +284,46 @@ def test_w_after_cutover_daily_only_on_old_week_action(
     assert r.status_code == 200, r.text
 
 
+def test_w_after_cutover_lineage_can_daily_targets_old_week(
+    client, mgr_headers, lead_headers, owner_headers, monkeypatch
+):
+    """切周后 lineage 每段返回 can_daily：旧周段 True、新周段 False。
+
+    前端据此把日更表单自动指向归属周（旧周）实例，用户无需离开当前抽屉。
+    """
+    _install_clock(monkeypatch, WED_AFTER)
+    pid, did = _sandbox(client, mgr_headers)
+    lead_id = _uid(client, mgr_headers, "tm_lead")
+    owner_id = _uid(client, mgr_headers, "tm_owner")
+    task = _task(client, mgr_headers, pid, did, lead_id, f"{TAG} 切后lineage", [owner_id])
+
+    old_act = _action(client, lead_headers, task["id"], f"{TAG} 旧周L", owner_id)
+    _force_action_week(old_act["id"], OLD_WEEK)
+    new_act = _action(client, lead_headers, task["id"], f"{TAG} 新周L", owner_id)
+
+    # 建立延续链：新周.source_action_id = 旧周（同周继承链路）
+    db = SessionLocal()
+    try:
+        from app.test_manage.models import TmAction
+
+        row = db.query(TmAction).filter(TmAction.id == new_act["id"]).one()
+        row.source_action_id = old_act["id"]
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.get(
+        f"/api/test-manage/actions/{new_act['id']}/lineage", headers=owner_headers
+    )
+    assert r.status_code == 200, r.text
+    segs = {s["action_id"]: s for s in r.json()["segments"]}
+    assert segs[old_act["id"]]["can_daily"] is True  # 归属周：允许写今日日更
+    assert segs[old_act["id"]]["is_current"] is False
+    assert segs[old_act["id"]]["owner_id"] == owner_id
+    assert segs[new_act["id"]]["can_daily"] is False  # 新周：切日后不可写
+    assert segs[new_act["id"]]["is_current"] is True
+
+
 def test_w_before_cutover_daily_on_current_week(
     client, mgr_headers, lead_headers, owner_headers, monkeypatch
 ):

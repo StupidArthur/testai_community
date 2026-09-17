@@ -1,4 +1,4 @@
-# Restore normal Daily(17:12+20:00..04) + Weekly(1min poll) after half-hour test.
+# Restore normal Daily(16:55+16:56..59) + Weekly(1min poll) after half-hour test.
 # Removes TestAI-Push-HalfHour-Test; re-runs install_wecom_scheduled_tasks.ps1.
 # ASCII-only for Windows PowerShell 5.x.
 

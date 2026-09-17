@@ -265,6 +265,28 @@ def api_mine(
     return svc.list_mine_actions(db, current_user)
 
 
+@router.get("/actions/history", response_model=list[ActionOut])
+def api_history_actions(
+    keyword: str | None = None,
+    task_id: str | None = None,
+    owner_id: int | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """历史 Action 总览：已完成（跨全部周）；Manager/Admin 看全部，其他角色仅自己负责的。"""
+    return svc.list_history_actions(
+        db,
+        current_user,
+        keyword=keyword,
+        task_id=task_id,
+        owner_id=owner_id,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
 # ── Subtask（Task 内子需求，JSON 列存储）──────────────────────
 
 

@@ -304,6 +304,10 @@ class ActionOut(BaseModel):
     latest_is_blocking: bool = False
     # 今日是否已提交日更（大屏「今日」筛选用）
     has_daily_today: bool = False
+    # 历史总览跨周聚合：同一 Action（Task+名称+子需求）的延续周数，>1 表示延续多周
+    span_count: int = 1
+    # 历史总览跨周聚合：该 Action 首次开始时间（组内最早 created_at）
+    first_created_at: datetime | None = None
     task_title: str | None = None
     project_name: str | None = None
     domain_name: str | None = None
@@ -411,7 +415,12 @@ class ActionLineageSegmentOut(BaseModel):
     status: str
     progress_percent: int
     risks: list[str] = Field(default_factory=list)
+    daily_updates: list[DailyUpdateOut] = Field(default_factory=list)
+    corrections: list[ActionCorrectionOut] = Field(default_factory=list)
     is_current: bool = False
+    owner_id: int = 0
+    # 该周实例当前是否允许写今日日更（切周场景下归属周为 True）
+    can_daily: bool = False
 
 
 class ActionLineageOut(BaseModel):

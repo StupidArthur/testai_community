@@ -251,6 +251,15 @@
   padding-top: 2px;
 }
 
+/* 延续历史：周选择 Tabs 收紧间距 */
+.tm-lineage-week-tabs {
+  margin-bottom: 8px;
+}
+
+.tm-lineage-week-tabs .ant-tabs-tab {
+  padding: 6px 0;
+}
+
 .tm-lineage-item {
   display: flex;
   flex-direction: column;

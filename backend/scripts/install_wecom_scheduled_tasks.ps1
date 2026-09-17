@@ -2,7 +2,7 @@
 # Prefer:  .\install_wecom_tasks.cmd
 # Or:      powershell -ExecutionPolicy Bypass -File .\install_wecom_scheduled_tasks.ps1
 #
-# Daily: 17:12 + 20:00..20:04 (idempotent; already-sent skips later ticks)
+# Daily: 16:55 + 16:56..16:59 (idempotent; already-sent skips later ticks)
 # Weekly: poll every 1 minute; send time = week_end + 15 min (Python rule)
 # Also installs TestAI-WeCom-KeepAwake when present.
 
@@ -42,12 +42,11 @@ function Install-Ps1Task {
 
     if ($Kind -eq "daily") {
         $trigger = @(
-            (New-ScheduledTaskTrigger -Daily -At "17:12"),
-            (New-ScheduledTaskTrigger -Daily -At "20:00"),
-            (New-ScheduledTaskTrigger -Daily -At "20:01"),
-            (New-ScheduledTaskTrigger -Daily -At "20:02"),
-            (New-ScheduledTaskTrigger -Daily -At "20:03"),
-            (New-ScheduledTaskTrigger -Daily -At "20:04")
+            (New-ScheduledTaskTrigger -Daily -At "16:55"),
+            (New-ScheduledTaskTrigger -Daily -At "16:56"),
+            (New-ScheduledTaskTrigger -Daily -At "16:57"),
+            (New-ScheduledTaskTrigger -Daily -At "16:58"),
+            (New-ScheduledTaskTrigger -Daily -At "16:59")
         )
     }
     else {
@@ -112,7 +111,7 @@ Write-Host ""
 Write-Host "Done."
 Write-Host "  [1] Ensure .env has DINGTALK_WEBHOOK_URL + DINGTALK_KEYWORD=msg"
 Write-Host "  [2] Set DINGTALK_PUSH_ENABLED=false (prod backend should not double-send)"
-Write-Host "  [3] Daily 17:12 + 20:00~20:04 ; Weekly every 1min (week_end+15min), WindowStyle Hidden"
+Write-Host "  [3] Daily 16:55 + 16:56~16:59 ; Weekly every 1min (week_end+15min), WindowStyle Hidden"
 Write-Host "  [4] KeepAwake running; optional: .\configure_wecom_push_power.ps1"
 Write-Host "  [5] Disable TestAI-WeCom-* on DEV machine to avoid double push"
 Write-Host "  [6] After change: re-run .\install_wecom_tasks.cmd on PROD to re-register tasks"
